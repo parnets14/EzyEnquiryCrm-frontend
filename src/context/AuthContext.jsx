@@ -1,0 +1,109 @@
+/**
+ * AuthContext — Real JWT authentication
+ * Wraps the entire app; provides user, token, login, logout
+ */
+import { createContext, useContext, useState, useEffect, useCallback } from 'react'
+import { authApi as authService } from '../api/authApi'
+
+const AuthContext = createContext(null)
+
+export function AuthProvider({ children }) {
+  const [user,    setUser]    = useState(() => {
+    try {
+      const stored = localStorage.getItem('user')
+      return stored ? JSON.parse(stored) : null
+    } catch { return null }
+  })
+  const [token,   setToken]   = useState(() => localStorage.getItem('token') || null)
+  const [loading, setLoading] = useState(false)
+
+  // ── On mount: verify token with /auth/me ──────────────────
+  useEffect(() => {
+    if (!token) return
+    authService.me()
+      .then(res => {
+        // Backend returns { success: true, data: { ...user } }
+        const u = res?.data || res
+        setUser(u)
+        localStorage.setItem('user', JSON.stringify(u))
+      })
+      .catch(() => {
+        // Token invalid/expired/wrong-secret — clear and stay on login
+        setToken(null)
+        setUser(null)
+        localStorage.removeItem('token')
+        localStorage.removeItem('user')
+        localStorage.removeItem('isLoggedIn')
+      })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** Login with email + password */
+  const login = useCallback(async (email, password) => {
+    setLoading(true)
+    try {
+      const res = await authService.login(email, password)
+      // Backend: { success: true, data: { token, user }, message }
+      const payload = res?.data || res
+      const tok = payload?.token
+      const u   = payload?.user
+      if (!tok) throw new Error('No token in response')
+      localStorage.setItem('token', tok)
+      localStorage.setItem('user', JSON.stringify(u))
+      localStorage.setItem('isLoggedIn', 'true')
+      setToken(tok)
+      setUser(u)
+      return { success: true }
+    } catch (err) {
+      const msg = err.response?.data?.message || err.message || 'Login failed. Please try again.'
+      return { success: false, message: msg }
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  /** OTP login */
+  const loginWithOtp = useCallback(async (target, otp) => {
+    setLoading(true)
+    try {
+      const res = await authService.verifyOtp(target, otp, 'login')
+      const payload = res?.data || res
+      const tok = payload?.token
+      const u   = payload?.user
+      if (!tok) throw new Error('No token in response')
+      localStorage.setItem('token', tok)
+      localStorage.setItem('user', JSON.stringify(u))
+      localStorage.setItem('isLoggedIn', 'true')
+      setToken(tok)
+      setUser(u)
+      return { success: true }
+    } catch (err) {
+      const msg = err.response?.data?.message || err.message || 'OTP verification failed.'
+      return { success: false, message: msg }
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  /** Logout */
+  const logout = useCallback(async () => {
+    await authService.logout()
+    setToken(null)
+    setUser(null)
+  }, [])
+
+  const isLoggedIn = Boolean(token && user)
+
+  return (
+    <AuthContext.Provider value={{ user, token, loading, isLoggedIn, login, loginWithOtp, logout }}>
+      {children}
+    </AuthContext.Provider>
+  )
+}
+
+export function useAuth() {
+  const ctx = useContext(AuthContext)
+  if (!ctx) throw new Error('useAuth must be used within <AuthProvider>')
+  return ctx
+}
+
+export default AuthContext
