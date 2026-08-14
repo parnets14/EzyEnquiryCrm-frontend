@@ -19,10 +19,10 @@ const quotationApi = {
 // ── Constants ─────────────────────────────────────────────────
 const STATUS_META = {
   draft:     { label: 'Draft',     bg: '#F1F5F9', color: '#64748B' },
-  sent:      { label: 'Sent',      bg: '#EFF6FF', color: '#2563EB' },
-  accepted:  { label: 'Accepted',  bg: '#ECFDF5', color: '#059669' },
-  converted: { label: 'Converted', bg: '#F3F4F6', color: '#6B7280' },
   expired:   { label: 'Expired',   bg: '#FFFBEB', color: '#D97706' },
+  converted: { label: 'Converted', bg: '#EFF6FF', color: '#0284C7' },
+  sent:      { label: 'Sent',      bg: '#F0F9FF', color: '#2563EB' },
+  accepted:  { label: 'Accepted',  bg: '#ECFDF5', color: '#059669' },
   cancelled: { label: 'Cancelled', bg: '#FEF2F2', color: '#DC2626' },
 }
 
@@ -418,11 +418,14 @@ function EnquirySelect({ value, onChange, enquiries }) {
   const ref             = useRef()
 
   const list     = enquiries || []
-  const filtered = list.filter(e =>
-    (e.enq_code       || '').toLowerCase().includes(q.toLowerCase()) ||
-    (e.retailer_name  || '').toLowerCase().includes(q.toLowerCase()) ||
-    (e.retailer_mobile|| '').includes(q)
-  ).slice(0, 50)
+  const filtered = list
+    .filter(e => e.retailer_mobile && e.retailer_email)
+    .filter(e =>
+      (e.enq_code        || '').toLowerCase().includes(q.toLowerCase()) ||
+      (e.retailer_name   || '').toLowerCase().includes(q.toLowerCase()) ||
+      (e.retailer_mobile || '').includes(q)
+    )
+    .slice(0, 50)
   const selected = list.find(e => (e._id || e.id) === value)
 
   useEffect(() => {
@@ -506,11 +509,16 @@ function EnquirySelect({ value, onChange, enquiries }) {
                     {e.retailer_name}
                   </div>
                   {/* Line 3: Phone + product */}
-                  <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:1 }}>
-                    {[
-                      e.retailer_mobile,
-                      e.product_name ? `${e.product_name}${e.qty ? ` (${e.qty} ${e.unit||''})` : ''}` : null,
-                    ].filter(Boolean).join('  ·  ')}
+                  <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:1, display:'flex', flexWrap:'wrap', gap:'0 10px' }}>
+                    {e.retailer_mobile && (
+                      <span>📱 {e.retailer_mobile}</span>
+                    )}
+                    {e.retailer_email && (
+                      <span>✉️ {e.retailer_email}</span>
+                    )}
+                    {e.product_name && (
+                      <span>📦 {e.product_name}{e.qty ? ` (${e.qty} ${e.unit||''})` : ''}</span>
+                    )}
                   </div>
                 </div>
               ))
@@ -663,6 +671,14 @@ function QuotationModal({ editData, products, enquiries, onSave, onClose, saving
         <div style={{ padding:'22px 24px' }}>
 
           {/* ═══ SECTION 1: Quotation Info ═══ */}
+          <div style={{
+            background: 'linear-gradient(135deg, #FFF9F5 0%, #FFF3EC 100%)',
+            border: '1.5px solid #FFD9BE',
+            borderRadius: 12,
+            padding: '16px 18px',
+            marginBottom: 18,
+            boxShadow: '0 2px 8px rgba(253,92,2,0.07)',
+          }}>
           <div style={{ fontSize:11, fontWeight:800, textTransform:'uppercase', letterSpacing:'.07em',
             color:'#FD5C02', marginBottom:14, paddingBottom:6, borderBottom:'2px solid #FFF3EC' }}>
             Quotation Information
@@ -708,9 +724,21 @@ function QuotationModal({ editData, products, enquiries, onSave, onClose, saving
                 onChange={e => set('valid_until', e.target.value)} />
             </div>
           </div>
+          </div>
 
           {/* ═══ SECTION 2: Customer Details ═══ */}
-          
+          <div style={{
+            background: 'linear-gradient(135deg, #F0F7FF 0%, #EFF6FF 100%)',
+            border: '1.5px solid #BFDBFE',
+            borderRadius: 12,
+            padding: '16px 18px',
+            marginBottom: 18,
+            boxShadow: '0 2px 8px rgba(37,99,235,0.07)',
+          }}>
+          <div style={{ fontSize:11, fontWeight:800, textTransform:'uppercase', letterSpacing:'.07em',
+            color:'#2563EB', marginBottom:14, paddingBottom:6, borderBottom:'2px solid #EFF6FF' }}>
+            Customer Details
+          </div>
 
           {/* Row: Customer | Mobile | Email */}
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:14, marginBottom:22 }}>
@@ -750,8 +778,17 @@ function QuotationModal({ editData, products, enquiries, onSave, onClose, saving
               )}
             </div>
           </div>
+          </div>
 
           {/* ═══ SECTION 3: Products ═══ */}
+          <div style={{
+            background: 'var(--surface)',
+            border: '1.5px solid var(--border)',
+            borderRadius: 12,
+            padding: '16px 18px',
+            marginBottom: 18,
+            boxShadow: 'var(--shadow)',
+          }}>
           <div style={{ fontSize:11, fontWeight:800, textTransform:'uppercase', letterSpacing:'.07em',
             color:'#FD5C02', marginBottom:10, paddingBottom:6, borderBottom:'2px solid #FFF3EC' }}>
             Products / Items
@@ -797,9 +834,21 @@ function QuotationModal({ editData, products, enquiries, onSave, onClose, saving
               </>
             })()}
           </div>
+          </div>
 
           {/* Remarks + Terms */}
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14, marginTop:16 }}>
+          <div style={{
+            background: '#FAFAFA',
+            border: '1.5px solid #E2E8F0',
+            borderRadius: 12,
+            padding: '16px 18px',
+            marginBottom: 18,
+          }}>
+          <div style={{ fontSize:11, fontWeight:800, textTransform:'uppercase', letterSpacing:'.07em',
+            color:'#64748B', marginBottom:14, paddingBottom:6, borderBottom:'2px solid #F1F5F9' }}>
+            Remarks &amp; Terms
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14, marginTop:0 }}>
             <div>
               <label className="form-label">Remarks</label>
               <textarea {...fc()} rows={3} value={form.remarks}
@@ -809,6 +858,7 @@ function QuotationModal({ editData, products, enquiries, onSave, onClose, saving
               <label className="form-label">Terms &amp; Conditions</label>
               <textarea {...fc()} rows={3} value={form.terms} onChange={e => set('terms', e.target.value)} />
             </div>
+          </div>
           </div>
         </div>
 
@@ -975,48 +1025,113 @@ function ViewModal({ q, onClose, onPrint }) {
                       </div>
                     </div>
 
-                    <div style={{ padding:'12px 16px' }}>
-                      {/* Product spec grid */}
-                      <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:8, marginBottom:10 }}>
+                    <div style={{ padding:'14px 16px' }}>
+
+                      {/* ── ROW 1: Product Identification (7 cols) ── */}
+                      <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:8, marginBottom:8 }}>
                         {[
-                          ['Brand',      it.brand_name],
-                          ['Category',   it.category_name],
-                          ['Sub-Cat',    it.sub_category_name],
-                          ['Size',       it.size],
-                          ['Finish',     it.finish],
-                          ['Tile Type',  it.tile_type],
-                          ['Grade',      it.grade],
+                          ['Code',         it.product_code],
+                          ['Brand',        it.brand_name],
+                          ['Category',     it.category_name],
+                          ['Sub-Category', it.sub_category_name],
+                          ['Size',         it.size],
+                          ['Finish',       it.finish],
+                          ['Tile Type',    it.tile_type],
                         ].map(([lbl, val]) => (
                           <div key={lbl}>
                             <div style={{ fontSize:9, fontWeight:700, textTransform:'uppercase',
-                              letterSpacing:'.05em', color:'var(--text-muted)', marginBottom:2 }}>{lbl}</div>
-                            <div style={{ fontSize:11, fontWeight:600, color: val?'var(--text)':'var(--text-muted)',
-                              background:'var(--bg)', border:'1px solid var(--border)',
-                              borderRadius:5, padding:'4px 7px', minHeight:24 }}>
-                              {val || '—'}
-                            </div>
+                              letterSpacing:'.05em', color:'var(--text-muted)', marginBottom:3 }}>{lbl}</div>
+                            <div style={{
+                              fontSize:11, fontWeight: val ? 600 : 400, fontStyle: val ? 'normal' : 'italic',
+                              color: val ? 'var(--text)' : 'var(--text-muted)',
+                              background: val ? '#F8FAFC' : 'var(--bg)',
+                              border:'1px solid var(--border)', borderRadius:6,
+                              padding:'5px 8px', minHeight:28, display:'flex', alignItems:'center',
+                            }}>{val || '—'}</div>
                           </div>
                         ))}
                       </div>
 
-                      {/* Pricing grid */}
-                      <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:8,
-                        background:'var(--bg)', borderRadius:8, padding:'10px 12px',
-                        border:'1px solid var(--border)' }}>
+                      {/* ── ROW 2: More Product Details (7 cols) ── */}
+                      <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:8, marginBottom:12 }}>
                         {[
-                          ['Qty',       `${it.qty || 0} ${it.unit || ''}`, '#2563EB'],
-                          ['Rate',      fmt(it.rate),                       'var(--text)'],
-                          ['Disc %',    `${it.disc||0}%`,                   '#D97706'],
-                          ['GST %',     `${it.gst_percent||0}%`,            '#7C3AED'],
-                          ['Total',     fmt(total),                         '#FD5C02'],
-                        ].map(([lbl, val, color]) => (
-                          <div key={lbl} style={{ textAlign:'center' }}>
+                          ['Grade',             it.grade],
+                          ['Color',             it.color],
+                          ['HSN Code',          it.hsn_code],
+                          ['Unit / GST',        it.unit ? `${it.unit} / ${it.gst_percent || 0}%` : ''],
+                          ['MRP',               it.mrp           ? `₹${parseFloat(it.mrp).toFixed(2)}`            : ''],
+                          ['Retail Price',      it.retail_price  ? `₹${parseFloat(it.retail_price).toFixed(2)}`   : ''],
+                          ['Dealer Price',      it.dealer_price  ? `₹${parseFloat(it.dealer_price).toFixed(2)}`   : ''],
+                        ].map(([lbl, val]) => (
+                          <div key={lbl}>
                             <div style={{ fontSize:9, fontWeight:700, textTransform:'uppercase',
                               letterSpacing:'.05em', color:'var(--text-muted)', marginBottom:3 }}>{lbl}</div>
-                            <div style={{ fontSize:13, fontWeight:800, color }}>{val}</div>
+                            <div style={{
+                              fontSize:11,
+                              fontWeight: val ? 700 : 400,
+                              fontStyle: val ? 'normal' : 'italic',
+                              color: (lbl==='MRP'||lbl==='Retail Price'||lbl==='Dealer Price') && val
+                                ? '#059669'
+                                : val ? 'var(--text)' : 'var(--text-muted)',
+                              background: val ? '#F0FDF4' : 'var(--bg)',
+                              border: `1px solid ${(lbl==='MRP'||lbl==='Retail Price'||lbl==='Dealer Price') && val ? '#A7F3D0' : 'var(--border)'}`,
+                              borderRadius:6, padding:'5px 8px', minHeight:28, display:'flex', alignItems:'center',
+                            }}>{val || '—'}</div>
                           </div>
                         ))}
                       </div>
+
+                      {/* ── ROW 3: Pcs/Box & Sqft/Box ── */}
+                      {(it.pcs_per_box || it.sqft_per_box || it.purchase_price) && (
+                        <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:8, marginBottom:12 }}>
+                          {[
+                            ['Purchase Price',  it.purchase_price ? `₹${parseFloat(it.purchase_price).toFixed(2)}` : ''],
+                            ['Pcs / Box',       it.pcs_per_box ? String(it.pcs_per_box) : ''],
+                            ['Sqft / Box',      it.sqft_per_box ? String(it.sqft_per_box) : ''],
+                          ].map(([lbl, val]) => (
+                            <div key={lbl}>
+                              <div style={{ fontSize:9, fontWeight:700, textTransform:'uppercase',
+                                letterSpacing:'.05em', color:'var(--text-muted)', marginBottom:3 }}>{lbl}</div>
+                              <div style={{
+                                fontSize:11, fontWeight: val ? 700 : 400, fontStyle: val ? 'normal' : 'italic',
+                                color: lbl==='Purchase Price' && val ? '#7C3AED' : val ? 'var(--text)' : 'var(--text-muted)',
+                                background: lbl==='Purchase Price' && val ? '#F5F3FF' : val ? '#F8FAFC' : 'var(--bg)',
+                                border:`1px solid ${lbl==='Purchase Price' && val ? '#DDD6FE' : 'var(--border)'}`,
+                                borderRadius:6, padding:'5px 8px', minHeight:28, display:'flex', alignItems:'center',
+                              }}>{val || '—'}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* ── ROW 4: Pricing Calculation Summary ── */}
+                      <div style={{
+                        display:'grid', gridTemplateColumns:'repeat(6,1fr)', gap:8,
+                        background:'linear-gradient(135deg, #FFF9F5 0%, #FFF3EC 100%)',
+                        borderRadius:10, padding:'12px 14px',
+                        border:'1.5px solid #FFD9BE',
+                      }}>
+                        {[
+                          ['Qty',       `${it.qty || 0} ${it.unit || ''}`,            '#2563EB'],
+                          ['Rate',      fmt(it.rate),                                   '#374151'],
+                          ['Amount',    fmt(amount),                                    '#374151'],
+                          ['Discount',  `${it.disc||0}% = ${fmt(disc)}`,               '#D97706'],
+                          ['GST',       `${it.gst_percent||0}% = ${fmt(gst)}`,         '#7C3AED'],
+                          ['Row Total', fmt(total),                                     '#FD5C02'],
+                        ].map(([lbl, val, color]) => (
+                          <div key={lbl} style={{ textAlign:'center' }}>
+                            <div style={{ fontSize:9, fontWeight:700, textTransform:'uppercase',
+                              letterSpacing:'.05em', color:'var(--text-muted)', marginBottom:4 }}>{lbl}</div>
+                            <div style={{
+                              fontSize: lbl==='Row Total' ? 15 : 12,
+                              fontWeight: lbl==='Row Total' ? 900 : 700,
+                              color,
+                              padding: lbl==='Row Total' ? '4px 0' : 0,
+                            }}>{val}</div>
+                          </div>
+                        ))}
+                      </div>
+
                     </div>
                   </div>
                 )
@@ -1079,133 +1194,273 @@ function ViewModal({ q, onClose, onPrint }) {
 // ── Print helper ───────────────────────────────────────────────
 function printQuotation(q) {
   if (!q) return
+
   const subtotal = (q.items||[]).reduce((s,r) => s+(parseFloat(r.total)||0), 0)
-  const gstAmt   = (q.items||[]).reduce((s,r) => s+((parseFloat(r.total)||0)*(parseFloat(r.gst_percent)||0)/100), 0)
-  const grand    = parseFloat(q.grand_total) || subtotal + gstAmt + (parseFloat(q.freight_charges)||0) + (parseFloat(q.other_charges)||0)
+  const gstAmt   = (q.items||[]).reduce((s,r) => {
+    const base = parseFloat(r.total)||0
+    const gst  = parseFloat(r.gst_percent)||0
+    return s + base * gst / 100
+  }, 0)
+  const freight  = parseFloat(q.freight_charges)||0
+  const other    = parseFloat(q.other_charges)||0
+  const grand    = parseFloat(q.grand_total) || (subtotal + gstAmt + freight + other)
 
-  const rows = (q.items||[]).map((it,i) => `
-    <tr>
-      <td style="color:#64748B;font-size:12px">${i+1}</td>
-      <td>
-        <div style="font-weight:700;font-size:13px">${it.product_name||'—'}</div>
-        ${it.product_code ? `<div style="font-size:10px;font-family:monospace;color:#FD5C02;font-weight:700;margin-top:1px">${it.product_code}</div>` : ''}
-      </td>
-      <td>
-        <div style="font-size:11px;line-height:1.7">
-          ${it.brand_name        ? `<div><span style="color:#64748B">Brand: </span><b>${it.brand_name}</b></div>` : ''}
-          ${it.category_name     ? `<div><span style="color:#64748B">Category: </span><b>${it.category_name}</b></div>` : ''}
-          ${it.sub_category_name ? `<div><span style="color:#64748B">Sub-Cat: </span><b>${it.sub_category_name}</b></div>` : ''}
-          ${it.size              ? `<div><span style="color:#64748B">Size: </span><b>${it.size}</b></div>` : ''}
-          ${it.finish            ? `<div><span style="color:#64748B">Finish: </span><b>${it.finish}</b></div>` : ''}
-          ${it.color             ? `<div><span style="color:#64748B">Color: </span><b>${it.color}</b></div>` : ''}
-          ${it.hsn_code          ? `<div><span style="color:#64748B">HSN: </span><b style="color:#2563EB">${it.hsn_code}</b></div>` : ''}
+  const fmtINR = (n) => '₹' + (parseFloat(n)||0).toLocaleString('en-IN', { minimumFractionDigits:2, maximumFractionDigits:2 })
+  const fmtD   = (d) => d ? new Date(d).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}) : '—'
+
+  // build one card per product
+  const productCards = (q.items||[]).map((it, i) => {
+    const amt     = (parseFloat(it.qty)||0) * (parseFloat(it.rate)||0)
+    const discAmt = amt * (parseFloat(it.disc)||0) / 100
+    const taxable = amt - discAmt
+    const gst     = taxable * (parseFloat(it.gst_percent)||0) / 100
+    const rowTotal = taxable + gst
+
+    // spec chips row builder
+    const chip = (label, val, green) => val
+      ? `<div class="chip ${green?'chip-green':''}"><span class="chip-lbl">${label}</span><span class="chip-val">${val}</span></div>`
+      : ''
+
+    return `
+    <div class="product-card">
+      <!-- card header -->
+      <div class="pc-header">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span class="pc-num">${i+1}</span>
+          <div>
+            <div class="pc-name">${it.product_name||'—'}</div>
+            ${it.product_code ? `<div class="pc-code">${it.product_code}</div>` : ''}
+          </div>
         </div>
-      </td>
-      <td>${it.shade||'—'}</td>
-      <td>${it.batch||'—'}</td>
-      <td style="font-weight:700">${it.qty}</td>
-      <td>${it.unit}</td>
-      <td>₹${parseFloat(it.rate||0).toFixed(2)}</td>
-      <td>${it.disc||0}%</td>
-      <td>${it.gst_percent||0}%</td>
-      <td style="text-align:right;font-weight:700;color:#FD5C02">₹${parseFloat(it.total||0).toFixed(2)}</td>
-    </tr>`).join('')
+        <div style="text-align:right">
+          <div class="pc-total-lbl">Row Total</div>
+          <div class="pc-total-val">${fmtINR(rowTotal)}</div>
+        </div>
+      </div>
 
-  const dealerLine  = q.enquiry_no ? `Enquiry: ${q.enquiry_no}` : ''
-  const displayName = q.customer_name || '—'
+      <!-- spec chips row 1 -->
+      <div class="chips-row">
+        ${chip('Brand', it.brand_name)}
+        ${chip('Category', it.category_name)}
+        ${chip('Sub-Category', it.sub_category_name)}
+        ${chip('Size', it.size)}
+        ${chip('Finish', it.finish)}
+        ${chip('Tile Type', it.tile_type)}
+        ${chip('Grade', it.grade)}
+        ${chip('Color', it.color)}
+        ${chip('HSN Code', it.hsn_code)}
+        ${chip('Unit', it.unit)}
+        ${chip('MRP', it.mrp ? fmtINR(it.mrp) : '', true)}
+        ${chip('Retail Price', it.retail_price ? fmtINR(it.retail_price) : '', true)}
+        ${chip('Dealer Price', it.dealer_price ? fmtINR(it.dealer_price) : '', true)}
+        ${chip('Purchase Price', it.purchase_price ? fmtINR(it.purchase_price) : '')}
+        ${chip('Pcs/Box', it.pcs_per_box ? String(it.pcs_per_box) : '')}
+        ${chip('Sqft/Box', it.sqft_per_box ? String(it.sqft_per_box) : '')}
+      </div>
 
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/>
-  <title>Quotation – ${q.quotation_no||''}</title>
-  <style>
-    *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:'Segoe UI',Arial,sans-serif;font-size:13px;color:#01152D;padding:32px 40px}
-    .header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #FD5C02;padding-bottom:14px;margin-bottom:20px}
-    .logo-area h1{font-size:24px;font-weight:900;color:#01152D;letter-spacing:-0.5px}
-    .logo-area .tagline{font-size:11px;color:#64748B;margin-top:2px}
-    .qt-meta{text-align:right}
-    .qt-no{font-size:15px;font-family:monospace;color:#FD5C02;font-weight:800;background:#FFF3EC;padding:4px 14px;border-radius:6px;display:inline-block}
-    .status-badge{display:inline-block;padding:3px 12px;border-radius:20px;font-size:11px;font-weight:700;background:#EFF6FF;color:#2563EB;margin-top:6px}
-    .print-date{font-size:11px;color:#94A3B8;margin-top:4px}
-    .info-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:22px}
-    .info-box{background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:10px 14px}
-    .info-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#64748B;margin-bottom:3px}
-    .info-value{font-size:13px;font-weight:600;color:#01152D}
-    .info-sub{font-size:11px;color:#64748B;margin-top:1px}
-    .section-title{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:#FD5C02;border-bottom:2px solid #FD5C0222;padding-bottom:6px;margin-bottom:10px}
-    table{width:100%;border-collapse:collapse;margin-bottom:8px}
-    th{background:#F8FAFC;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#64748B;padding:9px 10px;border-bottom:2px solid #E2E8F0;text-align:left;white-space:nowrap}
-    td{padding:9px 10px;border-bottom:1px solid #F1F5F9;font-size:12.5px;color:#01152D;vertical-align:top}
-    tr:last-child td{border-bottom:none}
-    .td-right{text-align:right}
-    .product-name{font-weight:600;font-size:13px}
-    .product-sub{font-size:11px;color:#64748B;margin-top:1px}
-    .totals-wrap{display:flex;justify-content:flex-end;margin-top:12px;margin-bottom:20px}
-    .totals{width:300px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:14px 18px}
-    .t-row{display:flex;justify-content:space-between;font-size:12px;color:#64748B;margin-bottom:7px}
-    .t-row span:last-child{font-weight:600;color:#01152D}
-    .grand{display:flex;justify-content:space-between;border-top:2px solid #E2E8F0;padding-top:10px;margin-top:6px}
-    .grand span:first-child{font-weight:700;font-size:14px}
-    .grand span:last-child{font-weight:900;font-size:17px;color:#FD5C02}
-    .note-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:20px}
-    .note-box{background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:12px 14px}
-    .footer-bar{margin-top:28px;border-top:1px solid #E2E8F0;padding-top:10px;display:flex;justify-content:space-between;font-size:11px;color:#94A3B8}
-    @media print{body{padding:20px}button{display:none}}
-  </style></head><body>
+      <!-- pricing summary bar -->
+      <div class="pricing-bar">
+        <div class="pb-cell">
+          <div class="pb-lbl">Qty</div>
+          <div class="pb-val" style="color:#2563EB">${it.qty||0} ${it.unit||''}</div>
+        </div>
+        <div class="pb-sep"></div>
+        <div class="pb-cell">
+          <div class="pb-lbl">Rate</div>
+          <div class="pb-val">${fmtINR(it.rate)}</div>
+        </div>
+        <div class="pb-sep"></div>
+        <div class="pb-cell">
+          <div class="pb-lbl">Amount</div>
+          <div class="pb-val">${fmtINR(amt)}</div>
+        </div>
+        <div class="pb-sep"></div>
+        <div class="pb-cell">
+          <div class="pb-lbl">Discount</div>
+          <div class="pb-val" style="color:#D97706">${it.disc||0}% = ${fmtINR(discAmt)}</div>
+        </div>
+        <div class="pb-sep"></div>
+        <div class="pb-cell">
+          <div class="pb-lbl">GST</div>
+          <div class="pb-val" style="color:#7C3AED">${it.gst_percent||0}% = ${fmtINR(gst)}</div>
+        </div>
+        <div class="pb-sep"></div>
+        <div class="pb-cell pb-total">
+          <div class="pb-lbl">Row Total</div>
+          <div class="pb-val" style="color:#FD5C02;font-size:15px;font-weight:900">${fmtINR(rowTotal)}</div>
+        </div>
+      </div>
+    </div>`
+  }).join('')
 
-  <div class="header">
-    <div class="logo-area">
-      <h1>Quotation</h1>
-      <div class="tagline">EzyEnquiry ERP</div>
-    </div>
-    <div class="qt-meta">
-      <div class="qt-no">${q.quotation_no||'QT-PREVIEW'}</div>
-      <div class="status-badge">${(q.status||'DRAFT').toUpperCase()}</div>
-      <div class="print-date">Printed: ${new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})}</div>
-    </div>
+  const statusColors = {
+    draft:'#64748B', sent:'#2563EB', accepted:'#059669',
+    converted:'#6B7280', expired:'#D97706', cancelled:'#DC2626',
+  }
+  const statusBg = {
+    draft:'#F1F5F9', sent:'#EFF6FF', accepted:'#ECFDF5',
+    converted:'#F3F4F6', expired:'#FFFBEB', cancelled:'#FEF2F2',
+  }
+  const st  = (q.status||'draft').toLowerCase()
+  const stC = statusColors[st] || '#64748B'
+  const stB = statusBg[st]     || '#F1F5F9'
+  const stL = st.charAt(0).toUpperCase() + st.slice(1)
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Quotation – ${q.quotation_no||'Preview'}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',system-ui,Arial,sans-serif;font-size:13px;color:#01152D;background:#fff;padding:36px 44px}
+  /* ── Header ── */
+  .doc-header{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:16px;margin-bottom:22px;border-bottom:3px solid #FD5C02}
+  .brand-name{font-size:26px;font-weight:900;color:#01152D;letter-spacing:-0.5px}
+  .brand-tag{font-size:11px;color:#94A3B8;margin-top:3px}
+  .qt-badge{font-size:16px;font-family:monospace;font-weight:900;color:#FD5C02;background:#FFF3EC;padding:5px 16px;border-radius:8px;display:inline-block;border:1.5px solid #FFD9BE}
+  .status-pill{display:inline-block;padding:3px 12px;border-radius:20px;font-size:11px;font-weight:700;margin-top:7px;background:${stB};color:${stC}}
+  .print-dt{font-size:11px;color:#94A3B8;margin-top:5px}
+  /* ── Info grid ── */
+  .info-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:22px}
+  .info-box{background:#F8FAFC;border:1px solid #E2E8F0;border-radius:9px;padding:11px 14px}
+  .info-lbl{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:#94A3B8;margin-bottom:4px}
+  .info-val{font-size:13px;font-weight:700;color:#01152D;word-break:break-word}
+  .info-sub{font-size:11px;color:#64748B;margin-top:2px}
+  /* ── Section title ── */
+  .sec-title{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#FD5C02;padding-bottom:7px;margin-bottom:14px;border-bottom:2px solid #FFF3EC}
+  /* ── Product card ── */
+  .product-card{border:1.5px solid #E2E8F0;border-radius:10px;overflow:hidden;margin-bottom:14px;page-break-inside:avoid}
+  .pc-header{display:flex;justify-content:space-between;align-items:center;padding:11px 16px;background:linear-gradient(135deg,#FFF9F5,#FFF3EC);border-bottom:1px solid #FFD9BE}
+  .pc-num{width:26px;height:26px;border-radius:50%;background:#FD5C02;color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;flex-shrink:0}
+  .pc-name{font-weight:800;font-size:14px;color:#01152D}
+  .pc-code{font-size:10px;font-family:monospace;font-weight:700;color:#FD5C02;margin-top:2px}
+  .pc-total-lbl{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#94A3B8;margin-bottom:2px}
+  .pc-total-val{font-size:19px;font-weight:900;color:#FD5C02}
+  /* ── Chips ── */
+  .chips-row{display:flex;flex-wrap:wrap;gap:6px;padding:10px 14px;background:#fff;border-bottom:1px solid #F1F5F9}
+  .chip{display:inline-flex;align-items:center;gap:4px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:5px;padding:3px 8px;font-size:11px}
+  .chip-lbl{color:#94A3B8;font-weight:600;font-size:10px}
+  .chip-val{color:#01152D;font-weight:700}
+  .chip-green{background:#F0FDF4;border-color:#A7F3D0}
+  .chip-green .chip-val{color:#059669}
+  /* ── Pricing bar ── */
+  .pricing-bar{display:flex;align-items:center;background:linear-gradient(135deg,#FFF9F5,#FFF3EC);padding:12px 16px;gap:0}
+  .pb-cell{flex:1;text-align:center;padding:0 6px}
+  .pb-lbl{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#94A3B8;margin-bottom:3px}
+  .pb-val{font-size:12px;font-weight:700;color:#374151}
+  .pb-sep{width:1px;height:30px;background:#FFD9BE;flex-shrink:0}
+  .pb-total{background:rgba(253,92,2,.07);border-radius:7px;padding:4px 10px}
+  /* ── Totals ── */
+  .totals-wrap{display:flex;justify-content:flex-end;margin:10px 0 22px}
+  .totals-box{width:320px;background:#F8FAFC;border:1.5px solid #E2E8F0;border-radius:10px;padding:16px 20px}
+  .t-row{display:flex;justify-content:space-between;font-size:12px;color:#64748B;margin-bottom:8px;align-items:center}
+  .t-row span:last-child{font-weight:600;color:#01152D}
+  .t-grand{display:flex;justify-content:space-between;align-items:center;border-top:2px solid #FD5C02;padding-top:11px;margin-top:6px}
+  .t-grand span:first-child{font-weight:800;font-size:14px;color:#01152D}
+  .t-grand span:last-child{font-weight:900;font-size:20px;color:#FD5C02}
+  /* ── Remarks / Terms ── */
+  .note-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:22px}
+  .note-box{background:#F8FAFC;border:1px solid #E2E8F0;border-radius:9px;padding:13px 16px}
+  .note-lbl{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:#94A3B8;margin-bottom:7px}
+  .note-val{font-size:12px;line-height:1.7;color:#374151}
+  /* ── Footer ── */
+  .doc-footer{display:flex;justify-content:space-between;align-items:center;border-top:1px solid #E2E8F0;padding-top:12px;margin-top:8px;font-size:11px;color:#94A3B8}
+  /* ── Print ── */
+  @media print{
+    body{padding:18px 22px;font-size:12px}
+    .product-card{page-break-inside:avoid}
+    .no-print{display:none}
+  }
+</style>
+</head>
+<body>
+
+<!-- ── Document Header ── -->
+<div class="doc-header">
+  <div>
+    <div class="brand-name">Quotation</div>
+    <div class="brand-tag">EzyEnquiry ERP · Generated Document</div>
   </div>
-
-  <div class="info-grid">
-    <div class="info-box">
-      <div class="info-label">Customer / Retailer</div>
-      <div class="info-value">${displayName}</div>
-      ${dealerLine ? `<div class="info-sub">${dealerLine}</div>` : ''}
-    </div>
-    <div class="info-box">
-      <div class="info-label">Mobile</div>
-      <div class="info-value">${q.customer_phone||'—'}</div>
-      ${q.customer_email ? `<div class="info-sub">${q.customer_email}</div>` : ''}
-    </div>
-    <div class="info-box">
-      <div class="info-label">Quotation Date</div>
-      <div class="info-value">${q.quotation_date?new Date(q.quotation_date).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}):'—'}</div>
-      <div class="info-sub">Valid until: ${q.valid_until?new Date(q.valid_until).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}):'—'}</div>
-    </div>
+  <div style="text-align:right">
+    <div class="qt-badge">${q.quotation_no||'QT-PREVIEW'}</div>
+    <div><span class="status-pill">${stL}</span></div>
+    <div class="print-dt">Printed: ${fmtD(new Date())}</div>
   </div>
-  <table><thead><tr>
-    <th>#</th><th>Product</th><th>Details</th><th>Shade</th><th>Batch</th>
-    <th>Qty</th><th>Unit</th><th>Rate</th><th>Disc%</th><th>GST%</th>
-    <th style="text-align:right">Total</th>
-  </tr></thead><tbody>${rows}</tbody></table>
-  <div class="totals">
-    <div class="t-row"><span>Subtotal</span><span>₹${subtotal.toFixed(2)}</span></div>
-    <div class="t-row"><span>GST</span><span>₹${gstAmt.toFixed(2)}</span></div>
-    <div class="t-row"><span>Freight</span><span>₹${parseFloat(q.freight_charges||0).toFixed(2)}</span></div>
-    <div class="t-row"><span>Other</span><span>₹${parseFloat(q.other_charges||0).toFixed(2)}</span></div>
-    <div class="grand"><span>Grand Total</span><span>₹${grand.toFixed(2)}</span></div>
-  </div>
-  ${q.terms?`<div class="section"><div class="section-title">Terms &amp; Conditions</div><p style="font-size:12px">${q.terms}</p></div>`:''}
-  ${q.remarks?`<div class="section"><div class="section-title">Remarks</div><p style="font-size:12px">${q.remarks}</p></div>`:''}
-  <script>window.onload=()=>window.print()<\/script>
-  </body></html>`
+</div>
 
-  const blob = new Blob([html], { type: 'text/html' })
-  const url  = URL.createObjectURL(blob)
-  const a    = document.createElement('a')
-  a.href = url
-  a.download = `Quotation_${q.quotation_no||'draft'}.html`
-  document.body.appendChild(a); a.click()
-  document.body.removeChild(a)
-  setTimeout(() => URL.revokeObjectURL(url), 5000)
+<!-- ── Info Cards ── -->
+<div class="info-grid">
+  <div class="info-box">
+    <div class="info-lbl">Customer / Retailer</div>
+    <div class="info-val">${q.customer_name||'—'}</div>
+    ${q.enquiry_no ? `<div class="info-sub">Enquiry: ${q.enquiry_no}</div>` : ''}
+  </div>
+  <div class="info-box">
+    <div class="info-lbl">Mobile</div>
+    <div class="info-val">${q.customer_phone||'—'}</div>
+    ${q.customer_email ? `<div class="info-sub">${q.customer_email}</div>` : ''}
+  </div>
+  <div class="info-box">
+    <div class="info-lbl">Quotation Date</div>
+    <div class="info-val">${fmtD(q.quotation_date)}</div>
+    <div class="info-sub">Valid until: ${fmtD(q.valid_until)}</div>
+  </div>
+  <div class="info-box">
+    <div class="info-lbl">Quotation #</div>
+    <div class="info-val" style="font-family:monospace;color:#FD5C02">${q.quotation_no||'—'}</div>
+    <div class="info-sub">Status: ${stL}</div>
+  </div>
+</div>
+
+<!-- ── Products Section ── -->
+<div class="sec-title">Products / Items (${(q.items||[]).length})</div>
+${productCards}
+
+<!-- ── Totals ── -->
+<div class="totals-wrap">
+  <div class="totals-box">
+    <div class="t-row"><span>Subtotal</span><span>${fmtINR(subtotal)}</span></div>
+    <div class="t-row"><span style="color:#7C3AED">GST Amount</span><span style="color:#7C3AED">${fmtINR(gstAmt)}</span></div>
+    ${freight ? `<div class="t-row"><span>Freight Charges</span><span>${fmtINR(freight)}</span></div>` : ''}
+    ${other   ? `<div class="t-row"><span>Other Charges</span><span>${fmtINR(other)}</span></div>` : ''}
+    <div class="t-grand"><span>Grand Total</span><span>${fmtINR(grand)}</span></div>
+  </div>
+</div>
+
+<!-- ── Remarks + Terms ── -->
+${(q.remarks || q.terms) ? `
+<div class="note-grid">
+  ${q.remarks ? `<div class="note-box"><div class="note-lbl">Remarks</div><div class="note-val">${q.remarks}</div></div>` : ''}
+  ${q.terms   ? `<div class="note-box"><div class="note-lbl">Terms &amp; Conditions</div><div class="note-val">${q.terms}</div></div>` : ''}
+</div>` : ''}
+
+<!-- ── Footer ── -->
+<div class="doc-footer">
+  <span>EzyEnquiry ERP · Quotation ${q.quotation_no||''}</span>
+  <span>This is a computer-generated document.</span>
+</div>
+
+<script>window.onload = () => window.print()<\/script>
+</body>
+</html>`
+
+  const win = window.open('', '_blank', 'width=1000,height=750')
+  if (win) {
+    win.document.write(html)
+    win.document.close()
+  } else {
+    // fallback: download as HTML file
+    const blob = new Blob([html], { type: 'text/html' })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href = url
+    a.download = `Quotation_${q.quotation_no||'draft'}.html`
+    document.body.appendChild(a); a.click()
+    document.body.removeChild(a)
+    setTimeout(() => URL.revokeObjectURL(url), 5000)
+  }
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1584,29 +1839,38 @@ export default function QuotationManager({ products = [], customers = [], enquir
 
                       {/* Status */}
                       <td style={{ textAlign:'center' }}>
-                        <span style={{ padding:'3px 9px', borderRadius:20, fontSize:11, fontWeight:700,
-                          background:sm.bg, color:sm.color, whiteSpace:'nowrap', display:'inline-block' }}>
+                        <span style={{
+                          padding:'3px 10px', borderRadius:20, fontSize:11, fontWeight:700,
+                          background:sm.bg, color:sm.color, whiteSpace:'nowrap', display:'inline-block',
+                          border:`1px solid ${sm.color}33`,
+                        }}>
                           {sm.label}
                         </span>
                       </td>
 
                       {/* Actions */}
                       <td>
-                        <div style={{ display:'flex', gap:3, justifyContent:'center', alignItems:'center' }}>
+                        <div style={{ display:'flex', gap:3, justifyContent:'center', alignItems:'center', flexWrap:'nowrap' }}>
+
+                          {/* View */}
                           <button title="View" onClick={() => setViewData(q)}
                             style={{ display:'flex', alignItems:'center', justifyContent:'center',
                               width:28, height:28, borderRadius:6, border:'1px solid #BFDBFE',
                               background:'#EFF6FF', color:'#2563EB', cursor:'pointer' }}>
                             <Eye size={13}/>
                           </button>
+
+                          {/* Edit */}
                           <button title="Edit" onClick={() => openEdit(q)}
                             style={{ display:'flex', alignItems:'center', justifyContent:'center',
                               width:28, height:28, borderRadius:6, border:'1px solid #FED7AA',
                               background:'#FFF7ED', color:'#EA580C', cursor:'pointer' }}>
                             <Edit2 size={12}/>
                           </button>
+
+                          {/* Status transition buttons — workflow: draft → sent → accepted → converted */}
                           {q.status === 'draft' && (
-                            <button title="Mark Sent" onClick={() => handleStatusChange(q,'sent')}
+                            <button title="Mark as Sent" onClick={() => handleStatusChange(q,'sent')}
                               style={{ display:'flex', alignItems:'center', justifyContent:'center',
                                 width:28, height:28, borderRadius:6, border:'1px solid #BFDBFE',
                                 background:'#DBEAFE', color:'#1D4ED8', cursor:'pointer' }}>
@@ -1614,25 +1878,54 @@ export default function QuotationManager({ products = [], customers = [], enquir
                             </button>
                           )}
                           {q.status === 'sent' && (
-                            <button title="Mark Accepted" onClick={() => handleStatusChange(q,'accepted')}
+                            <button title="Mark as Accepted" onClick={() => handleStatusChange(q,'accepted')}
                               style={{ display:'flex', alignItems:'center', justifyContent:'center',
                                 width:28, height:28, borderRadius:6, border:'1px solid #A7F3D0',
                                 background:'#D1FAE5', color:'#059669', cursor:'pointer' }}>
                               <CheckCircle size={12}/>
                             </button>
                           )}
-                          <button title="Print" onClick={() => printQuotation(q)}
+                          {q.status === 'accepted' && (
+                            <button title="Mark as Converted" onClick={() => handleStatusChange(q,'converted')}
+                              style={{ display:'flex', alignItems:'center', justifyContent:'center',
+                                width:28, height:28, borderRadius:6, border:'1px solid #BAE6FD',
+                                background:'#E0F2FE', color:'#0284C7', cursor:'pointer' }}>
+                              <RefreshCw size={12}/>
+                            </button>
+                          )}
+                          {(q.status === 'draft' || q.status === 'sent') && (
+                            <button title="Mark as Expired" onClick={() => handleStatusChange(q,'expired')}
+                              style={{ display:'flex', alignItems:'center', justifyContent:'center',
+                                width:28, height:28, borderRadius:6, border:'1px solid #FDE68A',
+                                background:'#FFFBEB', color:'#D97706', cursor:'pointer' }}>
+                              <Calendar size={12}/>
+                            </button>
+                          )}
+                          {q.status !== 'cancelled' && q.status !== 'converted' && (
+                            <button title="Cancel Quotation" onClick={() => handleStatusChange(q,'cancelled')}
+                              style={{ display:'flex', alignItems:'center', justifyContent:'center',
+                                width:28, height:28, borderRadius:6, border:'1px solid #FECACA',
+                                background:'#FEF2F2', color:'#DC2626', cursor:'pointer' }}>
+                              <XCircle size={12}/>
+                            </button>
+                          )}
+
+                          {/* Print */}
+                          <button title="Print / Download" onClick={() => printQuotation(q)}
                             style={{ display:'flex', alignItems:'center', justifyContent:'center',
                               width:28, height:28, borderRadius:6, border:'1px solid var(--border)',
                               background:'var(--bg)', color:'var(--text-muted)', cursor:'pointer' }}>
                             <Printer size={12}/>
                           </button>
+
+                          {/* Delete */}
                           <button title="Delete" onClick={() => handleDelete(q)}
                             style={{ display:'flex', alignItems:'center', justifyContent:'center',
                               width:28, height:28, borderRadius:6, border:'1px solid #FECACA',
                               background:'#FEF2F2', color:'#DC2626', cursor:'pointer' }}>
                             <Trash2 size={12}/>
                           </button>
+
                         </div>
                       </td>
                     </tr>
