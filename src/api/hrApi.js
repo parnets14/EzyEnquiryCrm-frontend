@@ -2,7 +2,8 @@
  * hrApi.js — Employees · Attendance · Salary
  *
  * Employee:   GET|POST /employees  •  GET|PUT|DELETE /employees/:id
- * Attendance: GET /employees/attendance/list  •  POST /employees/attendance/mark
+ * Attendance: GET /employees/attendance/list  •  GET /employees/attendance/summary
+ *             POST /employees/attendance/mark
  * Salary:     GET|POST /employees/salary/records
  *             PATCH /employees/salary/records/:id/pay
  */
@@ -10,7 +11,7 @@ import api from './index'
 
 export const hrApi = {
   // ── Employees ─────────────────────────────────────────────
-  // params: { department, is_active, page, limit }
+  // params: { department, branch, is_active, page, limit }
   listEmployees: (params = {}) =>
     api.get('/employees', { params }).then(r => r.data),
 
@@ -28,11 +29,15 @@ export const hrApi = {
     api.delete(`/employees/${id}`).then(r => r.data),
 
   // ── Attendance ────────────────────────────────────────────
-  // params: { employee_id, date, page, limit }
+  // params: { employee_id, date, month, year, department, branch, status, page, limit }
   listAttendance: (params = {}) =>
     api.get('/employees/attendance/list', { params }).then(r => r.data),
 
-  // Body: { employee_id, date, status, check_in?, check_out? }
+  // params: { date }  → returns { total, present, absent, late, halfDay, onLeave }
+  getAttendanceSummary: (params = {}) =>
+    api.get('/employees/attendance/summary', { params }).then(r => r.data),
+
+  // Body: { employee_id, date, status, check_in?, check_out?, notes? }
   markAttendance: (data) =>
     api.post('/employees/attendance/mark', data).then(r => r.data),
 
@@ -41,11 +46,11 @@ export const hrApi = {
   listSalary: (params = {}) =>
     api.get('/employees/salary/records', { params }).then(r => r.data),
 
-  // Body: { employee_id, month, year, basic_salary, allowances?, deductions? }
+  // Full salary record body (all breakdown fields)
   createSalary: (data) =>
     api.post('/employees/salary/records', data).then(r => r.data),
 
-  // Body: { payment_date, payment_mode, reference? }
+  // Body: { payment_date, payment_mode, payment_reference? }
   paySalary: (id, data) =>
     api.patch(`/employees/salary/records/${id}/pay`, data).then(r => r.data),
 }

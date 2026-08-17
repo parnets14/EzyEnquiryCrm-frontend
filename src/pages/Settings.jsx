@@ -1,42 +1,90 @@
-import { useState } from 'react'
-import { Settings as SettingsIcon, Save, Building2, Bell, Shield, Database, Globe, Palette, Mail, Phone } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Settings as SettingsIcon, Save, Building2, Bell, Shield, Database, Globe, Palette, RefreshCw } from 'lucide-react'
+import { companyApi } from '../api/companyApi'
+import { useAuth } from '../context/AuthContext'
 
-const TABS = ['General', 'Notifications', 'Security', 'Integrations', 'Appearance']
+const TABS = ['General', 'Notifications', 'Security', 'Appearance']
 
 export default function Settings() {
+  const { user } = useAuth()
   const [activeTab, setActiveTab] = useState('General')
-  const [saved, setSaved] = useState(false)
+  const [saved,     setSaved]     = useState(false)
+  const [saving,    setSaving]    = useState(false)
+  const [loadingCompany, setLoadingCompany] = useState(false)
+  const [saveError, setSaveError] = useState('')
 
-  // General settings
+  // General settings — loaded from company API
   const [general, setGeneral] = useState({
-    companyName: 'ABC Electronics Distributor',
-    phone: '+91 98765 43210',
-    email: 'admin@abcelectronics.com',
-    address: '123, MG Road, Bangalore - 560001',
-    gst: '29ABCDE1234F1Z5',
-    currency: 'INR',
-    dateFormat: 'DD/MM/YYYY',
-    timezone: 'Asia/Kolkata',
-    financialYear: 'April - March',
-    language: 'English',
+    name: '', owner_name: '', mobile: '', email: '',
+    address: '', gst_number: '', pan_number: '',
+    biz_type: 'Wholesaler', city: '', state: '', pincode: '',
+    website: '',
   })
 
-  // Notification settings
+  // Load company on mount
+  useEffect(() => {
+    if (!user?.company_id) return
+    setLoadingCompany(true)
+    companyApi.get(user.company_id)
+      .then(res => {
+        const c = res?.data || res
+        setGeneral({
+          name:        c.name        || '',
+          owner_name:  c.owner_name  || '',
+          mobile:      c.mobile      || '',
+          email:       c.email       || '',
+          address:     c.address     || '',
+          gst_number:  c.gst_number  || '',
+          pan_number:  c.pan_number  || '',
+          biz_type:    c.biz_type    || 'Wholesaler',
+          city:        c.city        || '',
+          state:       c.state       || '',
+          pincode:     c.pincode     || '',
+          website:     c.website     || '',
+        })
+      })
+      .catch(() => {})
+      .finally(() => setLoadingCompany(false))
+  }, [user?.company_id])
+
+  // Notification settings — local preference (no backend required per SOW)
   const [notifSettings, setNotifSettings] = useState({
     newEnquiry: true, orderConfirmed: true, lowStock: true,
     paymentReceived: true, dispatchUpdate: true, emailDigest: false,
     smsAlerts: true, pushNotifications: true,
   })
 
-  // Security settings
+  // Security
   const [security, setSecurity] = useState({
-    twoFactor: false, sessionTimeout: '30',
-    passwordPolicy: 'Medium', loginAttempts: '5', auditLog: true,
+    twoFactor: false, sessionTimeout: '30', passwordPolicy: 'Medium', loginAttempts: '5',
   })
 
-  const handleSave = () => {
-    setSaved(true)
-    setTimeout(() => setSaved(false), 3000)
+  const handleSave = async () => {
+    setSaving(true); setSaveError(''); setSaved(false)
+    try {
+      if (activeTab === 'General' && user?.company_id) {
+        await companyApi.update(user.company_id, {
+          name:        general.name,
+          owner_name:  general.owner_name,
+          mobile:      general.mobile,
+          email:       general.email,
+          address:     general.address,
+          gst_number:  general.gst_number,
+          pan_number:  general.pan_number,
+          biz_type:    general.biz_type,
+          city:        general.city,
+          state:       general.state,
+          pincode:     general.pincode,
+          website:     general.website,
+        })
+      }
+      setSaved(true)
+      setTimeout(() => setSaved(false), 3000)
+    } catch (err) {
+      setSaveError(err.response?.data?.message || 'Failed to save. Please try again.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const toggle = (key) => setNotifSettings(prev => ({ ...prev, [key]: !prev[key] }))
@@ -51,11 +99,15 @@ export default function Settings() {
       <div className="page-header">
         <div className="page-header-left">
           <div className="page-title">System Settings</div>
-          <div className="page-desc">Configure company, security, notifications and integration preferences</div>
+          <div className="page-desc">Configure company, security and notification preferences</div>
         </div>
         <div className="page-header-actions">
-          {saved && <span className="badge badge-green" style={{ padding: '6px 12px' }}>✓ Changes saved</span>}
-          <button className="btn btn-primary" onClick={handleSave}><Save size={14} /> Save Changes</button>
+          {saveError && <span className="badge badge-red" style={{ padding:'6px 12px' }}>⚠ {saveError}</span>}
+          {saved && <span className="badge badge-green" style={{ padding:'6px 12px' }}>✓ Changes saved</span>}
+          <button className="btn btn-primary" onClick={handleSave} disabled={saving} style={{ display:'flex', alignItems:'center', gap:6 }}>
+            {saving ? <RefreshCw style={{ width:14, animation:'spin 1s linear infinite' }} /> : <Save size={14} />}
+            {saving ? 'Saving…' : 'Save Changes'}
+          </button>
         </div>
       </div>
 
@@ -70,17 +122,30 @@ export default function Settings() {
         <div className="page-grid-2" style={{ gap: 16 }}>
           <div className="card">
             <div className="card-header">
-              <span className="card-title"><Building2 size={15} style={{ marginRight: 6 }} />Company Information</span>
+              <span className="card-title"><Building2 size={15} style={{ marginRight:6 }} />Company Information</span>
+              {loadingCompany && <RefreshCw size={13} style={{ animation:'spin 1s linear infinite', color:'var(--text-muted)' }} />}
             </div>
             <div className="card-body">
               <div className="form-group">
-                <label className="form-label">Company Name</label>
-                <input className="form-control" value={general.companyName} onChange={e => setGeneral(g => ({ ...g, companyName: e.target.value }))} />
+                <label className="form-label">Company Name *</label>
+                <input className="form-control" value={general.name} onChange={e => setGeneral(g => ({ ...g, name: e.target.value }))} placeholder="e.g. Tiles World Pvt Ltd" />
               </div>
               <div className="form-row">
                 <div className="form-group">
-                  <label className="form-label">Phone</label>
-                  <input className="form-control" value={general.phone} onChange={e => setGeneral(g => ({ ...g, phone: e.target.value }))} />
+                  <label className="form-label">Owner Name</label>
+                  <input className="form-control" value={general.owner_name} onChange={e => setGeneral(g => ({ ...g, owner_name: e.target.value }))} placeholder="Owner / Director name" />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Business Type</label>
+                  <select className="form-control" value={general.biz_type} onChange={e => setGeneral(g => ({ ...g, biz_type: e.target.value }))}>
+                    {['Retailer','Wholesaler','Distributor','Manufacturer'].map(t => <option key={t}>{t}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Mobile</label>
+                  <input className="form-control" value={general.mobile} onChange={e => setGeneral(g => ({ ...g, mobile: e.target.value }))} placeholder="+91 98765 43210" />
                 </div>
                 <div className="form-group">
                   <label className="form-label">Email</label>
@@ -91,30 +156,51 @@ export default function Settings() {
                 <label className="form-label">Address</label>
                 <textarea className="form-control" rows={2} value={general.address} onChange={e => setGeneral(g => ({ ...g, address: e.target.value }))} />
               </div>
-              <div className="form-group">
-                <label className="form-label">GST Number</label>
-                <input className="form-control" value={general.gst} onChange={e => setGeneral(g => ({ ...g, gst: e.target.value }))} />
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">City</label>
+                  <input className="form-control" value={general.city} onChange={e => setGeneral(g => ({ ...g, city: e.target.value }))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">State</label>
+                  <input className="form-control" value={general.state} onChange={e => setGeneral(g => ({ ...g, state: e.target.value }))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Pincode</label>
+                  <input className="form-control" value={general.pincode} onChange={e => setGeneral(g => ({ ...g, pincode: e.target.value }))} maxLength={6} />
+                </div>
               </div>
             </div>
           </div>
 
           <div className="card">
-            <div className="card-header"><span className="card-title"><Globe size={15} style={{ marginRight: 6 }} />Regional Settings</span></div>
+            <div className="card-header"><span className="card-title"><Globe size={15} style={{ marginRight:6 }} />GST & Legal</span></div>
             <div className="card-body">
-              {[
-                { label: 'Currency',        key: 'currency',       options: ['INR', 'USD', 'EUR', 'GBP'] },
-                { label: 'Date Format',     key: 'dateFormat',     options: ['DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD'] },
-                { label: 'Timezone',        key: 'timezone',       options: ['Asia/Kolkata', 'UTC', 'America/New_York'] },
-                { label: 'Financial Year',  key: 'financialYear',  options: ['April - March', 'January - December'] },
-                { label: 'Language',        key: 'language',       options: ['English', 'Hindi', 'Tamil', 'Telugu'] },
-              ].map(({ label, key, options }) => (
-                <div className="form-group" key={key}>
-                  <label className="form-label">{label}</label>
-                  <select className="form-control" value={general[key]} onChange={e => setGeneral(g => ({ ...g, [key]: e.target.value }))}>
-                    {options.map(o => <option key={o}>{o}</option>)}
-                  </select>
+              <div className="form-group">
+                <label className="form-label">GST Number</label>
+                <input className="form-control" value={general.gst_number} onChange={e => setGeneral(g => ({ ...g, gst_number: e.target.value.toUpperCase() }))} placeholder="e.g. 29ABCDE1234F1Z5" style={{ fontFamily:'monospace', letterSpacing:1 }} maxLength={15} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">PAN Number</label>
+                <input className="form-control" value={general.pan_number} onChange={e => setGeneral(g => ({ ...g, pan_number: e.target.value.toUpperCase() }))} placeholder="e.g. ABCDE1234F" style={{ fontFamily:'monospace', letterSpacing:1 }} maxLength={10} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Website</label>
+                <input className="form-control" value={general.website} onChange={e => setGeneral(g => ({ ...g, website: e.target.value }))} placeholder="https://yourbusiness.com" />
+              </div>
+              {/* Read-only plan info */}
+              <div style={{ marginTop:16, padding:'14px 16px', background:'var(--bg)', borderRadius:10, border:'1px solid var(--border)' }}>
+                <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:6, fontWeight:600, textTransform:'uppercase' }}>Subscription Plan</div>
+                <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                  <span style={{ fontWeight:800, fontSize:16 }}>{user?.subscription_plan || 'Free'}</span>
+                  <span className={`badge ${user?.subscription_plan === 'Platinum' ? 'badge-purple' : user?.subscription_plan === 'Gold' ? 'badge-yellow' : user?.subscription_plan === 'Silver' ? 'badge-cyan' : 'badge-gray'}`}>
+                    {user?.subscription_plan || 'Free'}
+                  </span>
                 </div>
-              ))}
+                <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:4 }}>
+                  Company Status: <strong style={{ color: user?.company_status === 'Approved' ? 'var(--success)' : 'var(--warning)' }}>{user?.company_status || '—'}</strong>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -219,14 +305,14 @@ export default function Settings() {
       )}
 
       {/* ── Integrations / Appearance placeholder tabs ── */}
-      {(activeTab === 'Integrations' || activeTab === 'Appearance') && (
+      {activeTab === 'Appearance' && (
         <div className="card">
           <div className="card-body">
             <div className="empty-state">
-              <div className="empty-state-icon">{activeTab === 'Integrations' ? '🔌' : '🎨'}</div>
-              <h3>{activeTab} Settings</h3>
-              <p>{activeTab === 'Integrations' ? 'Connect with accounting, SMS, email, and payment gateways.' : 'Customise theme, logo, and branding.'}</p>
-              <button className="btn btn-primary">Configure {activeTab}</button>
+              <div className="empty-state-icon">🎨</div>
+              <h3>Appearance Settings</h3>
+              <p>Customise theme, logo, and branding.</p>
+              <button className="btn btn-primary">Configure Appearance</button>
             </div>
           </div>
         </div>

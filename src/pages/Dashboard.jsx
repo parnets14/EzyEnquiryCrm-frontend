@@ -103,7 +103,7 @@ export default function Dashboard({
       <div className="breadcrumb">
         <span className="breadcrumb-active">Dashboard</span>
         <span className="breadcrumb-sep">•</span>
-        <span>Tiles World Pvt Ltd — Owner View</span>
+        <span>{dashboardStats?.companyName || 'Business Overview'}</span>
       </div>
 
       {/* ── KPI Cards ── */}
@@ -166,15 +166,17 @@ export default function Dashboard({
       }}>
         <div>
           <div style={{ color: 'rgba(255,255,255,0.75)', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
-            NET PROFIT — {orders[0] ? `${orders[0].product} × ${orders[0].qty} Sq Ft` : 'Tiles Business'}
+            NET PROFIT — {dashboardStats ? `Month of ${new Date().toLocaleString('en-IN', { month: 'long', year: 'numeric' })}` : 'Tiles Business'}
           </div>
-          <div style={{ color: '#fff', fontSize: 28, fontWeight: 800 }}>₹{netProfit > 0 ? netProfit.toLocaleString() : '11,300'}</div>
+          <div style={{ color: '#fff', fontSize: 28, fontWeight: 800 }}>
+            {netProfit !== 0 ? `₹${netProfit.toLocaleString()}` : '₹0'}
+          </div>
         </div>
         <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap' }}>
           {[
-            { label: 'Selling Rate',   val: `₹${(sales[0]?.rate || 78).toLocaleString()} /Sq Ft` },
-            { label: 'Purchase Cost',  val: `₹${(orders[0]?.purchaseRate || 62).toLocaleString()} /Sq Ft` },
-            { label: 'Margin/Sq Ft',   val: `₹${((sales[0]?.rate || 78) - (orders[0]?.purchaseRate || 62)).toLocaleString()}` },
+            { label: 'Avg Selling Rate',  val: sales.length ? `₹${Math.round(sales.reduce((a,s) => a + (s.rate || 0), 0) / sales.length).toLocaleString()} /Unit` : '—' },
+            { label: 'Total Sales',       val: `₹${(dashboardStats?.monthSales ?? sales.reduce((a,s) => a + (s.total_amount || 0), 0)).toLocaleString()}` },
+            { label: 'Total Purchase',    val: `₹${(dashboardStats?.totalPurchase ?? purchases.reduce((a,p) => a + (p.total_amount || 0), 0)).toLocaleString()}` },
           ].map(item => (
             <div key={item.label}>
               <div style={{ color: 'rgba(255,255,255,0.65)', fontSize: 11 }}>{item.label}</div>
@@ -189,7 +191,7 @@ export default function Dashboard({
         <div className="card">
           <div className="card-header">
             <span className="card-title">Sales vs Purchase vs Profit</span>
-            <span className="badge badge-blue">2026</span>
+            <span className="badge badge-blue">{new Date().getFullYear()}</span>
           </div>
           <div className="card-body" style={{ paddingTop: 8 }}>
             <ResponsiveContainer width="100%" height={200}>

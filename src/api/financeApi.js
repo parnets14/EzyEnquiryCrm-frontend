@@ -34,6 +34,10 @@ export const purchaseApi = {
   update: (id, data) =>
     api.put(`/purchases/${id}`, data).then(r => r.data),
 
+  // PATCH /purchases/:id/status — persistent status transition with business logic
+  updateStatus: (id, status) =>
+    api.patch(`/purchases/${id}/status`, { status }).then(r => r.data),
+
   delete: (id) =>
     api.delete(`/purchases/${id}`).then(r => r.data),
 

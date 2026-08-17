@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { Plus, Search, ArrowLeftRight, CheckCircle, Clock, XCircle, Eye, Pencil, Trash2 } from 'lucide-react'
 
-const WAREHOUSES = ['Main Warehouse – Surat', 'Branch Warehouse – Mumbai', 'Depot – Ahmedabad']
 const PRODUCTS = [
   'Kajaria Vitrified Floor Tile 800×800mm',
   'Somany Ceramic Floor Tile 600×600mm',
@@ -11,21 +10,25 @@ const PRODUCTS = [
 ]
 
 const INIT_TRANSFERS = [
-  { id: 'TRF-001', date: '02 Aug 2026', from: 'Main Warehouse – Surat', to: 'Branch Warehouse – Mumbai', product: 'Kajaria Vitrified Floor Tile 800×800mm', qty: 500, reason: 'Restock', status: 'Completed', approvedBy: 'Admin' },
-  { id: 'TRF-002', date: '01 Aug 2026', from: 'Branch Warehouse – Mumbai', to: 'Main Warehouse – Surat', product: 'Somany Mosaic Collection 300×300mm', qty: 50, reason: 'Return', status: 'Completed', approvedBy: 'Admin' },
-  { id: 'TRF-003', date: '31 Jul 2026', from: 'Main Warehouse – Surat', to: 'Depot – Ahmedabad', product: 'Johnson Wall Tile 300×600mm', qty: 200, reason: 'Customer Order', status: 'In Transit', approvedBy: 'Admin' },
-  { id: 'TRF-004', date: '30 Jul 2026', from: 'Branch Warehouse – Mumbai', to: 'Main Warehouse – Surat', product: 'Kajaria Outdoor Parking Tile 400×400mm', qty: 300, reason: 'Restock', status: 'Pending', approvedBy: '' },
+  { id: 'TRF-001', date: '02 Aug 2026', branch: '', from: 'Main Warehouse – Surat', to: 'Branch Warehouse – Mumbai', product: 'Kajaria Vitrified Floor Tile 800×800mm', qty: 500, reason: 'Restock', status: 'Completed', approvedBy: 'Admin' },
+  { id: 'TRF-002', date: '01 Aug 2026', branch: '', from: 'Branch Warehouse – Mumbai', to: 'Main Warehouse – Surat', product: 'Somany Mosaic Collection 300×300mm', qty: 50, reason: 'Return', status: 'Completed', approvedBy: 'Admin' },
+  { id: 'TRF-003', date: '31 Jul 2026', branch: '', from: 'Main Warehouse – Surat', to: 'Depot – Ahmedabad', product: 'Johnson Wall Tile 300×600mm', qty: 200, reason: 'Customer Order', status: 'In Transit', approvedBy: 'Admin' },
+  { id: 'TRF-004', date: '30 Jul 2026', branch: '', from: 'Branch Warehouse – Mumbai', to: 'Main Warehouse – Surat', product: 'Kajaria Outdoor Parking Tile 400×400mm', qty: 300, reason: 'Restock', status: 'Pending', approvedBy: '' },
 ]
 
 const statusBadge = { Completed: 'badge-green', 'In Transit': 'badge-cyan', Pending: 'badge-yellow', Cancelled: 'badge-red' }
 const statusIcon  = { Completed: CheckCircle, 'In Transit': ArrowLeftRight, Pending: Clock, Cancelled: XCircle }
 
-export default function StockTransfer() {
+export default function StockTransfer({ branches = [] }) {
+  const branchNames = branches.map(b => b.name || b).filter(Boolean)
+  const defaultBranch = branchNames[0] || ''
+
   const [transfers, setTransfers] = useState(INIT_TRANSFERS)
   const [search, setSearch]       = useState('')
   const [statusFilter, setStatusFilter] = useState('All')
+  const [branchFilter, setBranchFilter] = useState('All')
   const [showModal, setShowModal]  = useState(false)
-  const [form, setForm] = useState({ from: WAREHOUSES[0], to: WAREHOUSES[1], product: PRODUCTS[0], qty: '', reason: '', notes: '' })
+  const [form, setForm] = useState({ branch: defaultBranch, from: '', to: '', product: PRODUCTS[0], qty: '', reason: '', notes: '' })
 
   // View / Edit / Delete state
   const [viewItem, setViewItem]   = useState(null)
@@ -35,6 +38,7 @@ export default function StockTransfer() {
 
   const filtered = transfers.filter(t =>
     (statusFilter === 'All' || t.status === statusFilter) &&
+    (branchFilter === 'All' || t.branch === branchFilter) &&
     (t.id.toLowerCase().includes(search.toLowerCase()) ||
      t.product.toLowerCase().includes(search.toLowerCase()) ||
      t.from.toLowerCase().includes(search.toLowerCase()) ||
@@ -42,14 +46,14 @@ export default function StockTransfer() {
   )
 
   const handleCreate = () => {
-    if (!form.qty || form.from === form.to) return alert('Fill all fields. From and To must be different warehouses.')
+    if (!form.qty || !form.from || !form.to || form.from === form.to) return alert('Fill all fields. From and To must be different warehouses.')
     const now = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
     setTransfers(prev => [{
       id: `TRF-${String(prev.length + 1).padStart(3, '0')}`,
       date: now, ...form, status: 'Pending', approvedBy: '',
     }, ...prev])
     setShowModal(false)
-    setForm({ from: WAREHOUSES[0], to: WAREHOUSES[1], product: PRODUCTS[0], qty: '', reason: '', notes: '' })
+    setForm({ branch: defaultBranch, from: '', to: '', product: PRODUCTS[0], qty: '', reason: '', notes: '' })
   }
 
   const approveTransfer = (id) => {
@@ -62,10 +66,10 @@ export default function StockTransfer() {
   // Edit handlers
   const openEdit = (t) => {
     setEditItem(t)
-    setEditForm({ from: t.from, to: t.to, product: t.product, qty: t.qty, reason: t.reason, notes: t.notes || '' })
+    setEditForm({ branch: t.branch || defaultBranch, from: t.from, to: t.to, product: t.product, qty: t.qty, reason: t.reason, notes: t.notes || '' })
   }
   const saveEdit = () => {
-    if (!editForm.qty || editForm.from === editForm.to) return alert('Fill all fields. From and To must be different.')
+    if (!editForm.qty || !editForm.from || !editForm.to || editForm.from === editForm.to) return alert('Fill all fields. From and To must be different.')
     setTransfers(prev => prev.map(t => t.id === editItem.id ? { ...t, ...editForm } : t))
     setEditItem(null)
     setEditForm(null)
@@ -113,6 +117,12 @@ export default function StockTransfer() {
           <span className="card-title">Transfer Log ({filtered.length})</span>
           <div className="header-actions">
             <div className="search-bar"><Search size={14} /><input placeholder="Search transfers…" value={search} onChange={e => setSearch(e.target.value)} /></div>
+            {branchNames.length > 0 && (
+              <select className="form-control" style={{ width: 160 }} value={branchFilter} onChange={e => setBranchFilter(e.target.value)}>
+                <option value="All">All Branches</option>
+                {branchNames.map(b => <option key={b}>{b}</option>)}
+              </select>
+            )}
             <select className="form-control" style={{ width: 140 }} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
               <option value="All">All Status</option>
               {['Pending', 'In Transit', 'Completed', 'Cancelled'].map(s => <option key={s}>{s}</option>)}
@@ -122,13 +132,14 @@ export default function StockTransfer() {
         <div className="table-wrap">
           <table>
             <thead>
-              <tr><th>Transfer ID</th><th>Date</th><th>From Warehouse</th><th>To Warehouse</th><th>Product</th><th>Qty</th><th>Reason</th><th>Approved By</th><th>Status</th><th>Actions</th></tr>
+              <tr><th>Transfer ID</th><th>Date</th><th>Branch</th><th>From Warehouse</th><th>To Warehouse</th><th>Product</th><th>Qty</th><th>Reason</th><th>Approved By</th><th>Status</th><th>Actions</th></tr>
             </thead>
             <tbody>
               {filtered.map(t => (
                 <tr key={t.id}>
                   <td style={{ color: 'var(--primary)', fontWeight: 700 }}>{t.id}</td>
                   <td style={{ fontSize: 12 }}>{t.date}</td>
+                  <td style={{ fontSize: 12 }}>{t.branch ? <span className="badge badge-blue">{t.branch}</span> : <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
                   <td style={{ fontSize: 12, maxWidth: 140 }}>{t.from}</td>
                   <td style={{ fontSize: 12, maxWidth: 140 }}>{t.to}</td>
                   <td style={{ fontWeight: 600, fontSize: 12 }}>{t.product}</td>
@@ -164,7 +175,7 @@ export default function StockTransfer() {
                 </tr>
               ))}
               {filtered.length === 0 && (
-                <tr><td colSpan={10}><div className="empty-state"><div className="empty-state-icon">🔄</div><h3>No transfers found</h3><p>Create a new stock transfer to get started.</p></div></td></tr>
+                <tr><td colSpan={11}><div className="empty-state"><div className="empty-state-icon">🔄</div><h3>No transfers found</h3><p>Create a new stock transfer to get started.</p></div></td></tr>
               )}
             </tbody>
           </table>
@@ -179,18 +190,23 @@ export default function StockTransfer() {
               <button className="modal-close" onClick={() => setShowModal(false)}>✕</button>
             </div>
             <div className="modal-body">
+              {branchNames.length > 0 && (
+                <div className="form-group">
+                  <label className="form-label">Branch *</label>
+                  <select className="form-control" value={form.branch} onChange={e => setForm(f => ({ ...f, branch: e.target.value }))}>
+                    <option value="">Select Branch</option>
+                    {branchNames.map(b => <option key={b}>{b}</option>)}
+                  </select>
+                </div>
+              )}
               <div className="form-row">
                 <div className="form-group">
                   <label className="form-label">From Warehouse *</label>
-                  <select className="form-control" value={form.from} onChange={e => setForm(f => ({ ...f, from: e.target.value }))}>
-                    {WAREHOUSES.map(w => <option key={w}>{w}</option>)}
-                  </select>
+                  <input className="form-control" placeholder="e.g. Main Warehouse – Surat" value={form.from} onChange={e => setForm(f => ({ ...f, from: e.target.value }))} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">To Warehouse *</label>
-                  <select className="form-control" value={form.to} onChange={e => setForm(f => ({ ...f, to: e.target.value }))}>
-                    {WAREHOUSES.map(w => <option key={w}>{w}</option>)}
-                  </select>
+                  <input className="form-control" placeholder="e.g. Branch Warehouse – Mumbai" value={form.to} onChange={e => setForm(f => ({ ...f, to: e.target.value }))} />
                 </div>
               </div>
               <div className="form-group">
@@ -236,6 +252,7 @@ export default function StockTransfer() {
               {[
                 ['Transfer ID', viewItem.id],
                 ['Date', viewItem.date],
+                ['Branch', viewItem.branch || '—'],
                 ['From Warehouse', viewItem.from],
                 ['To Warehouse', viewItem.to],
                 ['Product', viewItem.product],
@@ -267,18 +284,23 @@ export default function StockTransfer() {
               <button className="modal-close" onClick={() => setEditItem(null)}>✕</button>
             </div>
             <div className="modal-body">
+              {branchNames.length > 0 && (
+                <div className="form-group">
+                  <label className="form-label">Branch *</label>
+                  <select className="form-control" value={editForm.branch || ''} onChange={e => setEditForm(f => ({ ...f, branch: e.target.value }))}>
+                    <option value="">Select Branch</option>
+                    {branchNames.map(b => <option key={b}>{b}</option>)}
+                  </select>
+                </div>
+              )}
               <div className="form-row">
                 <div className="form-group">
                   <label className="form-label">From Warehouse *</label>
-                  <select className="form-control" value={editForm.from} onChange={e => setEditForm(f => ({ ...f, from: e.target.value }))}>
-                    {WAREHOUSES.map(w => <option key={w}>{w}</option>)}
-                  </select>
+                  <input className="form-control" placeholder="e.g. Main Warehouse – Surat" value={editForm.from} onChange={e => setEditForm(f => ({ ...f, from: e.target.value }))} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">To Warehouse *</label>
-                  <select className="form-control" value={editForm.to} onChange={e => setEditForm(f => ({ ...f, to: e.target.value }))}>
-                    {WAREHOUSES.map(w => <option key={w}>{w}</option>)}
-                  </select>
+                  <input className="form-control" placeholder="e.g. Branch Warehouse – Mumbai" value={editForm.to} onChange={e => setEditForm(f => ({ ...f, to: e.target.value }))} />
                 </div>
               </div>
               <div className="form-group">

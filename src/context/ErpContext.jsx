@@ -93,11 +93,26 @@ export function ErpProvider({ children }) {
         canManageUsers ? userApi.list({ limit: 100 }) : Promise.resolve(null),  // 22
         isSuperAdmin ? companyApi.list({ limit: 50 }) : Promise.resolve(null), // 23
         purchaseApi.listSuppliers(),                                            // 24
+        authUser?.company_id ? branchApi.list(authUser.company_id) : Promise.resolve(null), // 25
       ])
 
       const ok = (i) => results[i]?.status === 'fulfilled' ? (results[i].value) : null
 
-      if (ok(0))  setEnquiries(arr(ok(0), 'enquiries'))
+      if (ok(0)) {
+        // Normalize enquiries: flatten populated order_id → top-level order_code
+        const rawEnqs = arr(ok(0), 'enquiries')
+        setEnquiries(rawEnqs.map(e => {
+          if (e.order_id && typeof e.order_id === 'object') {
+            return {
+              ...e,
+              order_code: e.order_id.order_code || e.order_code || '',
+              // keep order_id as the ObjectId string for lookups
+              order_id: e.order_id._id || e.order_id,
+            }
+          }
+          return e
+        }))
+      }
       if (ok(1))  setOrders(arr(ok(1), 'orders'))
       if (ok(2))  setDispatches(arr(ok(2), 'dispatches'))
       if (ok(3))  setInventory(arr(ok(3), 'inventory'))
@@ -123,6 +138,10 @@ export function ErpProvider({ children }) {
         const sData = sRes?.data || sRes
         setSuppliers(Array.isArray(sData) ? sData : (Array.isArray(sData?.suppliers) ? sData.suppliers : []))
       }
+      if (ok(25)) {
+        const bData = ok(25)?.data || ok(25)
+        setBranches(Array.isArray(bData) ? bData : (Array.isArray(bData?.branches) ? bData.branches : []))
+      }
 
       const rcv = ok(6) ? arr(ok(6), 'receivables') : []
       const pay = ok(7) ? arr(ok(7), 'payables')    : []
@@ -139,7 +158,7 @@ export function ErpProvider({ children }) {
     } finally {
       setLoadingData(false)
     }
-  }, [isLoggedIn, authUser?.role])
+  }, [isLoggedIn, authUser?.role, authUser?.company_id])
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
@@ -188,34 +207,61 @@ export function ErpProvider({ children }) {
     }
   }, [])
 
-  const convertEnquiryToOrder = useCallback(async (enquiry, agreedRate) => {
+  const convertEnquiryToOrder = useCallback(async (enquiry, agreedRate, extraData = {}) => {
     try {
-      const rate = agreedRate || enquiry.offered_price || 0
-      const qty  = enquiry.qty || 0
-      const amount = rate * qty
-      const gst    = Math.round(amount * 0.18)
-      const total  = amount + gst
-      const orderData = {
-        enquiry_id: enquiry._id || enquiry.id,
-        customer_name: enquiry.retailer_name || enquiry.retailer,
-        customer_mobile: enquiry.retailer_mobile || enquiry.mobile,
-        product_id: enquiry.product_id,
-        product_code: enquiry.product_code,
-        product_name: enquiry.product_name || enquiry.product,
-        qty, rate, amount, gst_percent: 18, gst_amount: gst, total_amount: total,
-      }
-      const res = await orderApi.create(orderData)
+      const enquiryId = enquiry._id || enquiry.id
+      const rate      = parseFloat(agreedRate || enquiry.offered_price || 0)
+
+      const res = await orderApi.fromEnquiry({
+        enquiry_id:       enquiryId,
+        rate,
+        gst_percent:      parseFloat(enquiry.gst_percent || 18),
+        branch_id:        extraData.branch_id   || null,
+        branch_name:      extraData.branch_name || '',
+        delivery_address: extraData.delivery_address || enquiry.location || '',
+        notes:            extraData.notes || enquiry.remarks || '',
+      })
+
       const newOrder = res?.data || res
-      setOrders(prev => [newOrder, ...prev])
+      const alreadyExists = res?.message?.toLowerCase().includes('already')
+
+      // Update orders list — remove any dupe then prepend
+      setOrders(prev => {
+        const without = prev.filter(o => String(o.enquiry_id) !== String(enquiryId))
+        return [newOrder, ...without]
+      })
+
+      // Update enquiry to link order_id and order_code
       setEnquiries(prev => prev.map(e => {
-        const eid = e._id || e.id
-        const qid = enquiry._id || enquiry.id
-        return eid === qid ? { ...e, status: 'Won', order_id: newOrder._id || newOrder.id } : e
+        const eId = e._id || e.id
+        if (eId !== enquiryId) return e
+        return {
+          ...e,
+          order_id:   newOrder._id || newOrder.id || '',
+          order_code: newOrder.order_code || '',
+        }
       }))
-      addNotification(`Order ${newOrder.order_code} created — ₹${total.toLocaleString()}`, 'order')
-      return { success: true, data: newOrder }
+
+      addNotification(`Order ${newOrder.order_code} created`, 'order')
+      return { success: true, data: newOrder, alreadyExists }
     } catch (err) {
-      return { success: false, message: err.response?.data?.message || 'Failed to create order' }
+      const errData = err.response?.data
+      // 200 already-exists also comes as success from backend
+      if (errData?.data?.order_code) {
+        const existing = errData.data
+        setOrders(prev => {
+          const enquiryId2 = enquiry._id || enquiry.id
+          const without = prev.filter(o => String(o.enquiry_id) !== String(enquiryId2))
+          return [existing, ...without]
+        })
+        setEnquiries(prev => prev.map(e =>
+          (e._id || e.id) === (enquiry._id || enquiry.id)
+            ? { ...e, order_id: existing._id, order_code: existing.order_code }
+            : e
+        ))
+        return { success: true, data: existing, alreadyExists: true }
+      }
+      return { success: false, message: errData?.message || 'Failed to create order' }
     }
   }, [addNotification])
 
@@ -224,24 +270,28 @@ export function ErpProvider({ children }) {
   // ─────────────────────────────────────────────────────────
   const updateOrderStatus = useCallback(async (orderId, statusData) => {
     try {
-      const res = await orderApi.updateStatus(orderId, statusData)
+      const res     = await orderApi.updateStatus(orderId, statusData)
       const updated = res?.data || res
-      setOrders(prev => prev.map(o => (o._id === orderId || o.id === orderId) ? { ...o, ...updated } : o))
+      setOrders(prev => prev.map(o =>
+        (o._id === orderId || o.id === orderId) ? { ...o, ...updated } : o
+      ))
       return { success: true, data: updated }
     } catch (err) {
-      return { success: false, message: err.response?.data?.message || 'Status update failed' }
+      const errData = err.response?.data
+      return { success: false, message: errData?.message || 'Status update failed' }
     }
   }, [])
 
-  const startPacking       = useCallback(async (id) => updateOrderStatus(id, { status: 'Processing', warehouse_status: 'Packing' }), [updateOrderStatus])
-  const markReadyForDispatch = useCallback(async (id) => updateOrderStatus(id, { status: 'Ready', warehouse_status: 'Ready for Dispatch' }), [updateOrderStatus])
+  // Legacy helpers — map old names to new SOW statuses
+  const startPacking         = useCallback((id) => updateOrderStatus(id, { status: 'Picking Started',   remarks: 'Picking started' }), [updateOrderStatus])
+  const markReadyForDispatch = useCallback((id) => updateOrderStatus(id, { status: 'Ready for Dispatch', remarks: 'Ready for dispatch' }), [updateOrderStatus])
 
   // ─────────────────────────────────────────────────────────
   // DISPATCH ACTIONS
   // ─────────────────────────────────────────────────────────
   const createDispatch = useCallback(async (data) => {
     try {
-      const res = await dispatchApi.create(data)
+      const res        = await dispatchApi.create(data)
       const newDispatch = res?.data || res
       setDispatches(prev => [newDispatch, ...prev])
       setOrders(prev => prev.map(o => {
@@ -250,16 +300,34 @@ export function ErpProvider({ children }) {
           return { ...o, status: 'Dispatched', dispatch_id: newDispatch._id || newDispatch.id }
         return o
       }))
-      addNotification(`Order ${data.order_id} dispatched via ${data.transport_name}`, 'dispatch')
+      addNotification(`Order dispatched via ${data.transport_name}`, 'dispatch')
       return { success: true, data: newDispatch }
     } catch (err) {
       return { success: false, message: err.response?.data?.message || 'Dispatch failed' }
     }
   }, [addNotification])
 
+  const markInTransit = useCallback(async (dispatchId) => {
+    try {
+      const res     = await dispatchApi.markInTransit(dispatchId)
+      const updated = res?.data || res
+      setDispatches(prev => prev.map(d =>
+        (d._id === dispatchId || d.id === dispatchId) ? { ...d, ...updated, status: 'In Transit' } : d
+      ))
+      setOrders(prev => prev.map(o => {
+        const dId = o.dispatch_id?._id || o.dispatch_id
+        if (String(dId) === String(dispatchId)) return { ...o, status: 'In Transit' }
+        return o
+      }))
+      return { success: true, data: updated }
+    } catch (err) {
+      return { success: false, message: err.response?.data?.message || 'Mark in-transit failed' }
+    }
+  }, [])
+
   const markDelivered = useCallback(async (dispatchId, delivered_date) => {
     try {
-      const res = await dispatchApi.markDelivered(dispatchId, delivered_date)
+      const res     = await dispatchApi.markDelivered(dispatchId, delivered_date)
       const updated = res?.data || res
       setDispatches(prev => prev.map(d =>
         (d._id === dispatchId || d.id === dispatchId) ? { ...d, ...updated, status: 'Delivered' } : d
@@ -280,9 +348,8 @@ export function ErpProvider({ children }) {
       const res = await purchaseApi.create(data)
       const newPurchase = res?.data || res
       setPurchases(prev => [newPurchase, ...prev])
-      const invRes = await inventoryApi.list({ limit: 200 })
-      setInventory(arr(invRes, 'inventory'))
-      addNotification(`Purchase added. Inventory updated for ${data.product_name || ''}`, 'purchase')
+      // No inventory refresh on create — new purchases are Pending (no stock-in yet)
+      addNotification(`Purchase created: ${newPurchase.purchase_code || ''} — Status: Pending`, 'purchase')
       return { success: true, data: newPurchase }
     } catch (err) {
       return { success: false, message: err.response?.data?.message || 'Purchase failed' }
@@ -300,10 +367,36 @@ export function ErpProvider({ children }) {
     }
   }, [])
 
+  const updatePurchaseStatus = useCallback(async (id, status) => {
+    try {
+      const res = await purchaseApi.updateStatus(id, status)
+      const updated = res?.data || res
+      // Update the purchase row with the fresh data returned from the server
+      setPurchases(prev => prev.map(p => (p._id || p.id) === id ? { ...p, ...updated } : p))
+      // If receiving, refresh inventory so stock counts are up-to-date
+      if (status === 'Received') {
+        try {
+          const invRes = await inventoryApi.list({ limit: 200 })
+          setInventory(arr(invRes, 'inventory'))
+        } catch { /* non-fatal */ }
+      }
+      return { success: true, data: updated }
+    } catch (err) {
+      return { success: false, message: err.response?.data?.message || 'Status update failed' }
+    }
+  }, [])
+
   const deletePurchase = useCallback(async (id) => {
     try {
       await purchaseApi.delete(id)
       setPurchases(prev => prev.filter(p => (p._id || p.id) !== id))
+      // Refresh inventory — backend reverses stock-in if purchase was 'Received'
+      try {
+        const invRes = await inventoryApi.list({ limit: 500 })
+        const d = invRes?.data || invRes
+        const rows = Array.isArray(d) ? d : (Array.isArray(d?.inventory) ? d.inventory : [])
+        setInventory(rows)
+      } catch { /* non-fatal */ }
       return { success: true }
     } catch (err) {
       return { success: false, message: err.response?.data?.message || 'Delete failed' }
@@ -477,7 +570,7 @@ export function ErpProvider({ children }) {
   const deleteEmployee = useCallback(async (id) => {
     try {
       await hrApi.deleteEmployee(id)
-      setEmployees(prev => prev.filter(e => e._id !== id && e.id !== id))
+      setEmployees(prev => prev.filter(e => String(e._id || e.id) !== String(id)))
       return { success: true }
     } catch (err) {
       return { success: false, message: err.response?.data?.message || 'Delete failed' }
@@ -838,6 +931,47 @@ export function ErpProvider({ children }) {
   }, [])
 
   // ─────────────────────────────────────────────────────────
+  // BRANCH ACTIONS
+  // ─────────────────────────────────────────────────────────
+  const addBranch = useCallback(async (data) => {
+    const companyId = authUser?.company_id
+    if (!companyId) return { success: false, message: 'No company associated' }
+    try {
+      const res = await branchApi.create(companyId, data)
+      const newBranch = res?.data || res
+      setBranches(prev => [newBranch, ...prev])
+      return { success: true, data: newBranch }
+    } catch (err) {
+      return { success: false, message: err.response?.data?.message || 'Failed to create branch' }
+    }
+  }, [authUser?.company_id])
+
+  const updateBranch = useCallback(async (id, data) => {
+    const companyId = authUser?.company_id
+    if (!companyId) return { success: false, message: 'No company associated' }
+    try {
+      const res = await branchApi.update(companyId, id, data)
+      const updated = res?.data || res
+      setBranches(prev => prev.map(b => (b._id === id || b.id === id) ? { ...b, ...updated } : b))
+      return { success: true, data: updated }
+    } catch (err) {
+      return { success: false, message: err.response?.data?.message || 'Failed to update branch' }
+    }
+  }, [authUser?.company_id])
+
+  const deleteBranch = useCallback(async (id) => {
+    const companyId = authUser?.company_id
+    if (!companyId) return { success: false, message: 'No company associated' }
+    try {
+      await branchApi.delete(companyId, id)
+      setBranches(prev => prev.filter(b => b._id !== id && b.id !== id))
+      return { success: true }
+    } catch (err) {
+      return { success: false, message: err.response?.data?.message || 'Failed to delete branch' }
+    }
+  }, [authUser?.company_id])
+
+  // ─────────────────────────────────────────────────────────
   // USER ACTIONS (Super Admin only)
   // ─────────────────────────────────────────────────────────
   const addUser = useCallback(async (data) => {
@@ -890,14 +1024,14 @@ export function ErpProvider({ children }) {
     payments, notifications, products, categories, subCategories, brands,
     customers, leads, followups, employees, users, companies,
     warehouses, transfers, documents, dashboardStats, loadingData,
-    suppliers,
+    suppliers, branches,
 
     // ── Setters (for optimistic local updates) ────────────
     setEnquiries, setOrders, setDispatches, setInventory, setPurchases,
     setSales, setExpenses, setPayments, setNotifications, setProducts,
     setCategories, setSubCategories, setBrands, setCustomers, setLeads, setFollowups,
     setEmployees, setUsers, setCompanies, setWarehouses, setTransfers, setDocuments,
-    setSuppliers,
+    setSuppliers, setBranches,
 
     // ── Enquiry actions ───────────────────────────────────
     addEnquiry, updateEnquiry, deleteEnquiry, convertEnquiryToOrder,
@@ -906,13 +1040,16 @@ export function ErpProvider({ children }) {
     updateOrderStatus, startPacking, markReadyForDispatch,
 
     // ── Dispatch actions ──────────────────────────────────
-    createDispatch, markDelivered,
+    createDispatch, markInTransit, markDelivered,
 
     // ── Purchase actions ──────────────────────────────────
-    addPurchase, updatePurchase, deletePurchase,
+    addPurchase, updatePurchase, deletePurchase, updatePurchaseStatus,
 
     // ── Supplier actions ──────────────────────────────────
     addSupplier, updateSupplier, deleteSupplier,
+
+    // ── Branch actions ────────────────────────────────────
+    addBranch, updateBranch, deleteBranch,
 
     // ── Payment actions ───────────────────────────────────
     recordPayment,

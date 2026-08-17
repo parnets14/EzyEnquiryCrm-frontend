@@ -35,6 +35,14 @@ export const inventoryApi = {
     api.get('/inventory', { params }).then(r => r.data),
 
   /**
+   * List stock movement audit trail from DB.
+   * @param {object} params - { product_id, warehouse_id, movement_type, reference_type, page, limit }
+   * Returns: array of StockMovement records
+   */
+  listMovements: (params = {}) =>
+    api.get('/inventory/movements', { params }).then(r => r.data),
+
+  /**
    * Manual stock adjustment (positive = add, negative = deduct).
    * @param {object} data - { product_id, warehouse_id, adjustment, notes }
    */

@@ -1,50 +1,89 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Search, AlertTriangle, TrendingDown, TrendingUp, Eye, X, Package, Warehouse as WarehouseIcon, RefreshCw } from 'lucide-react'
+import { inventoryApi } from '../api/inventoryApi'
 
-export default function InventoryManagement({ inventory = [], orders = [], purchases = [], products = [], transfers = [], loadingData = false }) {
-  const [tab,       setTab]      = useState('stock')
-  const [search,    setSearch]   = useState('')
-  const [viewItem,  setViewItem] = useState(null)
+export default function InventoryManagement({
+  inventory: inventoryProp = [],
+  orders = [],
+  purchases = [],
+  products = [],
+  transfers: transfersProp = [],
+  loadingData: loadingProp = false,
+  branches = [],
+}) {
+  const [tab,        setTab]       = useState('stock')
+  const [search,     setSearch]    = useState('')
+  const [viewItem,   setViewItem]  = useState(null)
 
-  // ── Enrich inventory rows with all product details ──────────
+  // ── Own data state (fetched fresh on mount) ──────────────
+  const [inventory,  setInventory]  = useState(inventoryProp)
+  const [transfers,  setTransfers]  = useState(transfersProp)
+  const [loading,    setLoading]    = useState(loadingProp)
+
+  const loadInventory = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [invRes, trfRes] = await Promise.allSettled([
+        inventoryApi.list({ limit: 500 }),
+        inventoryApi.listTransfers({ limit: 200 }),
+      ])
+      if (invRes.status === 'fulfilled') {
+        const d = invRes.value?.data || invRes.value
+        const rows = Array.isArray(d) ? d : (Array.isArray(d?.inventory) ? d.inventory : [])
+        setInventory(rows)
+      }
+      if (trfRes.status === 'fulfilled') {
+        const d = trfRes.value?.data || trfRes.value
+        const rows = Array.isArray(d) ? d : (Array.isArray(d?.transfers) ? d.transfers : [])
+        setTransfers(rows)
+      }
+    } catch (err) {
+      console.error('[Inventory] load error', err)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { loadInventory() }, [loadInventory])
+
+  // ── Enrich inventory rows ────────────────────────────────
   const stockRows = inventory.map(inv => {
-    // Try to find full product details from products list
-    const prodId = inv.product_id?._id || inv.product_id?.id || inv.product_id || ''
-    const fullProd = products.find(p => (p._id || p.id) === prodId) || {}
-
+    // Backend now returns all fields directly on the inventory doc
     const stockIn  = Number(inv.stock_in)        || 0
     const stockOut = Number(inv.stock_out)       || 0
     const current  = Number(inv.current_stock)   || 0
     const lowAlert = Number(inv.low_stock_alert) || 0
 
+    // Product fields — backend populates them directly
+    const name          = inv.product_name  || ''
+    const productCode   = inv.product_code  || ''
+    const brand         = inv.brand_name    || ''
+    const category      = inv.category_name || ''
+    const unit          = inv.unit          || 'Sq Ft'
+    const warehouse     = inv.warehouse_name || '—'
+    const branchId      = inv.branch_id     || null
+
+    // Extra product details
+    const size          = inv.size           || ''
+    const finish        = inv.finish         || ''
+    const tile_type     = inv.tile_type      || ''
+    const grade         = inv.grade          || ''
+    const mrp           = Number(inv.mrp)           || 0
+    const retail_price  = Number(inv.retail_price)  || 0
+    const dealer_price  = Number(inv.dealer_price)  || 0
+    const purchase_price = Number(inv.purchase_price) || 0
+    const pcs_per_box   = inv.pcs_per_box   || ''
+    const sqft_per_box  = inv.sqft_per_box  || ''
+    const gst_percent   = inv.gst_percent   || ''
+    const description   = inv.description   || ''
+    const is_active     = inv.is_active !== undefined ? inv.is_active : true
+
     return {
       ...inv,
-      stockIn,
-      stockOut,
-      current,
-      lowAlert,
-      // product info — from populated API response or full product
-      name:          inv.product_name  || fullProd.name || inv.product_code || '',
-      productCode:   inv.product_code  || fullProd.code || '',
-      brand:         inv.brand_name    || fullProd.brand_name || '',
-      category:      inv.category_name || fullProd.category_name || '',
-      unit:          inv.unit          || fullProd.unit || 'Sq Ft',
-      warehouse:     inv.warehouse_name || '—',
-      // extra product details from full product object
-      size:          fullProd.size          || inv.product_id?.size    || '',
-      finish:        fullProd.finish        || inv.product_id?.finish  || '',
-      tile_type:     fullProd.tile_type     || '',
-      grade:         fullProd.grade         || '',
-      mrp:           fullProd.mrp           || 0,
-      retail_price:  fullProd.retail_price  || fullProd.retail_rate   || 0,
-      dealer_price:  fullProd.dealer_price  || fullProd.dealer_rate   || 0,
-      purchase_price:fullProd.purchase_price|| fullProd.purchase_rate || 0,
-      pcs_per_box:   fullProd.pcs_per_box   || '',
-      sqft_per_box:  fullProd.sqft_per_box  || '',
-      gst_percent:   fullProd.gst_percent   || '',
-      description:   fullProd.description  || '',
-      is_active:     fullProd.is_active !== undefined ? fullProd.is_active : true,
-      // status
+      stockIn, stockOut, current, lowAlert,
+      name, productCode, brand, category, unit, warehouse, branchId,
+      size, finish, tile_type, grade, mrp, retail_price, dealer_price,
+      purchase_price, pcs_per_box, sqft_per_box, gst_percent, description, is_active,
       status: current === 0 ? 'Out' : current <= lowAlert ? 'Low' : 'OK',
     }
   })
@@ -52,15 +91,16 @@ export default function InventoryManagement({ inventory = [], orders = [], purch
   const filtered = stockRows.filter(s =>
     (s.name        ?? '').toLowerCase().includes(search.toLowerCase()) ||
     (s.brand       ?? '').toLowerCase().includes(search.toLowerCase()) ||
+    (s.category    ?? '').toLowerCase().includes(search.toLowerCase()) ||
     (s.productCode ?? '').toLowerCase().includes(search.toLowerCase())
   )
 
-  // ── Stock movements ─────────────────────────────────────────
+  // ── Stock movements ─────────────────────────────────────
   const purchaseMovements = purchases.map(p => ({
     type:      'IN',
     product:   p.product_name  || p.product_code || p.product || '',
     batch:     p.batch_number  || p.batch_no     || '',
-    qty:       p.qty           || p.quantity     || 0,
+    qty:       Number(p.qty || p.quantity || 0),
     party:     p.supplier_name || p.supplier     || '',
     warehouse: p.warehouse_name || '—',
     date:      p.purchase_date || p.date         || '',
@@ -73,62 +113,54 @@ export default function InventoryManagement({ inventory = [], orders = [], purch
       type:      'OUT',
       product:   o.product_name  || o.product     || '',
       batch:     o.batch_number  || o.batch_no    || '',
-      qty:       o.qty           || o.quantity     || 0,
+      qty:       Number(o.qty || o.quantity || 0),
       party:     o.customer_name || o.customer     || '',
       warehouse: o.warehouse_name || '—',
       date:      o.order_date    || o.date         || '',
       ref:       o.order_code    || o._id          || o.id     || '',
     }))
 
-  // Warehouse transfers → two movement records per transfer (TRANSFER OUT + TRANSFER IN)
   const transferMovements = transfers.flatMap(t => {
     const product   = t.product_name  || t.product_code || ''
-    const batch     = t.batch_number  || t.batch_no     || ''
-    const qty       = t.quantity      || 0
+    const qty       = Number(t.quantity || 0)
     const ref       = t.transfer_code || t._id          || t.id || ''
     const date      = t.transfer_date || t.created_at   || ''
     return [
       {
         type:      'TRANSFER OUT',
-        product,
-        batch,
-        qty,
+        product, qty,
         party:     '—',
         warehouse: t.from_warehouse_name || t.from_warehouse?.name || '—',
-        date,
-        ref,
+        date, ref,
+        batch: '',
       },
       {
         type:      'TRANSFER IN',
-        product,
-        batch,
-        qty,
+        product, qty,
         party:     '—',
         warehouse: t.to_warehouse_name || t.to_warehouse?.name || '—',
-        date,
-        ref,
+        date, ref,
+        batch: '',
       },
     ]
   })
 
   const allMovements = [...purchaseMovements, ...orderMovements, ...transferMovements]
     .sort((a, b) => {
-      // Sort by date descending, fall back to ref
       const da = a.date ? new Date(a.date) : 0
       const db = b.date ? new Date(b.date) : 0
-      return db - da || (b.ref ?? '').localeCompare(a.ref ?? '')
+      return db - da || String(b.ref).localeCompare(String(a.ref))
     })
 
-  // ── Movement badge style helper ──────────────────────────────
+  // ── Style helpers ────────────────────────────────────────
   const movementStyle = (type) => {
     if (type === 'IN')           return { bg: '#dcfce7', color: '#16a34a', border: '#86efac', label: '↑ IN' }
     if (type === 'OUT')          return { bg: '#fee2e2', color: '#dc2626', border: '#fca5a5', label: '↓ OUT' }
-    if (type === 'TRANSFER OUT') return { bg: '#fef3c7', color: '#b45309', border: '#fde68a', label: '⇄ TRANSFER OUT' }
-    if (type === 'TRANSFER IN')  return { bg: '#eff6ff', color: '#1d4ed8', border: '#bfdbfe', label: '⇄ TRANSFER IN' }
+    if (type === 'TRANSFER OUT') return { bg: '#fef3c7', color: '#b45309', border: '#fde68a', label: '⇄ OUT' }
+    if (type === 'TRANSFER IN')  return { bg: '#eff6ff', color: '#1d4ed8', border: '#bfdbfe', label: '⇄ IN' }
     return                              { bg: '#f3f4f6', color: '#6b7280', border: '#e5e7eb', label: type }
   }
 
-  // ── Status badge style helper ───────────────────────────────
   const statusStyle = (status) => {
     if (status === 'OK')  return { bg: '#dcfce7', color: '#16a34a', border: '#86efac', label: 'In Stock' }
     if (status === 'Low') return { bg: '#fef9c3', color: '#b45309', border: '#fde68a', label: 'Low Stock' }
@@ -146,10 +178,10 @@ export default function InventoryManagement({ inventory = [], orders = [], purch
       {/* Stats */}
       <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 20 }}>
         {[
-          { label: 'Total Products',   val: stockRows.length,                                            color: 'blue',   icon: <TrendingUp /> },
-          { label: 'Low Stock',        val: stockRows.filter(s => s.status === 'Low').length,            color: 'orange', icon: <AlertTriangle /> },
-          { label: 'Out of Stock',     val: stockRows.filter(s => s.status === 'Out').length,            color: 'red',    icon: <TrendingDown /> },
-          { label: 'Total Sq Ft Held', val: stockRows.reduce((a, s) => a + s.current, 0).toLocaleString(), color: 'green',  icon: <TrendingUp /> },
+          { label: 'Total Products',    val: stockRows.length,                                               color: 'blue',   icon: <TrendingUp /> },
+          { label: 'Low Stock',         val: stockRows.filter(s => s.status === 'Low').length,               color: 'orange', icon: <AlertTriangle /> },
+          { label: 'Out of Stock',      val: stockRows.filter(s => s.status === 'Out').length,               color: 'red',    icon: <TrendingDown /> },
+          { label: 'Total Stock (Sq Ft)', val: stockRows.reduce((a, s) => a + s.current, 0).toLocaleString(), color: 'green',  icon: <TrendingUp /> },
         ].map(s => (
           <div key={s.label} className="stat-card" style={{ padding: '14px 16px' }}>
             <div className={`stat-icon ${s.color}`}>{s.icon}</div>
@@ -177,11 +209,21 @@ export default function InventoryManagement({ inventory = [], orders = [], purch
               <div className="search-bar">
                 <Search size={14} />
                 <input
-                  placeholder="Search product, brand, code…"
+                  placeholder="Search product, brand, category, code…"
                   value={search}
                   onChange={e => setSearch(e.target.value)}
                 />
               </div>
+              <button
+                className="btn btn-secondary"
+                onClick={loadInventory}
+                disabled={loading}
+                style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+                title="Refresh inventory"
+              >
+                <RefreshCw size={14} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
+                Refresh
+              </button>
             </div>
           </div>
           <div className="table-wrap">
@@ -194,6 +236,7 @@ export default function InventoryManagement({ inventory = [], orders = [], purch
                   <th style={thStyle}>Brand</th>
                   <th style={thStyle}>Category</th>
                   <th style={thStyle}>Warehouse</th>
+                  <th style={thStyle}>Branch</th>
                   <th style={{ ...thStyle, textAlign: 'right' }}>Stock In</th>
                   <th style={{ ...thStyle, textAlign: 'right' }}>Stock Out</th>
                   <th style={{ ...thStyle, textAlign: 'right' }}>Current Stock</th>
@@ -203,28 +246,26 @@ export default function InventoryManagement({ inventory = [], orders = [], purch
                 </tr>
               </thead>
               <tbody>
-                {loadingData && (
+                {loading && (
                   <tr>
-                    <td colSpan={12} style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
+                    <td colSpan={13} style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
                       <RefreshCw size={24} style={{ opacity: .4, display: 'block', margin: '0 auto 8px' }} />
-                      Loading inventory...
+                      Loading inventory…
                     </td>
                   </tr>
                 )}
-                {!loadingData && filtered.length === 0 && (
+                {!loading && filtered.length === 0 && (
                   <tr>
-                    <td colSpan={12} style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
+                    <td colSpan={13} style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
                       <Package size={32} style={{ opacity: .25, display: 'block', margin: '0 auto 8px' }} />
-                      {search
-                        ? 'No records found.'
-                        : inventory.length === 0
-                          ? 'No stock available.'
-                          : 'No records found.'}
+                      {search ? 'No matching records.' : 'No inventory records found.'}
                     </td>
                   </tr>
                 )}
-                {!loadingData && filtered.map((s, i) => {
+                {!loading && filtered.map((s, i) => {
                   const ss = statusStyle(s.status)
+                  const branchName = (branches.find(b => (b._id || b.id) === String(s.branchId || s.branch_id)))?.name
+                    || s.branch_name || '—'
                   return (
                     <tr key={s._id || s.id || i}>
                       <td style={{ ...tdStyle, color: 'var(--text-muted)', fontSize: 12 }}>{i + 1}</td>
@@ -232,19 +273,17 @@ export default function InventoryManagement({ inventory = [], orders = [], purch
                       {/* Product Name */}
                       <td style={{ ...tdStyle, fontWeight: 700, maxWidth: 200 }}>
                         <div style={{ fontWeight: 700, fontSize: 13 }}>{s.name || '—'}</div>
-                        {s.size && (
+                        {(s.size || s.finish) && (
                           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-                            {s.size}{s.finish ? ` · ${s.finish}` : ''}
+                            {[s.size, s.finish].filter(Boolean).join(' · ')}
                           </div>
                         )}
                       </td>
 
-                      {/* Code */}
                       <td style={{ ...tdStyle, fontSize: 11, fontFamily: 'monospace', color: 'var(--text-muted)' }}>
                         {s.productCode || '—'}
                       </td>
-
-                      <td style={{ ...tdStyle, fontSize: 12 }}>{s.brand || '—'}</td>
+                      <td style={{ ...tdStyle, fontSize: 12 }}>{s.brand    || '—'}</td>
                       <td style={{ ...tdStyle, fontSize: 12 }}>{s.category || '—'}</td>
                       <td style={{ ...tdStyle, fontSize: 12 }}>
                         <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -252,6 +291,7 @@ export default function InventoryManagement({ inventory = [], orders = [], purch
                           {s.warehouse}
                         </span>
                       </td>
+                      <td style={{ ...tdStyle, fontSize: 12 }}>{branchName}</td>
 
                       <td style={{ ...tdStyle, textAlign: 'right', color: '#16a34a', fontWeight: 600 }}>
                         +{s.stockIn.toLocaleString()}
@@ -268,7 +308,6 @@ export default function InventoryManagement({ inventory = [], orders = [], purch
                         {s.lowAlert}
                       </td>
 
-                      {/* Status + View button */}
                       <td style={{ ...tdStyle, textAlign: 'center', whiteSpace: 'nowrap' }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                           <span style={{
@@ -306,7 +345,7 @@ export default function InventoryManagement({ inventory = [], orders = [], purch
       {tab === 'movements' && (
         <div className="card">
           <div className="card-header">
-            <span className="card-title">Stock Movements (Auto-tracked)</span>
+            <span className="card-title">Stock Movements ({allMovements.length})</span>
           </div>
           <div className="table-wrap">
             <table>
@@ -323,22 +362,22 @@ export default function InventoryManagement({ inventory = [], orders = [], purch
                 </tr>
               </thead>
               <tbody>
-                {loadingData && (
+                {loading && (
                   <tr>
                     <td colSpan={8} style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
                       <RefreshCw size={24} style={{ opacity: .4, display: 'block', margin: '0 auto 8px' }} />
-                      Loading movements...
+                      Loading movements…
                     </td>
                   </tr>
                 )}
-                {!loadingData && allMovements.length === 0 && (
+                {!loading && allMovements.length === 0 && (
                   <tr>
                     <td colSpan={8} style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
                       No stock movements found.
                     </td>
                   </tr>
                 )}
-                {!loadingData && allMovements.map((m, i) => {
+                {!loading && allMovements.map((m, i) => {
                   const ms = movementStyle(m.type)
                   return (
                     <tr key={i}>
@@ -356,12 +395,14 @@ export default function InventoryManagement({ inventory = [], orders = [], purch
                       <td style={{ ...tdStyle, fontSize: 11, fontFamily: 'monospace', color: 'var(--text-muted)' }}>
                         {m.batch || '—'}
                       </td>
-                      <td style={{ ...tdStyle, fontWeight: 700, textAlign: 'right' }}>{m.qty}</td>
+                      <td style={{ ...tdStyle, fontWeight: 700, textAlign: 'right' }}>{m.qty || 0}</td>
                       <td style={{ ...tdStyle, fontSize: 12 }}>{m.party || '—'}</td>
                       <td style={{ ...tdStyle, fontSize: 12 }}>{m.warehouse}</td>
-                      <td style={{ ...tdStyle, color: 'var(--primary)', fontSize: 12, fontFamily: 'monospace' }}>{m.ref}</td>
+                      <td style={{ ...tdStyle, color: 'var(--primary)', fontSize: 12, fontFamily: 'monospace' }}>{m.ref || '—'}</td>
                       <td style={{ ...tdStyle, fontSize: 12 }}>
-                        {m.date ? new Date(m.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                        {m.date
+                          ? new Date(m.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+                          : '—'}
                       </td>
                     </tr>
                   )
@@ -372,7 +413,7 @@ export default function InventoryManagement({ inventory = [], orders = [], purch
         </div>
       )}
 
-      {/* ═══════════ PRODUCT DETAIL VIEW MODAL ═══════════ */}
+      {/* ═══ PRODUCT DETAIL MODAL ═══ */}
       {viewItem && (
         <div
           className="modal-overlay"
@@ -384,7 +425,6 @@ export default function InventoryManagement({ inventory = [], orders = [], purch
             style={{ maxWidth: 680, width: '96vw', maxHeight: '92vh', display: 'flex', flexDirection: 'column' }}
             onClick={e => e.stopPropagation()}
           >
-            {/* Header */}
             <div className="modal-header" style={{ flexShrink: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <Package style={{ color: 'var(--primary)', width: 20 }} />
@@ -393,10 +433,8 @@ export default function InventoryManagement({ inventory = [], orders = [], purch
               <button className="btn-ghost" onClick={() => setViewItem(null)}><X size={18} /></button>
             </div>
 
-            {/* Body */}
             <div className="modal-body" style={{ padding: 0, overflowY: 'auto', flex: 1 }}>
-
-              {/* Top header strip */}
+              {/* Header strip */}
               <div style={{
                 padding: '16px 22px',
                 background: 'var(--bg)',
@@ -414,7 +452,6 @@ export default function InventoryManagement({ inventory = [], orders = [], purch
                     </div>
                   )}
                 </div>
-                {/* Status badge */}
                 {(() => {
                   const ss = statusStyle(viewItem.status)
                   return (
@@ -439,8 +476,9 @@ export default function InventoryManagement({ inventory = [], orders = [], purch
                     {[
                       { label: 'Stock In',      val: `+${viewItem.stockIn.toLocaleString()}`,  color: '#16a34a', bg: '#f0fdf4' },
                       { label: 'Stock Out',     val: viewItem.stockOut > 0 ? `-${viewItem.stockOut.toLocaleString()}` : '—', color: viewItem.stockOut > 0 ? '#dc2626' : 'var(--text-muted)', bg: viewItem.stockOut > 0 ? '#fff1f2' : 'var(--bg)' },
-                      { label: 'Current Stock', val: viewItem.current.toLocaleString(),         color: viewItem.current === 0 ? '#dc2626' : viewItem.current <= viewItem.lowAlert ? '#d97706' : 'var(--text)', bg: 'var(--bg)', bold: true },
-                      { label: 'Low Alert',     val: viewItem.lowAlert || '—',                 color: 'var(--text-muted)', bg: 'var(--bg)' },
+                      { label: 'Current Stock', val: viewItem.current.toLocaleString(), bold: true,
+                        color: viewItem.current === 0 ? '#dc2626' : viewItem.current <= viewItem.lowAlert ? '#d97706' : 'var(--text)', bg: 'var(--bg)' },
+                      { label: 'Low Alert',     val: viewItem.lowAlert || '—', color: 'var(--text-muted)', bg: 'var(--bg)' },
                     ].map((f, idx) => (
                       <div key={f.label} style={{
                         padding: '14px 16px', textAlign: 'center',
@@ -460,16 +498,16 @@ export default function InventoryManagement({ inventory = [], orders = [], purch
                   <div style={sectionTitle}>Product Details</div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px 12px' }}>
                     {[
-                      { label: 'Brand',        val: viewItem.brand    || '—' },
-                      { label: 'Category',     val: viewItem.category || '—' },
-                      { label: 'Size',         val: viewItem.size     || '—' },
-                      { label: 'Finish',       val: viewItem.finish   || '—' },
-                      { label: 'Tile Type',    val: viewItem.tile_type|| '—' },
-                      { label: 'Grade',        val: viewItem.grade    || '—' },
-                      { label: 'Unit',         val: viewItem.unit     || '—' },
-                      { label: 'GST %',        val: viewItem.gst_percent ? `${viewItem.gst_percent}%` : '—' },
-                      { label: 'Pcs / Box',    val: viewItem.pcs_per_box  ? String(viewItem.pcs_per_box)  : '—' },
-                      { label: 'Sqft / Box',   val: viewItem.sqft_per_box ? parseFloat(viewItem.sqft_per_box).toFixed(2) : '—' },
+                      { label: 'Brand',       val: viewItem.brand      || '—' },
+                      { label: 'Category',    val: viewItem.category   || '—' },
+                      { label: 'Size',        val: viewItem.size       || '—' },
+                      { label: 'Finish',      val: viewItem.finish     || '—' },
+                      { label: 'Tile Type',   val: viewItem.tile_type  || '—' },
+                      { label: 'Grade',       val: viewItem.grade      || '—' },
+                      { label: 'Unit',        val: viewItem.unit       || '—' },
+                      { label: 'GST %',       val: viewItem.gst_percent ? `${viewItem.gst_percent}%` : '—' },
+                      { label: 'Pcs / Box',   val: viewItem.pcs_per_box   ? String(viewItem.pcs_per_box)                          : '—' },
+                      { label: 'Sqft / Box',  val: viewItem.sqft_per_box  ? parseFloat(viewItem.sqft_per_box).toFixed(2)          : '—' },
                     ].map(f => (
                       <div key={f.label} style={{ background: 'var(--bg)', borderRadius: 7, padding: '9px 12px' }}>
                         <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-muted)', marginBottom: 3 }}>{f.label}</div>
@@ -490,7 +528,7 @@ export default function InventoryManagement({ inventory = [], orders = [], purch
                         { label: 'Dealer Price',   val: viewItem.dealer_price   > 0 ? `₹${parseFloat(viewItem.dealer_price).toLocaleString('en-IN')}` : '—' },
                         { label: 'Purchase Price', val: viewItem.purchase_price > 0 ? `₹${parseFloat(viewItem.purchase_price).toLocaleString('en-IN')}` : '—', highlight: true },
                       ].map(f => (
-                        <div key={f.label} style={{ background: f.highlight ? '#f0fdf4' : 'var(--bg)', border: f.highlight ? '1px solid #86efac' : '1px solid var(--border)', borderRadius: 7, padding: '10px 12px', textAlign: 'center' }}>
+                        <div key={f.label} style={{ background: f.highlight ? '#f0fdf4' : 'var(--bg)', border: `1px solid ${f.highlight ? '#86efac' : 'var(--border)'}`, borderRadius: 7, padding: '10px 12px', textAlign: 'center' }}>
                           <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-muted)', marginBottom: 4 }}>{f.label}</div>
                           <div style={{ fontSize: 14, fontWeight: 700, color: f.highlight ? '#059669' : f.val === '—' ? 'var(--text-muted)' : 'var(--text)' }}>{f.val}</div>
                         </div>
@@ -517,22 +555,23 @@ export default function InventoryManagement({ inventory = [], orders = [], purch
                     </div>
                   </div>
                 )}
-
               </div>
             </div>
 
-            {/* Footer */}
             <div className="modal-footer" style={{ flexShrink: 0 }}>
               <button className="btn btn-secondary" onClick={() => setViewItem(null)}>Close</button>
             </div>
           </div>
         </div>
       )}
+
+      {/* Spin animation for refresh button */}
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </>
   )
 }
 
-/* ── Table cell styles ── */
+/* ── Table styles ── */
 const thStyle = {
   padding: '9px 12px',
   textAlign: 'left',

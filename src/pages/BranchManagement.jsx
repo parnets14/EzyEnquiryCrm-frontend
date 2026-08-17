@@ -5,13 +5,6 @@ import {
   CheckCircle, XCircle
 } from 'lucide-react'
 
-const INITIAL_BRANCHES = [
-  { id: 1, code: 'BR-001', name: 'Head Office – Bangalore', city: 'Bangalore', state: 'Karnataka', address: '12, Tiles Market, Rajajinagar, Bangalore – 560010', manager: 'Arjun Mehta',  phone: '9880012345', email: 'bangalore@ezyenquiry.com', type: 'Head Office', status: 'Active',   warehouses: 2 },
-  { id: 2, code: 'BR-002', name: 'Mysore Branch',            city: 'Mysore',    state: 'Karnataka', address: '45, Industrial Area, Hebbal, Mysore – 570016',       manager: 'Sunita Rao',   phone: '9845098765', email: 'mysore@ezyenquiry.com',     type: 'Branch',      status: 'Active',   warehouses: 1 },
-  { id: 3, code: 'BR-003', name: 'Hubli Branch',             city: 'Hubli',     state: 'Karnataka', address: '8, Commerce Road, Gokul, Hubli – 580030',            manager: 'Ravi Kumar',   phone: '9741123456', email: 'hubli@ezyenquiry.com',      type: 'Branch',      status: 'Active',   warehouses: 1 },
-  { id: 4, code: 'BR-004', name: 'Mangalore Branch',         city: 'Mangalore', state: 'Karnataka', address: '22, Port Road, Bunder, Mangalore – 575001',          manager: 'Pooja Kamath', phone: '9900123456', email: 'mangalore@ezyenquiry.com',  type: 'Branch',      status: 'Inactive', warehouses: 0 },
-]
-
 const EMPTY = { name: '', city: '', state: '', address: '', manager: '', phone: '', email: '', type: '', status: 'Active' }
 
 // Per-stat card styling
@@ -22,8 +15,7 @@ const STAT_STYLES = {
   Warehouses: { bg: '#F5F3FF', iconBg: '#EDE9FE', iconColor: '#7C3AED', textColor: '#6D28D9', borderColor: '#DDD6FE' },
 }
 
-export default function BranchManagement() {
-  const [branches, setBranches] = useState(INITIAL_BRANCHES)
+export default function BranchManagement({ branches = [], addBranch, updateBranch, deleteBranch }) {
   const [search,   setSearch]   = useState('')
   const [filter,   setFilter]   = useState('All')   // 'All' | 'Active' | 'Inactive'
   const [viewMode, setViewMode] = useState('cards')  // 'cards' | 'table'
@@ -32,6 +24,8 @@ export default function BranchManagement() {
   const [editId,   setEditId]   = useState(null)
   const [deleteId, setDeleteId] = useState(null)
   const [errors,   setErrors]   = useState({})
+  const [saving,   setSaving]   = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   const filtered = branches.filter(b => {
     const matchStatus = filter === 'All' || b.status === filter
@@ -39,14 +33,14 @@ export default function BranchManagement() {
       b.name.toLowerCase().includes(search.toLowerCase()) ||
       b.city.toLowerCase().includes(search.toLowerCase()) ||
       b.manager.toLowerCase().includes(search.toLowerCase()) ||
-      b.code.toLowerCase().includes(search.toLowerCase())
+      (b.code || '').toLowerCase().includes(search.toLowerCase())
     return matchStatus && matchSearch
   })
 
   const openAdd    = () => { setForm(EMPTY); setErrors({}); setModal('add') }
-  const openEdit   = (b) => { setForm({ name: b.name, city: b.city, state: b.state, address: b.address, manager: b.manager, phone: b.phone, email: b.email, type: b.type, status: b.status }); setEditId(b.id); setErrors({}); setModal('edit') }
-  const openDelete = (b) => { setDeleteId(b.id); setModal('delete') }
-  const closeModal = () => { setModal(null); setEditId(null); setDeleteId(null) }
+  const openEdit   = (b) => { setForm({ name: b.name, city: b.city, state: b.state, address: b.address, manager: b.manager, phone: b.phone, email: b.email, type: b.type, status: b.status }); setEditId(b._id || b.id); setErrors({}); setModal('edit') }
+  const openDelete = (b) => { setDeleteId(b._id || b.id); setModal('delete') }
+  const closeModal = () => { setModal(null); setEditId(null); setDeleteId(null); setErrors({}) }
 
   const validate = () => {
     const e = {}
@@ -61,19 +55,37 @@ export default function BranchManagement() {
     return Object.keys(e).length === 0
   }
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!validate()) return
+    setSaving(true)
     if (modal === 'add') {
-      const next = { ...form, id: Date.now(), code: `BR-${String(branches.length + 1).padStart(3, '0')}`, warehouses: 0 }
-      setBranches(p => [...p, next])
+      const result = await addBranch?.(form)
+      if (result?.success === false) {
+        setErrors(e => ({ ...e, _global: result.message || 'Failed to create branch' }))
+        setSaving(false)
+        return
+      }
     } else {
-      setBranches(p => p.map(b => b.id === editId ? { ...b, ...form } : b))
+      const result = await updateBranch?.(editId, form)
+      if (result?.success === false) {
+        setErrors(e => ({ ...e, _global: result.message || 'Failed to update branch' }))
+        setSaving(false)
+        return
+      }
     }
+    setSaving(false)
     closeModal()
   }
 
-  const handleDelete = () => {
-    setBranches(p => p.filter(b => b.id !== deleteId))
+  const handleDelete = async () => {
+    setDeleting(true)
+    const result = await deleteBranch?.(deleteId)
+    if (result?.success === false) {
+      setDeleting(false)
+      alert(result.message || 'Failed to delete branch')
+      return
+    }
+    setDeleting(false)
     closeModal()
   }
 
@@ -241,7 +253,7 @@ export default function BranchManagement() {
                 {filtered.length === 0 ? (
                   <tr><td colSpan={10} style={{ textAlign: 'center', padding: 28, color: 'var(--text-muted)' }}>No branches found</td></tr>
                 ) : filtered.map(b => (
-                  <tr key={b.id}>
+                  <tr key={b._id || b.id}>
                     <td style={{ color: 'var(--primary)', fontWeight: 700, fontSize: 12, whiteSpace: 'nowrap' }}>{b.code}</td>
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
@@ -334,7 +346,7 @@ export default function BranchManagement() {
             </div>
           ) : filtered.map(b => (
             <div
-              key={b.id}
+              key={b._id || b.id}
               style={{ background: '#fff', borderRadius: 14, border: '1px solid #E8EDF3', boxShadow: '0 1px 4px rgba(0,0,0,0.05)', overflow: 'hidden', transition: 'box-shadow 0.15s' }}
               onMouseEnter={e => e.currentTarget.style.boxShadow = '0 4px 20px rgba(0,0,0,0.09)'}
               onMouseLeave={e => e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.05)'}
@@ -407,6 +419,11 @@ export default function BranchManagement() {
               <button onClick={closeModal} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8', borderRadius: 6, padding: 4, display: 'flex' }}><X size={18} /></button>
             </div>
             <div style={{ padding: '22px 26px' }}>
+              {errors._global && (
+                <div style={{ marginBottom: 14, padding: '10px 14px', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, fontSize: 13, color: '#DC2626' }}>
+                  {errors._global}
+                </div>
+              )}
               {F('name', 'Branch Name *', 'e.g. Mysore Branch')}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
                 {F('city',  'City *',  'e.g. Mysore')}
@@ -446,9 +463,9 @@ export default function BranchManagement() {
               </div>
             </div>
             <div style={{ padding: '14px 26px 22px', borderTop: '1px solid #E8EDF3', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-              <button onClick={closeModal} style={{ padding: '10px 20px', borderRadius: 9, border: '1.5px solid #E2E8F0', background: '#F8FAFC', color: '#64748B', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
-              <button onClick={handleSave} style={{ padding: '10px 22px', borderRadius: 9, border: 'none', background: 'linear-gradient(135deg,#FD5C02,#FE7722)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7, boxShadow: '0 4px 14px rgba(253,92,2,0.3)' }}>
-                <Check size={14} /> {modal === 'add' ? 'Add Branch' : 'Save Changes'}
+              <button onClick={closeModal} disabled={saving} style={{ padding: '10px 20px', borderRadius: 9, border: '1.5px solid #E2E8F0', background: '#F8FAFC', color: '#64748B', fontSize: 13, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.6 : 1 }}>Cancel</button>
+              <button onClick={handleSave} disabled={saving} style={{ padding: '10px 22px', borderRadius: 9, border: 'none', background: saving ? '#FEB895' : 'linear-gradient(135deg,#FD5C02,#FE7722)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 7, boxShadow: saving ? 'none' : '0 4px 14px rgba(253,92,2,0.3)', transition: 'all 0.15s' }}>
+                <Check size={14} /> {saving ? 'Saving…' : (modal === 'add' ? 'Add Branch' : 'Save Changes')}
               </button>
             </div>
           </div>
@@ -467,8 +484,10 @@ export default function BranchManagement() {
               This action cannot be undone. All branch data will be permanently removed.
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={closeModal} style={{ flex: 1, padding: '10px 0', borderRadius: 9, border: '1.5px solid #E2E8F0', background: '#F8FAFC', color: '#64748B', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Cancel</button>
-              <button onClick={handleDelete} style={{ flex: 1, padding: '10px 0', borderRadius: 9, border: 'none', background: '#EF4444', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>Yes, Delete</button>
+              <button onClick={closeModal} disabled={deleting} style={{ flex: 1, padding: '10px 0', borderRadius: 9, border: '1.5px solid #E2E8F0', background: '#F8FAFC', color: '#64748B', fontSize: 13, fontWeight: 600, cursor: deleting ? 'not-allowed' : 'pointer', opacity: deleting ? 0.6 : 1 }}>Cancel</button>
+              <button onClick={handleDelete} disabled={deleting} style={{ flex: 1, padding: '10px 0', borderRadius: 9, border: 'none', background: deleting ? '#F87171' : '#EF4444', color: '#fff', fontSize: 13, fontWeight: 700, cursor: deleting ? 'not-allowed' : 'pointer', transition: 'all 0.15s' }}>
+                {deleting ? 'Deleting…' : 'Yes, Delete'}
+              </button>
             </div>
           </div>
         </div>

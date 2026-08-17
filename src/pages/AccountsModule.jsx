@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { BookOpen, TrendingUp, TrendingDown, DollarSign, ArrowUpRight, ArrowDownRight } from 'lucide-react'
-import { PRODUCTS_CATALOGUE } from '../store/erpStore'
 
 export default function AccountsModule({
   sales = [], purchases = [], payments = { receivables: [], payables: [], history: [] },
@@ -8,76 +7,70 @@ export default function AccountsModule({
 }) {
   const [tab, setTab] = useState('ledger')
 
-  // ── Live calculations ────────────────────────────────────
-  const totalSalesInvoiced  = sales.reduce((a, s) => a + (s.total || 0), 0)
-  const totalSalesRevenue   = sales.reduce((a, s) => a + (s.amount || 0), 0)
-  const totalGSTCollected   = sales.reduce((a, s) => a + (s.gst || 0), 0)
+  // ── Live calculations — all using backend snake_case field names ──
+  const totalSalesInvoiced  = sales.reduce((a, s) => a + (s.total_amount || 0), 0)
+  const totalSalesRevenue   = sales.reduce((a, s) => a + (s.amount       || 0), 0)
+  const totalGSTCollected   = sales.reduce((a, s) => a + (s.gst_amount   || 0), 0)
 
-  const totalPurchased      = purchases.reduce((a, p) => a + (p.total || 0), 0)
-  const totalPurchaseCost   = purchases.reduce((a, p) => a + (p.amount || 0), 0)
-  const totalGSTPaid        = purchases.reduce((a, p) => a + (p.gst || 0), 0)
+  const totalPurchased      = purchases.reduce((a, p) => a + (p.total_amount || 0), 0)
+  const totalPurchaseCost   = purchases.reduce((a, p) => a + (p.amount       || 0), 0)
+  const totalGSTPaid        = purchases.reduce((a, p) => a + (p.gst_amount   || 0), 0)
 
-  const totalReceived       = (payments.history || []).filter(h => h.type === 'Received').reduce((a, h) => a + h.amount, 0)
-  const totalPaid           = (payments.history || []).filter(h => h.type === 'Paid').reduce((a, h) => a + h.amount, 0)
+  const totalReceived       = (payments.history || []).filter(h => h.type === 'Received').reduce((a, h) => a + (h.amount || 0), 0)
+  const totalPaid           = (payments.history || []).filter(h => h.type === 'Paid').reduce((a, h) => a + (h.amount || 0), 0)
 
   const totalOutstandingRcv = (payments.receivables || []).reduce((a, r) => a + (r.outstanding || 0), 0)
-  const totalOutstandingPay = (payments.payables   || []).reduce((a, p) => a + (p.outstanding || 0), 0)
+  const totalOutstandingPay = (payments.payables    || []).reduce((a, p) => a + (p.outstanding || 0), 0)
 
-  const gstPayable          = totalGSTCollected - totalGSTPaid   // GST to pay govt
-  const netCash             = totalReceived - totalPaid
+  const gstPayable = totalGSTCollected - totalGSTPaid
+  const netCash    = totalReceived - totalPaid
 
-  // ── Ledger entries (auto-built) ──────────────────────────
+  // Helper — format ISO date to readable
+  const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }) : '—'
+
+  // ── Ledger entries — built from real backend data ─────────
   const ledger = [
-    // Purchase entries
     ...purchases.map(p => ({
-      date:    p.date,
-      type:    'Purchase',
-      ref:     p.id,
-      party:   p.supplier,
-      narration: `Purchased ${p.product} × ${p.qty} Pcs`,
-      debit:   p.total,
-      credit:  0,
+      date:      fmtDate(p.purchase_date || p.created_at),
+      type:      'Purchase',
+      ref:       p.purchase_code || p._id || '',
+      party:     p.supplier_name || '—',
+      narration: `Purchased ${p.product_name || ''} × ${p.qty || 0} ${p.unit || ''}`,
+      debit:     p.total_amount || 0,
+      credit:    0,
+      _ts:       new Date(p.purchase_date || p.created_at || 0).getTime(),
     })),
-    // Sales entries
     ...sales.map(s => ({
-      date:    s.date,
-      type:    'Sales',
-      ref:     s.id,
-      party:   s.customer,
-      narration: `Sold ${s.product} × ${s.qty} Pcs`,
-      debit:   0,
-      credit:  s.total,
+      date:      fmtDate(s.sale_date || s.created_at),
+      type:      'Sales',
+      ref:       s.sale_code || s._id || '',
+      party:     s.customer_name || '—',
+      narration: `Sold ${s.product_name || ''} × ${s.qty || 0} ${s.unit || ''}`,
+      debit:     0,
+      credit:    s.total_amount || 0,
+      _ts:       new Date(s.sale_date || s.created_at || 0).getTime(),
     })),
-    // Payment received
     ...(payments.history || []).filter(h => h.type === 'Received').map(h => ({
-      date:    h.date,
-      type:    'Receipt',
-      ref:     h.id,
-      party:   h.party,
-      narration: h.notes || 'Payment received',
-      debit:   0,
-      credit:  h.amount,
+      date:      fmtDate(h.txn_date || h.created_at),
+      type:      'Receipt',
+      ref:       h.txn_code || h._id || '',
+      party:     h.party_name || '—',
+      narration: h.notes || `Payment received via ${h.mode || 'Cash'}`,
+      debit:     0,
+      credit:    h.amount || 0,
+      _ts:       new Date(h.txn_date || h.created_at || 0).getTime(),
     })),
-    // Payment paid
     ...(payments.history || []).filter(h => h.type === 'Paid').map(h => ({
-      date:    h.date,
-      type:    'Payment',
-      ref:     h.id,
-      party:   h.party,
-      narration: h.notes || 'Payment made',
-      debit:   h.amount,
-      credit:  0,
+      date:      fmtDate(h.txn_date || h.created_at),
+      type:      'Payment',
+      ref:       h.txn_code || h._id || '',
+      party:     h.party_name || '—',
+      narration: h.notes || `Payment made via ${h.mode || 'Bank Transfer'}`,
+      debit:     h.amount || 0,
+      credit:    0,
+      _ts:       new Date(h.txn_date || h.created_at || 0).getTime(),
     })),
-  ].sort((a, b) => {
-    // Proper chronological sort for "05 Aug 2026" format
-    const parseDate = (str) => {
-      const months = { Jan:0, Feb:1, Mar:2, Apr:3, May:4, Jun:5, Jul:6, Aug:7, Sep:8, Oct:9, Nov:10, Dec:11 }
-      const parts = (str || '').split(' ')
-      if (parts.length < 3) return 0
-      return new Date(parseInt(parts[2]), months[parts[1]] ?? 0, parseInt(parts[0])).getTime()
-    }
-    return parseDate(b.date) - parseDate(a.date)
-  })
+  ].sort((a, b) => b._ts - a._ts)
 
   // Running balance
   let runningBalance = 0

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useAuth } from '../context/AuthContext'
 import { Plus, Search, Eye, ArrowRight, MessageCircle, CheckCircle, X, LayoutList, Sparkles, ScanEye, Reply, Handshake, BadgeCheck, Ban, Package } from 'lucide-react'
 
 // ── API field helpers (backend snake_case → frontend) ─────────
@@ -14,11 +15,10 @@ const enqDate     = e => e.created_at
   : (e.date || '')
 const enqReply    = e => e.distributor_reply || e.distributorReply || ''
 const enqNote     = e => e.negotiation_note  || e.negotiationNote  || ''
-const enqOrderId  = e => e.order_id || e.orderId || null
+const enqOrderId   = e => e.order_id || e.orderId || null
+const enqOrderCode = e => e.order_code || (e.order_id && typeof e.order_id === 'object' ? e.order_id.order_code : '') || ''
 const enqRemarks  = e => e.remarks || ''
 
-// ── Scope-defined status flow (Day 13) ────────────────────────
-// New → Viewed → Replied → Negotiation → Confirmed → Cancelled
 const STATUS_FLOW = ['New', 'Viewed', 'Replied', 'Negotiation', 'Confirmed', 'Cancelled']
 
 const STATUS_META = {
@@ -30,7 +30,6 @@ const STATUS_META = {
   Cancelled:   { color: 'badge-red',    label: 'Cancelled',   dot: '#EF4444' },
 }
 
-// Which statuses are valid transitions from each state
 const NEXT_STATUSES = {
   New:         ['Viewed', 'Cancelled'],
   Viewed:      ['Replied', 'Cancelled'],
@@ -40,10 +39,20 @@ const NEXT_STATUSES = {
   Cancelled:   [],
 }
 
+// ── Role helpers ──────────────────────────────────────────────
+const WHOLESALER_ROLES = ['Wholesaler', 'Manager', 'Company Owner', 'Super Admin', 'Sales Executive']
+const RETAILER_ROLES   = ['Retailer']
+
 export default function EnquiryManagement({
-  enquiries = [], inventory = [], orders = [], products = [],
+  enquiries = [], inventory = [], orders = [], products = [], branches = [],
   addEnquiry, updateEnquiry, convertEnquiryToOrder,
 }) {
+  const { user } = useAuth()
+  const userRole  = user?.role || 'Manager'
+  const isRetailer    = RETAILER_ROLES.includes(userRole)
+  const isWholesaler  = WHOLESALER_ROLES.includes(userRole)
+
+  const branchNames = branches.map(b => b.name || b).filter(Boolean)
   const [search,        setSearch]       = useState('')
   const [statusFilter,  setStatusFilter] = useState('All')
   const [selected,      setSelected]     = useState(null)
@@ -51,9 +60,9 @@ export default function EnquiryManagement({
   const [replyText,     setReplyText]    = useState('')
   const [negText,       setNegText]      = useState('')
   const [offerPrice,    setOfferPrice]   = useState('')
+  const [orderBranch,   setOrderBranch]  = useState('')
   const [successMsg,    setSuccessMsg]   = useState('')
   const [saving,        setSaving]       = useState(false)
-
   // ── New Enquiry form ──────────────────────────────────────────
   const EMPTY_FORM = { retailer: '', mobile: '', email: '', product_id: '', productCode: '', product: '',
     qty: '', unit: 'Sq Ft', offeredPrice: '', location: '', remarks: '' }
@@ -105,8 +114,8 @@ export default function EnquiryManagement({
     setReplyText(enqReply(e))
     setNegText(enqNote(e))
     setOfferPrice(enqPrice(e) ? String(enqPrice(e)) : '')
-    // Auto-advance to Viewed if New
-    if (e.status === 'New') {
+    // Auto-advance to Viewed only if Wholesaler/Manager opens a New enquiry
+    if (e.status === 'New' && isWholesaler) {
       updateEnquiry?.(eid(e), { status: 'Viewed' })
       setSelected({ ...e, status: 'Viewed' })
     }
@@ -144,13 +153,31 @@ export default function EnquiryManagement({
   const handleConvertToOrder = async () => {
     setSaving(true)
     const agreedRate = offerPrice ? parseFloat(offerPrice) : enqPrice(selected)
-    const result = await convertEnquiryToOrder?.(selected, agreedRate)
+    const result = await convertEnquiryToOrder?.(selected, agreedRate, {
+      branch_name: orderBranch || '',
+    })
     setSaving(false)
     if (result?.success === false) { toast(`Error: ${result.message}`); return }
-    const orderCode = result?.data?.order_code || 'New'
-    const total     = result?.data?.total_amount || 0
-    setSelected(prev => ({ ...prev, status: 'Confirmed', order_id: result?.data?._id }))
-    toast(`✓ Order ${orderCode} created! Total ₹${total.toLocaleString()} (GST 18% incl.)`)
+
+    const orderData  = result?.data || {}
+    const orderCode  = orderData.order_code || ''
+    const total      = orderData.total_amount || 0
+    const orderId    = orderData._id || orderData.id || ''
+    const isExisting = result?.alreadyExists
+
+    // Update the selected enquiry state to reflect the new order ref
+    setSelected(prev => ({
+      ...prev,
+      order_id:   orderId,
+      order_code: orderCode,
+    }))
+    setOrderBranch('')
+
+    if (isExisting) {
+      toast(`Order ${orderCode} already exists for this enquiry.`)
+    } else {
+      toast(`✓ Order ${orderCode} created! Total ₹${total.toLocaleString()} (incl. GST)`)
+    }
   }
 
   // ── Submit New Enquiry ────────────────────────────────────────
@@ -292,7 +319,9 @@ export default function EnquiryManagement({
       {/* ── Main table ─────────────────────────────────────────── */}
       <div className="card" style={{ width: '100%' }}>
         <div className="card-header">
-          <span className="card-title">Enquiries ({filtered.length})</span>
+          <span className="card-title">
+            {isRetailer ? 'My Enquiries' : 'Enquiries'} ({filtered.length})
+          </span>
           <div className="header-actions">
             <div className="search-bar">
               <Search />
@@ -306,9 +335,18 @@ export default function EnquiryManagement({
               <option value="All">All Status</option>
               {STATUS_FLOW.map(s => <option key={s}>{s}</option>)}
             </select>
-            <button className="btn btn-primary" onClick={() => { setShowNewModal(true); setNewForm(EMPTY_FORM); setSelectedProduct(null); setEnqErrors({}) }}>
-              <Plus />New Enquiry
-            </button>
+            {/* Only Retailers / Sales staff can raise new enquiries */}
+            {!isRetailer || userRole === 'Retailer' ? (
+              <button className="btn btn-primary" onClick={() => { setShowNewModal(true); setNewForm(EMPTY_FORM); setSelectedProduct(null); setEnqErrors({}) }}>
+                <Plus />New Enquiry
+              </button>
+            ) : null}
+            {/* Wholesalers see a role badge instead */}
+            {userRole === 'Wholesaler' && (
+              <span className="badge badge-blue" style={{ fontSize: 11, padding: '6px 12px' }}>
+                Wholesaler View
+              </span>
+            )}
           </div>
         </div>
 
@@ -341,24 +379,27 @@ export default function EnquiryManagement({
                   </td>
                   <td>
                     <div className="table-actions">
-                      {/* View/Reply */}
-                      <button className="btn btn-ghost btn-xs" title="View & Reply" onClick={() => openDetail(e)}>
+                      {/* View button — everyone can view */}
+                      <button className="btn btn-ghost btn-xs" title="View Details" onClick={() => openDetail(e)}>
                         <Eye style={{ width: 13 }} />
                       </button>
-                      {/* Quick reply button for Viewed */}
-                      {e.status === 'Viewed' && (
+                      {/* Wholesaler-only: quick reply button for Viewed enquiries */}
+                      {isWholesaler && e.status === 'Viewed' && (
                         <button className="btn btn-primary btn-xs" title="Send Reply" onClick={() => openDetail(e)}>
                           <MessageCircle style={{ width: 13 }} />Reply
                         </button>
                       )}
-                      {/* Convert to Order when Confirmed */}
-                      {e.status === 'Confirmed' && !enqOrderId(e) && (
-                        <button className="btn btn-primary btn-xs" title="Convert to Order" onClick={() => { openDetail(e) }}>
+                      {/* Wholesaler-only: convert confirmed to order */}
+                      {isWholesaler && e.status === 'Confirmed' && !enqOrderId(e) && (
+                        <button className="btn btn-primary btn-xs" title="Convert to Order" onClick={() => openDetail(e)}>
                           <ArrowRight style={{ width: 13 }} />Order
                         </button>
                       )}
                       {enqOrderId(e) && (
-                        <span className="badge badge-green" style={{ fontSize: 10 }}>✓ Ordered</span>
+                        <span className="badge badge-green" style={{ fontSize: 10 }}
+                          title={enqOrderCode(e) ? `Order: ${enqOrderCode(e)}` : 'Order created'}>
+                          ✓ {enqOrderCode(e) || 'Ordered'}
+                        </span>
                       )}
                     </div>
                   </td>
@@ -527,17 +568,28 @@ export default function EnquiryManagement({
 
               {/* ── Order Created Banner ── */}
               {enqOrderId(selected) && (
-                <div className="alert alert-info" style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <CheckCircle style={{ color: 'var(--success)', width: 18, flexShrink: 0 }} />
-                  <span>Order has been created from this enquiry. Check Order Management for details.</span>
+                <div className="alert alert-info" style={{ marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <CheckCircle style={{ color: 'var(--success)', width: 18, flexShrink: 0 }} />
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 13 }}>Order Created</div>
+                      {enqOrderCode(selected) && (
+                        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 1 }}>
+                          Ref: <strong style={{ color: 'var(--primary)', fontFamily: 'monospace', fontSize: 13 }}>{enqOrderCode(selected)}</strong>
+                          <span style={{ marginLeft: 8, opacity: 0.7 }}>→ Marketplace › Order Management</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <span className="badge badge-green" style={{ fontSize: 11, flexShrink: 0 }}>✓ Ordered</span>
                 </div>
               )}
 
               {/* ═══════════════════════════════════════════════
                   WHOLESALER ACTION AREA
-                  Show only if enquiry is still actionable
+                  Show only if enquiry is still actionable AND user is Wholesaler/Manager
               ═══════════════════════════════════════════════ */}
-              {!['Confirmed', 'Cancelled'].includes(selected.status) && !enqOrderId(selected) && (
+              {isWholesaler && !['Confirmed', 'Cancelled'].includes(selected.status) && !enqOrderId(selected) && (
                 <>
                   <div className="divider" />
                   <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10, color: 'var(--text)' }}>
@@ -615,8 +667,8 @@ export default function EnquiryManagement({
                 </>
               )}
 
-              {/* ── Convert to Order (Confirmed + no order yet) ── */}
-              {selected.status === 'Confirmed' && !enqOrderId(selected) && (
+              {/* ── Convert to Order (Confirmed + no order yet) — Wholesaler only ── */}
+              {isWholesaler && selected.status === 'Confirmed' && !enqOrderId(selected) && (
                 <>
                   <div className="divider" />
                   <div style={{ background: '#f0fdf4', border: '1px solid #6ee7b7', borderRadius: 10, padding: '14px 16px' }}>
@@ -627,6 +679,19 @@ export default function EnquiryManagement({
                       Rate: <strong>₹{enqPrice(selected).toLocaleString()}</strong> &nbsp;|&nbsp;
                       Total: <strong>₹{(enqPrice(selected) * selected.qty * 1.18).toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong> (incl. 18% GST)
                     </div>
+                    {branchNames.length > 0 && (
+                      <div className="form-group" style={{ marginBottom: 12 }}>
+                        <label className="form-label">Assign Branch (optional)</label>
+                        <select
+                          className="form-control"
+                          value={orderBranch}
+                          onChange={e => setOrderBranch(e.target.value)}
+                        >
+                          <option value="">Select Branch</option>
+                          {branchNames.map(b => <option key={b}>{b}</option>)}
+                        </select>
+                      </div>
+                    )}
                     <button
                       className="btn btn-primary"
                       style={{ width: '100%', fontWeight: 700 }}
@@ -634,17 +699,34 @@ export default function EnquiryManagement({
                       onClick={handleConvertToOrder}
                     >
                       <ArrowRight style={{ width: 15 }} />
-                      {saving ? 'Creating Order…' : 'Convert to Order — Inventory will auto-update'}
+                      {saving ? 'Creating Order…' : 'Convert to Order'}
                     </button>
                   </div>
                 </>
+              )}
+
+              {/* ── Already ordered — show order ref ── */}
+              {selected.status === 'Confirmed' && enqOrderId(selected) && (
+                <div style={{ marginTop: 10, padding: '12px 16px', background: '#f0fdf4', border: '1px solid #6ee7b7', borderRadius: 10 }}>
+                  <div style={{ fontWeight: 700, color: '#065f46', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <CheckCircle style={{ width: 16, color: '#10b981', flexShrink: 0 }} />
+                    Order Already Created
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                    Order Ref:{' '}
+                    <strong style={{ color: 'var(--primary)', fontFamily: 'monospace', fontSize: 14 }}>
+                      {enqOrderCode(selected) || '—'}
+                    </strong>
+                    <span style={{ marginLeft: 10, opacity: 0.7 }}>→ Marketplace › Order Management</span>
+                  </div>
+                </div>
               )}
             </div>
 
             {/* Footer */}
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setSelected(null)}>Close</button>
-              {!['Confirmed', 'Cancelled'].includes(selected.status) && replyText.trim() && (
+              {isWholesaler && !['Confirmed', 'Cancelled'].includes(selected.status) && replyText.trim() && (
                 <button className="btn btn-primary" disabled={saving} onClick={handleSendReply}>
                   <MessageCircle style={{ width: 14 }} />
                   {saving ? 'Sending…' : 'Send Reply & Update Status'}

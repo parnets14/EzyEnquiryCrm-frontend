@@ -1,8 +1,36 @@
-import { useState, useCallback } from 'react'
-import { Plus, MapPin, Warehouse, Edit2, Trash2, Eye, X, Search } from 'lucide-react'
+import { useState, useCallback, useEffect, useRef } from 'react'
+import { Plus, MapPin, Warehouse, Edit2, Trash2, Eye, X, Search,
+  Send, CheckCircle, RefreshCw, Calendar, XCircle, ChevronDown } from 'lucide-react'
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const WAREHOUSE_TYPES = ['Main Warehouse', 'Branch Warehouse', 'Transit Hub', 'Cold Storage', 'Depot', 'Other']
+
+const STATUS_META = {
+  draft:     { label: 'Draft',     bg: '#F1F5F9', color: '#64748B', border: '#CBD5E1' },
+  sent:      { label: 'Sent',      bg: '#EFF6FF', color: '#2563EB', border: '#BFDBFE' },
+  accepted:  { label: 'Accepted',  bg: '#ECFDF5', color: '#059669', border: '#A7F3D0' },
+  converted: { label: 'Converted', bg: '#F0F9FF', color: '#0284C7', border: '#BAE6FD' },
+  expired:   { label: 'Expired',   bg: '#FFFBEB', color: '#D97706', border: '#FDE68A' },
+  cancelled: { label: 'Cancelled', bg: '#FEF2F2', color: '#DC2626', border: '#FECACA' },
+}
+
+const STATUS_TRANSITIONS = {
+  draft:     ['sent', 'expired', 'cancelled'],
+  sent:      ['accepted', 'expired', 'cancelled'],
+  accepted:  ['converted', 'cancelled'],
+  converted: [],
+  expired:   ['draft'],
+  cancelled: ['draft'],
+}
+
+const TRANSITION_CONFIG = {
+  sent:      { label: 'Mark Sent',      icon: '📤', bg: '#EFF6FF', color: '#2563EB', border: '#BFDBFE' },
+  accepted:  { label: 'Mark Accepted',  icon: '✅', bg: '#ECFDF5', color: '#059669', border: '#A7F3D0' },
+  converted: { label: 'Mark Converted', icon: '🔄', bg: '#F0F9FF', color: '#0284C7', border: '#BAE6FD' },
+  expired:   { label: 'Mark Expired',   icon: '📅', bg: '#FFFBEB', color: '#D97706', border: '#FDE68A' },
+  cancelled: { label: 'Cancel',         icon: '✕',  bg: '#FEF2F2', color: '#DC2626', border: '#FECACA' },
+  draft:     { label: 'Reopen',         icon: '↩',  bg: '#F8FAFC', color: '#475569', border: '#CBD5E1' },
+}
 
 const INDIAN_STATES = [
   'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh',
@@ -16,6 +44,7 @@ const INDIAN_STATES = [
 const EMPTY_FORM = {
   warehouse_code: '', name: '', warehouse_type: '', address: '', city: '', state: '',
   pincode: '', contact_person: '', mobile: '', email: '', manager: '', is_active: true,
+  status: 'draft', branch_id: '',
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -46,7 +75,7 @@ function Field({ label, required, error, children }) {
 }
 
 // ── Create / Edit Modal ────────────────────────────────────────────────────────
-function WarehouseModal({ editData, onClose, onSave, saving }) {
+function WarehouseModal({ editData, onClose, onSave, saving, branches = [] }) {
   const isEdit = !!editData?._id
   const [form, setForm] = useState(() =>
     isEdit ? {
@@ -62,6 +91,8 @@ function WarehouseModal({ editData, onClose, onSave, saving }) {
       email:          editData.email          || '',
       manager:        editData.manager        || '',
       is_active:      editData.is_active !== false,
+      status:         editData.status         || 'draft',
+      branch_id:      editData.branch_id      || '',
     } : { ...EMPTY_FORM }
   )
   const [errors, setErrors] = useState({})
@@ -81,6 +112,22 @@ function WarehouseModal({ editData, onClose, onSave, saving }) {
           <button className="btn-ghost" onClick={onClose}><X style={{ width: 16 }} /></button>
         </div>
         <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+          <Field label="Branch">
+            <select
+              className="form-control"
+              value={form.branch_id}
+              onChange={e => setForm(p => ({ ...p, branch_id: e.target.value }))}
+            >
+              <option value="">— Select Branch —</option>
+              {branches
+                .filter(b => b.status !== 'Inactive')
+                .map(b => (
+                  <option key={b._id || b.id} value={b._id || b.id}>
+                    {b.name}{b.code ? ` (${b.code})` : ''}
+                  </option>
+                ))}
+            </select>
+          </Field>
           <Field label="Warehouse Code" required error={errors.warehouse_code}>
             <input className={`form-control${errors.warehouse_code ? ' error' : ''}`}
               placeholder="e.g. WH-001" value={form.warehouse_code}
@@ -144,6 +191,14 @@ function WarehouseModal({ editData, onClose, onSave, saving }) {
               onChange={e => setForm(p => ({ ...p, is_active: e.target.value === 'Active' }))}>
               <option>Active</option>
               <option>Inactive</option>
+            </select>
+          </Field>
+          <Field label="Workflow Status">
+            <select className="form-control" value={form.status || 'draft'}
+              onChange={e => setForm(p => ({ ...p, status: e.target.value }))}>
+              {Object.entries(STATUS_META).map(([k, v]) => (
+                <option key={k} value={k}>{v.label}</option>
+              ))}
             </select>
           </Field>
         </div>
@@ -223,8 +278,98 @@ function ViewModal({ wh, onClose, onEdit }) {
   )
 }
 
+// ── Action Menu (Status Dropdown) ─────────────────────────────────────────────
+function ActionMenu({ wh, onStatusChange, onEdit, onView, onDelete, deleting, statusUpdating }) {
+  const [open, setOpen] = useState(false)
+  const id = wh._id || wh.id
+  const currentStatus = wh.status || 'draft'
+  const transitions = STATUS_TRANSITIONS[currentStatus] || []
+  const ref = useRef()
+
+  useEffect(() => {
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [])
+
+  return (
+    <div ref={ref} style={{ position: 'relative', display: 'inline-block' }}>
+      <div style={{ display: 'flex', gap: 3, alignItems: 'center' }}>
+        {/* View */}
+        <button title="View" onClick={() => onView(wh)}
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center',
+            width: 28, height: 28, borderRadius: 6, border: '1px solid #BFDBFE',
+            background: '#EFF6FF', color: '#2563EB', cursor: 'pointer' }}>
+          <Eye size={13} />
+        </button>
+        {/* Edit */}
+        <button title="Edit" onClick={() => onEdit(wh)}
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center',
+            width: 28, height: 28, borderRadius: 6, border: '1px solid #FED7AA',
+            background: '#FFF7ED', color: '#EA580C', cursor: 'pointer' }}>
+          <Edit2 size={13} />
+        </button>
+        {/* Status action dropdown */}
+        {transitions.length > 0 && (
+          <button
+            title="Change Status"
+            onClick={() => setOpen(o => !o)}
+            style={{ display: 'flex', alignItems: 'center', gap: 3, padding: '4px 8px', height: 28,
+              borderRadius: 6, border: '1px solid #E2E8F0', background: '#F8FAFC',
+              color: '#475569', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
+            Status <ChevronDown size={11} style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
+          </button>
+        )}
+        {/* Delete */}
+        <button title="Delete" onClick={() => onDelete(wh)} disabled={deleting === id}
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center',
+            width: 28, height: 28, borderRadius: 6, border: '1px solid #FECACA',
+            background: '#FEF2F2', color: '#DC2626', cursor: 'pointer' }}>
+          <Trash2 size={13} />
+        </button>
+      </div>
+
+      {/* Dropdown menu */}
+      {open && transitions.length > 0 && (
+        <div style={{
+          position: 'absolute', top: '100%', right: 0, zIndex: 1000, marginTop: 4,
+          background: 'white', border: '1px solid #E2E8F0', borderRadius: 10,
+          boxShadow: '0 8px 24px rgba(0,0,0,.12)', minWidth: 180, overflow: 'hidden',
+        }}>
+          <div style={{ padding: '6px 12px 4px', fontSize: 10, fontWeight: 700,
+            textTransform: 'uppercase', letterSpacing: '.06em', color: '#94A3B8',
+            borderBottom: '1px solid #F1F5F9' }}>
+            Change Status
+          </div>
+          {transitions.map(next => {
+            const cfg = TRANSITION_CONFIG[next]
+            return (
+              <button key={next}
+                onClick={() => { onStatusChange(wh, next); setOpen(false) }}
+                disabled={statusUpdating === id}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+                  padding: '9px 14px', border: 'none', background: 'transparent',
+                  cursor: statusUpdating === id ? 'not-allowed' : 'pointer',
+                  fontSize: 13, fontWeight: 600, color: cfg.color, textAlign: 'left',
+                  borderBottom: '1px solid #F8FAFC', transition: 'background .1s',
+                }}
+                onMouseEnter={e => e.currentTarget.style.background = cfg.bg}
+                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+              >
+                <span style={{ fontSize: 14 }}>{cfg.icon}</span>
+                <span>{cfg.label}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main Page ──────────────────────────────────────────────────────────────────
-export default function WarehouseManagement({ warehouses = [], addWarehouse, updateWarehouse, deleteWarehouse }) {
+export default function WarehouseManagement({ warehouses = [], addWarehouse, updateWarehouse, deleteWarehouse, branches = [] }) {
   const [showModal,      setShowModal]      = useState(false)
   const [editData,       setEditData]       = useState(null)
   const [viewData,       setViewData]       = useState(null)
@@ -260,9 +405,9 @@ export default function WarehouseManagement({ warehouses = [], addWarehouse, upd
     const id = wh._id || wh.id
     setStatusUpdating(id)
     try {
-      const res = await updateWarehouse(id, { ...wh, is_active: newStatus === 'Active' })
+      const res = await updateWarehouse(id, { ...wh, status: newStatus })
       if (res?.success === false) { alert(res.message || 'Status update failed'); return }
-      showToast(`"${wh.name}" marked as ${newStatus}`)
+      showToast(`"${wh.name}" → ${STATUS_META[newStatus]?.label || newStatus}`)
     } finally { setStatusUpdating(null) }
   }, [updateWarehouse])
 
@@ -283,14 +428,10 @@ export default function WarehouseManagement({ warehouses = [], addWarehouse, upd
       (w.warehouse_code || '').toLowerCase().includes(q) ||
       (w.city           || '').toLowerCase().includes(q) ||
       (w.manager        || '').toLowerCase().includes(q)
-    const matchStatus =
-      filterStatus === 'Active'   ? w.is_active !== false :
-      filterStatus === 'Inactive' ? w.is_active === false : true
+    const wStatus = w.status || 'draft'
+    const matchStatus = filterStatus === 'All' || wStatus === filterStatus
     return matchSearch && matchStatus
   })
-
-  const totalActive   = warehouses.filter(w => w.is_active !== false).length
-  const totalInactive = warehouses.filter(w => w.is_active === false).length
 
   return (
     <>
@@ -302,21 +443,33 @@ export default function WarehouseManagement({ warehouses = [], addWarehouse, upd
 
       {toast && <div className="alert alert-info" style={{ marginBottom: 14 }}>✓ {toast}</div>}
 
-      <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(3,1fr)', marginBottom: 20 }}>
-        {[
-          { label: 'Total Warehouses', val: warehouses.length, color: 'blue',  filter: 'All'      },
-          { label: 'Active',           val: totalActive,       color: 'green', filter: 'Active'   },
-          { label: 'Inactive',         val: totalInactive,     color: 'gray',  filter: 'Inactive' },
-        ].map(s => (
-          <div key={s.label} className="stat-card" style={{ padding: '14px 16px', cursor: 'pointer' }}
-            onClick={() => setFilterStatus(s.filter)} title={`Show ${s.label}`}>
-            <div className={`stat-icon ${s.color}`}><Warehouse /></div>
-            <div className="stat-info">
-              <div className="stat-label">{s.label}</div>
-              <div className="stat-value" style={{ fontSize: 20 }}>{s.val}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6,1fr)', gap: 10, marginBottom: 20 }}>
+        {Object.entries(STATUS_META).map(([key, s]) => {
+          const count = warehouses.filter(w => (w.status || 'draft') === key).length
+          return (
+            <div key={key}
+              onClick={() => setFilterStatus(key)}
+              style={{
+                background: filterStatus === key
+                  ? `linear-gradient(135deg, ${s.bg}, white)`
+                  : 'var(--surface)',
+                border: `1.5px solid ${filterStatus === key ? s.border : 'var(--border)'}`,
+                borderRadius: 12, padding: '13px 14px', cursor: 'pointer',
+                boxShadow: filterStatus === key ? `0 4px 14px ${s.color}22` : 'var(--shadow)',
+                transition: 'all .15s', position: 'relative', overflow: 'hidden',
+              }}
+              onMouseEnter={e => { if (filterStatus !== key) { e.currentTarget.style.background = s.bg; e.currentTarget.style.border = `1.5px solid ${s.border}` } }}
+              onMouseLeave={e => { if (filterStatus !== key) { e.currentTarget.style.background = 'var(--surface)'; e.currentTarget.style.border = '1.5px solid var(--border)' } }}
+            >
+              <div style={{ fontSize: 26, fontWeight: 900, color: s.color, lineHeight: 1, marginBottom: 4 }}>{count}</div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text)' }}>{s.label}</div>
+              {filterStatus === key && (
+                <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 3,
+                  background: s.color, borderRadius: '0 0 10px 10px' }} />
+              )}
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
       <div className="card" style={{ marginBottom: 16 }}>
@@ -328,7 +481,7 @@ export default function WarehouseManagement({ warehouses = [], addWarehouse, upd
                 placeholder="Search by name, code, city, manager…"
                 value={search} onChange={e => setSearch(e.target.value)} />
             </div>
-            {['All', 'Active', 'Inactive'].map(f => (
+            {['All'].map(f => (
               <button key={f} className={`btn ${filterStatus === f ? 'btn-primary' : 'btn-secondary'}`}
                 style={{ padding: '6px 14px', fontSize: 13 }} onClick={() => setFilterStatus(f)}>{f}</button>
             ))}
@@ -350,8 +503,8 @@ export default function WarehouseManagement({ warehouses = [], addWarehouse, upd
             <thead>
               <tr>
                 <th style={{ width: 40 }}>#</th>
-                <th>Code</th><th>Warehouse Name</th><th>Type</th>
-                <th>Address</th><th>City / State</th>
+                <th>Code</th><th>Warehouse Name</th><th>Branch</th><th>Type</th>
+                <th>City / State</th>
                 <th>Contact Person</th><th>Mobile</th><th>Manager</th>
                 <th style={{ textAlign: 'center' }}>Status</th>
                 <th style={{ textAlign: 'center' }}>Actions</th>
@@ -371,44 +524,54 @@ export default function WarehouseManagement({ warehouses = [], addWarehouse, upd
                   <tr key={id}>
                     <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{idx + 1}</td>
                     <td><span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 12, color: 'var(--primary)' }}>{wh.warehouse_code || '—'}</span></td>
-                    <td><div style={{ fontWeight: 700, fontSize: 13 }}>{wh.name}</div></td>
+                    <td><div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text)' }}>{wh.name}</div>
+                      {wh.address && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{wh.address}</div>}
+                    </td>
+                    <td style={{ fontSize: 12 }}>
+                      {(() => {
+                        const branch = branches.find(b => (b._id || b.id) === wh.branch_id)
+                        const bName = branch?.name || wh.branch_name || ''
+                        return bName
+                          ? <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>{bName}{branch?.code ? <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> ({branch.code})</span> : null}</span>
+                          : <span style={{ color: 'var(--text-muted)' }}>—</span>
+                      })()}
+                    </td>
                     <td style={{ fontSize: 12 }}>
                       {wh.warehouse_type ? <span className="badge badge-blue" style={{ fontSize: 11 }}>{wh.warehouse_type}</span> : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                     </td>
-                    <td style={{ fontSize: 12, maxWidth: 180 }}>
-                      {wh.address
-                        ? <div style={{ display: 'flex', alignItems: 'flex-start', gap: 3 }}>
-                            <MapPin style={{ width: 11, flexShrink: 0, marginTop: 2, color: 'var(--text-muted)' }} />
-                            <span style={{ color: 'var(--text-secondary)' }}>{wh.address}</span>
-                          </div>
+                    <td style={{ fontSize: 12, maxWidth: 140 }}>
+                      {wh.city || wh.state
+                        ? <span style={{ fontSize: 12 }}>{[wh.city, wh.state].filter(Boolean).join(', ')}{wh.pincode ? <span style={{ color: 'var(--text-muted)', fontSize: 11 }}> — {wh.pincode}</span> : null}</span>
                         : <span style={{ color: 'var(--text-muted)' }}>—</span>}
-                    </td>
-                    <td style={{ fontSize: 13 }}>
-                      {wh.city || '—'}
-                      {wh.state && <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>, {wh.state}</span>}
-                      {wh.pincode && <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{wh.pincode}</div>}
                     </td>
                     <td style={{ fontSize: 13 }}>{wh.contact_person || '—'}</td>
                     <td style={{ fontSize: 13 }}>{wh.mobile || '—'}</td>
                     <td style={{ fontSize: 13 }}>{wh.manager || '—'}</td>
                     <td style={{ textAlign: 'center' }}>
-                      <select className="form-control"
-                        style={{ fontSize: 12, padding: '3px 8px', width: 'auto', display: 'inline-block', fontWeight: 600,
-                          color: wh.is_active !== false ? 'var(--success, #16a34a)' : 'var(--text-muted)',
-                          cursor: statusUpdating === id ? 'not-allowed' : 'pointer' }}
-                        value={wh.is_active !== false ? 'Active' : 'Inactive'}
-                        disabled={statusUpdating === id}
-                        onChange={e => handleStatusChange(wh, e.target.value)}>
-                        <option value="Active">Active</option>
-                        <option value="Inactive">Inactive</option>
-                      </select>
+                      {(() => {
+                        const st = wh.status || 'draft'
+                        const sm = STATUS_META[st] || STATUS_META.draft
+                        return (
+                          <span style={{
+                            padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700,
+                            background: sm.bg, color: sm.color, border: `1px solid ${sm.border}`,
+                            display: 'inline-block', whiteSpace: 'nowrap',
+                          }}>
+                            {sm.label}
+                          </span>
+                        )
+                      })()}
                     </td>
                     <td style={{ textAlign: 'center' }}>
-                      <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
-                        <button className="btn-ghost" title="View details" onClick={() => setViewData(wh)} style={{ padding: '4px 6px' }}><Eye style={{ width: 14 }} /></button>
-                        <button className="btn-ghost" title="Edit" onClick={() => openEdit(wh)} style={{ padding: '4px 6px' }}><Edit2 style={{ width: 14 }} /></button>
-                        <button className="btn-ghost" title="Delete" onClick={() => handleDelete(wh)} disabled={deleting === id} style={{ padding: '4px 6px', color: 'var(--danger)' }}><Trash2 style={{ width: 14 }} /></button>
-                      </div>
+                      <ActionMenu
+                        wh={wh}
+                        onStatusChange={handleStatusChange}
+                        onEdit={openEdit}
+                        onView={(w) => setViewData(w)}
+                        onDelete={handleDelete}
+                        deleting={deleting}
+                        statusUpdating={statusUpdating}
+                      />
                     </td>
                   </tr>
                 )
@@ -418,7 +581,7 @@ export default function WarehouseManagement({ warehouses = [], addWarehouse, upd
         </div>
       </div>
 
-      {showModal && <WarehouseModal editData={editData} onClose={closeModal} onSave={handleSave} saving={saving} />}
+      {showModal && <WarehouseModal editData={editData} onClose={closeModal} onSave={handleSave} saving={saving} branches={branches} />}
       {viewData && <ViewModal wh={viewData} onClose={() => setViewData(null)} onEdit={(wh) => { setViewData(null); openEdit(wh) }} />}
     </>
   )

@@ -15,12 +15,21 @@ const purAmount   = p => p.amount         || 0
 const purGst      = p => p.gst_amount     || p.gst      || 0
 const purDelivery = p => p.delivery_number || p.delivery_no || p.docket_number || p.lr_number || '—'
 const purInvoice  = p => p.invoice_number  || p.invoice_no  || p.bill_number   || '—'
-const purStatus   = p => p.status || 'Received'
+const purStatus   = p => p.status || 'Pending'
+const purWarehouse = (p, warehouses = []) => {
+  if (p.warehouse_name) return p.warehouse_name
+  if (p.warehouse)      return p.warehouse
+  if (p.warehouse_id && warehouses.length > 0) {
+    const w = warehouses.find(w => (w._id || w.id) === p.warehouse_id)
+    if (w) return w.name
+  }
+  return '—'
+}
 
 /* ── Empty product row ── */
 const emptyRow = () => ({ uid: Date.now() + Math.random(), product_id: '', qty: '', rate: '', gstPct: 18, unit: 'Sq Ft' })
 
-export default function PurchaseManagement({ purchases = [], addPurchase, updatePurchase, deletePurchase, products = [], suppliers = [], warehouses = [] }) {
+export default function PurchaseManagement({ purchases = [], addPurchase, updatePurchase, deletePurchase, updatePurchaseStatus, products = [], suppliers = [], warehouses = [], branches = [] }) {
   const navigate = useNavigate()
   const [search,         setSearch]        = useState('')
   const [supplierFilter, setSupplierFilter] = useState('')
@@ -47,10 +56,11 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
   const [editDate,       setEditDate]      = useState('')
   const [editInvoice,    setEditInvoice]   = useState('')
   const [editDelivery,   setEditDelivery]  = useState('')
-  const [editStatus,     setEditStatus]    = useState('Received')
+  const [editStatus,     setEditStatus]    = useState('Pending')
   const [editRows,       setEditRows]      = useState([emptyRow()])
   const [editErrors,     setEditErrors]    = useState({})
   const [editSaving,     setEditSaving]    = useState(false)
+  const [editBranchId,   setEditBranchId]  = useState('')
 
   /* ── Form state ── */
   const [supplier,    setSupplier]    = useState('')
@@ -58,9 +68,10 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
   const [date,        setDate]        = useState('')
   const [invoiceNo,   setInvoiceNo]   = useState('')
   const [deliveryNo,  setDeliveryNo]  = useState('')
-  const [newStatus,   setNewStatus]   = useState('Received')
+  const [newStatus,   setNewStatus]   = useState('Pending')
   const [rows,        setRows]        = useState([emptyRow()])
   const [errors,      setErrors]      = useState({})
+  const [branchId,    setBranchId]    = useState('')
 
   /* ── Toast ── */
   const toast = msg => { setSuccessMsg(msg); setTimeout(() => setSuccessMsg(''), 5000) }
@@ -68,8 +79,9 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
   /* ── Open / close modal ── */
   const openModal = () => {
     setSupplier(''); setWarehouseId(''); setDate('')
-    setInvoiceNo(''); setDeliveryNo(''); setNewStatus('Received')
+    setInvoiceNo(''); setDeliveryNo(''); setNewStatus('Pending')
     setCustomSupplier(''); setRows([emptyRow()]); setErrors({})
+    setBranchId('')
     setShowModal(true)
   }
   const closeModal = () => { setShowModal(false); setSaving(false) }
@@ -91,7 +103,7 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
     setEditDate(p.purchase_date ? p.purchase_date.split('T')[0] : '')
     setEditInvoice(p.invoice_number || p.invoice_no || '')
     setEditDelivery(p.delivery_number || p.delivery_no || p.docket_number || '')
-    setEditStatus(p.status || 'Received')
+    setEditStatus(p.status || 'Pending')
     // Build edit rows from existing purchase data
     setEditRows([{
       uid: Date.now(),
@@ -103,6 +115,7 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
     }])
     setEditErrors({})
     setEditSaving(false)
+    setEditBranchId(p.branch_id || '')
   }
   const closeEdit = () => { setEditItem(null); setEditSaving(false) }
 
@@ -172,8 +185,10 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
         invoice_number:  editInvoice,
         delivery_number: editDelivery,
         purchase_date:   editDate || null,
-        status:          editStatus,
+        // NOTE: status is intentionally excluded — use the status dropdown in the table instead
         warehouse_id:    editWarehouse || undefined,
+        branch_id:       editBranchId || undefined,
+        branch_name:     branches.find(b => (b._id || b.id) === editBranchId)?.name || '',
       })
       if (result?.success === false) {
         setEditErrors({ _global: result.message || 'Update failed. Please try again.' })
@@ -240,6 +255,8 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
           supplier_id:      supplierId || undefined,
           supplier_name:    supplierVal,
           warehouse_id:     warehouseId || undefined,
+          branch_id:        branchId || undefined,
+          branch_name:      branches.find(b => (b._id || b.id) === branchId)?.name || '',
           product_id:       row.product_id,
           product_code:     prod?.code || '',
           product_name:     prod?.name || '',
@@ -250,7 +267,7 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
           purchase_date:    date || new Date().toISOString().split('T')[0],
           invoice_number:   invoiceNo,
           delivery_number:  deliveryNo,
-          status:           newStatus,
+          // status is always 'Pending' on create — backend enforces this
         })
       }
 
@@ -264,13 +281,28 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
     }
   }
 
-  /* ── Local status overrides (for inline table dropdown until API wired) ── */
-  const [statusOverrides, setStatusOverrides] = useState({})
-  const getStatus = (p) => statusOverrides[p._id || p.id] ?? purStatus(p)
-  const updateStatus = (p, val) => {
+  /* ── Status update — persists to DB via PATCH /purchases/:id/status ── */
+  const [statusUpdating, setStatusUpdating] = useState({})   // { [id]: true } while saving
+
+  const getStatus = (p) => purStatus(p)   // always read from server data
+
+  const updateStatus = async (p, val) => {
     const id = p._id || p.id
-    setStatusOverrides(prev => ({ ...prev, [id]: val }))
-    toast(`✓ Status updated to "${val}" for ${purCode(p)}`)
+    if (!id || !val) return
+    if (val === purStatus(p)) return                          // no change
+    setStatusUpdating(prev => ({ ...prev, [id]: true }))
+    try {
+      const result = await updatePurchaseStatus?.(id, val)
+      if (result?.success === false) {
+        toast(`✗ ${result.message || 'Status update failed'}`)
+      } else {
+        toast(`✓ Status updated to "${val}" for ${purCode(p)}`)
+      }
+    } catch {
+      toast('✗ Status update failed. Please try again.')
+    } finally {
+      setStatusUpdating(prev => { const n = { ...prev }; delete n[id]; return n })
+    }
   }
 
   /* ── Filtered list ── */
@@ -304,8 +336,10 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
     const statusBadge = (st) => {
       const colors = {
         Pending:   'background:#FFFBEB;color:#D97706;border:1px solid #FDE68A;',
+        Approved:  'background:#EFF6FF;color:#2563EB;border:1px solid #BFDBFE;',
         Received:  'background:#ECFDF5;color:#059669;border:1px solid #A7F3D0;',
         Completed: 'background:#F5F3FF;color:#7C3AED;border:1px solid #DDD6FE;',
+        Cancelled: 'background:#FEF2F2;color:#DC2626;border:1px solid #FECACA;',
       }
       const s = colors[st] || 'background:#F1F5F9;color:#64748B;border:1px solid #E2E8F0;'
       return `<span style="display:inline-block;padding:2px 10px;border-radius:20px;font-size:10px;font-weight:700;${s}">${st}</span>`
@@ -544,8 +578,10 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
   const totalPurchase  = purchases.reduce((a, p) => a + purTotal(p), 0)
   const totalQty       = purchases.reduce((a, p) => a + (p.qty || 0), 0)
   const countPending   = purchases.filter(p => getStatus(p) === 'Pending').length
+  const countApproved  = purchases.filter(p => getStatus(p) === 'Approved').length
   const countReceived  = purchases.filter(p => getStatus(p) === 'Received').length
   const countCompleted = purchases.filter(p => getStatus(p) === 'Completed').length
+  const countCancelled = purchases.filter(p => getStatus(p) === 'Cancelled').length
 
   /* ── Monthly summary — last 12 months (zero-months included) ── */
   const monthlyData = useMemo(() => {
@@ -601,14 +637,18 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
         const STAT_STYLES = {
           total:     { bg: '#EFF6FF', iconBg: '#DBEAFE', iconColor: '#2563EB', textColor: '#1D4ED8', borderColor: '#BFDBFE' },
           Pending:   { bg: '#FFFBEB', iconBg: '#FEF3C7', iconColor: '#D97706', textColor: '#B45309', borderColor: '#FDE68A' },
+          Approved:  { bg: '#EFF6FF', iconBg: '#DBEAFE', iconColor: '#2563EB', textColor: '#1D4ED8', borderColor: '#BFDBFE' },
           Received:  { bg: '#ECFDF5', iconBg: '#D1FAE5', iconColor: '#059669', textColor: '#047857', borderColor: '#A7F3D0' },
           Completed: { bg: '#F5F3FF', iconBg: '#EDE9FE', iconColor: '#7C3AED', textColor: '#6D28D9', borderColor: '#DDD6FE' },
+          Cancelled: { bg: '#FEF2F2', iconBg: '#FEE2E2', iconColor: '#DC2626', textColor: '#B91C1C', borderColor: '#FECACA' },
         }
         const stats = [
-          { label: 'Total Purchase Value', val: `₹${totalPurchase.toLocaleString('en-IN')}`, key: 'total',     filterVal: null         },
-          { label: 'Pending',              val: countPending,                                 key: 'Pending',   filterVal: 'Pending'    },
-          { label: 'Received',             val: countReceived,                                key: 'Received',  filterVal: 'Received'   },
-          { label: 'Completed',            val: countCompleted,                               key: 'Completed', filterVal: 'Completed'  },
+          { label: 'Total Purchase Value', val: `₹${totalPurchase.toLocaleString('en-IN')}`, key: 'total',     filterVal: null          },
+          { label: 'Pending',              val: countPending,                                 key: 'Pending',   filterVal: 'Pending'     },
+          { label: 'Approved',             val: countApproved,                                key: 'Approved',  filterVal: 'Approved'    },
+          { label: 'Received',             val: countReceived,                                key: 'Received',  filterVal: 'Received'    },
+          { label: 'Completed',            val: countCompleted,                               key: 'Completed', filterVal: 'Completed'   },
+          { label: 'Cancelled',            val: countCancelled,                               key: 'Cancelled', filterVal: 'Cancelled'   },
         ]
         return (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 20 }}>
@@ -777,8 +817,10 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
         >
           <option value="">All Status</option>
           <option value="Pending">Pending</option>
+          <option value="Approved">Approved</option>
           <option value="Received">Received</option>
           <option value="Completed">Completed</option>
+          <option value="Cancelled">Cancelled</option>
         </select>
 
         {/* From date */}
@@ -837,6 +879,8 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
                 <th style={{ padding: '10px 14px' }}>Purchase ID</th>
                 <th style={{ padding: '10px 14px' }}>Date</th>
                 <th style={{ padding: '10px 14px' }}>Supplier</th>
+                <th style={{ padding: '10px 14px' }}>Branch</th>
+                <th style={{ padding: '10px 14px' }}>Warehouse</th>
                 <th style={{ padding: '10px 14px' }}>Product</th>
                 <th style={{ padding: '10px 14px' }}>Qty</th>
                 <th style={{ padding: '10px 14px' }}>Rate</th>
@@ -855,6 +899,25 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
                   <td style={{ padding: '11px 14px', color: 'var(--primary)', fontWeight: 700 }}>{purCode(p)}</td>
                   <td style={{ padding: '11px 14px', fontSize: 12 }}>{purDate(p)}</td>
                   <td style={{ padding: '11px 14px', fontWeight: 600 }}>{purSupplier(p)}</td>
+                  <td style={{ padding: '11px 14px', fontSize: 12 }}>
+                    {(() => {
+                      // First use stored branch_name, then lookup by branch_id, then fallback
+                      const bName = p.branch_name
+                        || branches.find(b => (b._id || b.id) === (p.branch_id || p.branch))?.name
+                        || ''
+                      return bName
+                        ? <span style={{ fontWeight: 600 }}>{bName}</span>
+                        : <span style={{ color: 'var(--text-muted)' }}>—</span>
+                    })()}
+                  </td>
+                  <td style={{ padding: '11px 14px', fontSize: 12 }}>
+                    {(() => {
+                      const wName = purWarehouse(p, warehouses)
+                      return wName !== '—'
+                        ? <span style={{ fontWeight: 600, fontSize: 12 }}>{wName}</span>
+                        : <span style={{ color: 'var(--text-muted)' }}>—</span>
+                    })()}
+                  </td>
                   <td style={{ padding: '11px 14px', fontSize: 12 }}>{purProduct(p)}</td>
                   <td style={{ padding: '11px 14px', fontWeight: 700 }}>{(p.qty || 0).toLocaleString()} Sq Ft</td>
                   <td style={{ padding: '11px 14px' }}>₹{(p.rate || 0).toLocaleString('en-IN')}</td>
@@ -872,19 +935,59 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
                       : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                   </td>
                   <td style={{ padding: '8px 14px' }}>
-                    <select
-                      value={getStatus(p)}
-                      onChange={e => updateStatus(p, e.target.value)}
-                      style={{
-                        fontSize: 12, fontWeight: 600, borderRadius: 6, padding: '4px 10px',
-                        border: '1px solid var(--border)', cursor: 'pointer',
-                        background: '#fff', color: 'var(--text)',
-                      }}
-                    >
-                      <option value="Pending">Pending</option>
-                      <option value="Received">Received</option>
-                      <option value="Completed">Completed</option>
-                    </select>
+                    {(() => {
+                      const st = getStatus(p)
+                      const pid = p._id || p.id
+                      const isUpdating = !!statusUpdating[pid]
+
+                      // Valid next transitions per current status
+                      const NEXT = {
+                        'Pending':   ['Approved', 'Cancelled'],
+                        'Approved':  ['Received', 'Cancelled'],
+                        'Received':  ['Completed'],
+                        'Completed': [],
+                        'Cancelled': [],
+                      }
+                      const allowed = NEXT[st] || []
+                      const isTerminal = allowed.length === 0
+
+                      const STATUS_COLORS = {
+                        Pending:   { bg: '#FFFBEB', color: '#D97706', border: '#FDE68A' },
+                        Approved:  { bg: '#EFF6FF', color: '#2563EB', border: '#BFDBFE' },
+                        Received:  { bg: '#ECFDF5', color: '#059669', border: '#A7F3D0' },
+                        Completed: { bg: '#F5F3FF', color: '#7C3AED', border: '#DDD6FE' },
+                        Cancelled: { bg: '#FEF2F2', color: '#DC2626', border: '#FECACA' },
+                      }
+                      const sc = STATUS_COLORS[st] || { bg: '#F1F5F9', color: '#64748B', border: '#E2E8F0' }
+
+                      if (isTerminal) {
+                        // Show read-only badge for terminal states
+                        return (
+                          <span style={{
+                            display: 'inline-block', padding: '3px 10px',
+                            borderRadius: 20, fontSize: 11, fontWeight: 700,
+                            background: sc.bg, color: sc.color, border: `1px solid ${sc.border}`,
+                          }}>{st}</span>
+                        )
+                      }
+
+                      return (
+                        <select
+                          value={st}
+                          disabled={isUpdating}
+                          onChange={e => updateStatus(p, e.target.value)}
+                          style={{
+                            fontSize: 12, fontWeight: 600, borderRadius: 6, padding: '4px 10px',
+                            border: `1px solid ${sc.border}`, cursor: isUpdating ? 'wait' : 'pointer',
+                            background: sc.bg, color: sc.color,
+                            opacity: isUpdating ? 0.6 : 1,
+                          }}
+                        >
+                          <option value={st}>{isUpdating ? `${st}…` : st}</option>
+                          {allowed.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      )
+                    })()}
                   </td>
                   <td style={{ padding: '11px 14px', textAlign: 'center' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
@@ -932,7 +1035,7 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
                 </tr>
               ))}
               {filtered.length === 0 && (
-                <tr><td colSpan={13} style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
+                <tr><td colSpan={14} style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
                   <ShoppingBag size={32} style={{ opacity: .25, marginBottom: 8, display: 'block', margin: '0 auto 8px' }} />
                   No purchase entries yet
                 </td></tr>
@@ -1067,6 +1170,23 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
                 </div>
               </div>
 
+              {/* ── Branch ── */}
+              <div className="form-group" style={{ marginBottom: 16 }}>
+                <label className="form-label">Branch</label>
+                <select
+                  className="form-control"
+                  value={branchId}
+                  onChange={e => setBranchId(e.target.value)}
+                >
+                  <option value="">— Select Branch —</option>
+                  {branches.filter(b => b.status !== 'Inactive').map(b => (
+                    <option key={b._id || b.id} value={b._id || b.id}>
+                      {b.name}{b.code ? ` (${b.code})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               {/* ── Row 2: Date + Invoice + Delivery + Status ── */}
               <div className="form-row" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 14, marginBottom: 18 }}>
                 <div className="form-group" style={{ marginBottom: 0 }}>
@@ -1093,16 +1213,16 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
                 </div>
                 <div className="form-group" style={{ marginBottom: 0 }}>
                   <label className="form-label">Status</label>
-                  <select
-                    className="form-control"
-                    value={newStatus}
-                    onChange={e => setNewStatus(e.target.value)}
-                    style={{}}
-                  >
-                    <option value="Pending">⏳ Pending</option>
-                    <option value="Received">✅ Received</option>
-                    <option value="Completed">🏁 Completed</option>
-                  </select>
+                  <div style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    background: '#FFFBEB', border: '1px solid #FDE68A',
+                    borderRadius: 6, padding: '6px 12px', fontSize: 12, fontWeight: 700, color: '#D97706',
+                  }}>
+                    ⏳ Pending
+                  </div>
+                  <div style={{ marginTop: 4, fontSize: 11, color: 'var(--text-muted)' }}>
+                    New purchases always start as Pending
+                  </div>
                 </div>
               </div>
 
@@ -1338,11 +1458,14 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
       {/* ═══════════ VIEW MODAL ═══════════ */}
       {viewItem && (() => {
         const st = getStatus(viewItem)
-        const statusBadge = st === 'Received'
-          ? { bg: '#dcfce7', color: '#16a34a', border: '#86efac' }
-          : st === 'Completed'
-          ? { bg: '#d1fae5', color: '#065f46', border: '#6ee7b7' }
-          : { bg: '#fef9c3', color: '#b45309', border: '#fde68a' }
+        const STATUS_BADGE = {
+          Pending:   { bg: '#FFFBEB', color: '#D97706', border: '#FDE68A' },
+          Approved:  { bg: '#EFF6FF', color: '#2563EB', border: '#BFDBFE' },
+          Received:  { bg: '#ECFDF5', color: '#059669', border: '#A7F3D0' },
+          Completed: { bg: '#F5F3FF', color: '#7C3AED', border: '#DDD6FE' },
+          Cancelled: { bg: '#FEF2F2', color: '#DC2626', border: '#FECACA' },
+        }
+        const statusBadge = STATUS_BADGE[st] || { bg: '#F1F5F9', color: '#64748B', border: '#E2E8F0' }
         const prod = products.find(p => (p._id || p.id) === viewItem.product_id)
         const inv  = purInvoice(viewItem)
         const dlv  = purDelivery(viewItem)
@@ -1386,7 +1509,7 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
                       {[
                         { label: 'Supplier',     val: purSupplier(viewItem) || '—' },
                         { label: 'Product',      val: purProduct(viewItem) || prod?.name || '—' },
-                        { label: 'Warehouse',    val: viewItem.warehouse_name || viewItem.warehouse || '—' },
+                        { label: 'Warehouse',    val: purWarehouse(viewItem, warehouses) },
                         { label: 'Purchase Date',val: purDate(viewItem) || '—' },
                         { label: 'Invoice No.',  val: inv !== '—' ? inv : '—' },
                         { label: 'Delivery No.', val: dlv !== '—' ? dlv : '—' },
@@ -1561,6 +1684,23 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
                 </div>
               </div>
 
+              {/* ── Edit Branch ── */}
+              <div className="form-group" style={{ marginBottom: 16 }}>
+                <label className="form-label">Branch</label>
+                <select
+                  className="form-control"
+                  value={editBranchId}
+                  onChange={e => setEditBranchId(e.target.value)}
+                >
+                  <option value="">— Select Branch —</option>
+                  {branches.filter(b => b.status !== 'Inactive').map(b => (
+                    <option key={b._id || b.id} value={b._id || b.id}>
+                      {b.name}{b.code ? ` (${b.code})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               {/* ── Row 2: Date + Invoice + Delivery + Status ── */}
               <div className="form-row" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 14, marginBottom: 18 }}>
                 <div className="form-group" style={{ marginBottom: 0 }}>
@@ -1592,16 +1732,32 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
                 </div>
                 <div className="form-group" style={{ marginBottom: 0 }}>
                   <label className="form-label">Status</label>
-                  <select
-                    className="form-control"
-                    value={editStatus}
-                    onChange={e => setEditStatus(e.target.value)}
-                    style={{}}
-                  >
-                    <option value="Pending">⏳ Pending</option>
-                    <option value="Received">✅ Received</option>
-                    <option value="Completed">🏁 Completed</option>
-                  </select>
+                  {(() => {
+                    const st = editItem?.status || 'Pending'
+                    const STATUS_COLORS = {
+                      Pending:   { bg: '#FFFBEB', color: '#D97706', border: '#FDE68A' },
+                      Approved:  { bg: '#EFF6FF', color: '#2563EB', border: '#BFDBFE' },
+                      Received:  { bg: '#ECFDF5', color: '#059669', border: '#A7F3D0' },
+                      Completed: { bg: '#F5F3FF', color: '#7C3AED', border: '#DDD6FE' },
+                      Cancelled: { bg: '#FEF2F2', color: '#DC2626', border: '#FECACA' },
+                    }
+                    const sc = STATUS_COLORS[st] || { bg: '#F1F5F9', color: '#64748B', border: '#E2E8F0' }
+                    return (
+                      <div>
+                        <div style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 6,
+                          background: sc.bg, border: `1px solid ${sc.border}`,
+                          borderRadius: 6, padding: '6px 12px',
+                          fontSize: 12, fontWeight: 700, color: sc.color,
+                        }}>
+                          {st}
+                        </div>
+                        <div style={{ marginTop: 4, fontSize: 11, color: 'var(--text-muted)' }}>
+                          Use the Status dropdown in the table to change status
+                        </div>
+                      </div>
+                    )
+                  })()}
                 </div>
               </div>
 

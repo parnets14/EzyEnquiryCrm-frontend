@@ -549,7 +549,7 @@ input, select, textarea { font-family: inherit; }
 .stat-icon.blue   { background: #EFF6FF; color: #3B82F6; }
 .stat-icon.green  { background: #ECFDF5; color: #10B981; }
 .stat-icon.orange { background: #FFF3EC; color: #FD5C02; }
-.stat-icon.purple { background: #FFF3EC; color: #FD5C02; }
+.stat-icon.purple { background: #F3F0FF; color: #7C3AED; }
 .stat-icon.red    { background: #FEF2F2; color: #EF4444; }
 .stat-icon.cyan   { background: #ECFEFF; color: #06B6D4; }
 .stat-icon.yellow { background: #FFFBEB; color: #D97706; }
@@ -651,7 +651,7 @@ tr:hover td { background: var(--bg); }
 .badge-red    { background: #FEF2F2; color: #DC2626; }
 .badge-orange { background: #FFF7ED; color: #EA580C; }
 .badge-yellow { background: #FFFBEB; color: #D97706; }
-.badge-purple { background: #E8EDF3; color: #01152D; }
+.badge-purple { background: #F3F0FF; color: #7C3AED; }
 .badge-gray   { background: var(--bg); color: var(--text-muted); }
 .badge-cyan   { background: #ECFEFF; color: #0891B2; }
 .badge-pink   { background: #FDF2F8; color: #BE185D; }

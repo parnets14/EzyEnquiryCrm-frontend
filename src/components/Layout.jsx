@@ -10,7 +10,7 @@ import {
   UserCog,
   FileBarChart, PieChart,
   Bell, FolderOpen, Settings, UserCircle, LogOut,
-  ChevronDown, Menu, X, Sun, Moon,
+  ChevronDown, Menu, X, Sun, Moon, Layers,
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import logoImg from '/logo.png'
@@ -76,7 +76,8 @@ const NAV_CONFIG = [
   {
     type: 'section', key: 'hr', label: 'HR Management', icon: UserCog,
     items: [
-      { to: '/hr/employee-management', icon: UserCog, label: 'Employee Management' },
+      { to: '/hr/employee-master',     icon: Layers,   label: 'Employee Master Management' },
+      { to: '/hr/employee-management', icon: UserCog,  label: 'Employee Management' },
     ],
   },
   {

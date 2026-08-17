@@ -28,6 +28,7 @@ import ProfitLoss from './pages/ProfitLoss'
 import PaymentManagement from './pages/PaymentManagement'
 import AccountsModule from './pages/AccountsModule'
 import EmployeeManagement from './pages/EmployeeManagement'
+import EmployeeMasterManagement from './pages/EmployeeMasterManagement'
 import RolePermissions from './pages/RolePermissions'
 import NotificationSystem from './pages/NotificationSystem'
 import ReportCenter from './pages/ReportCenter'
@@ -87,7 +88,12 @@ function AppRoutes() {
         <Route path="company-management/company-registration"
           element={<CompanyRegistration companies={companies} {...erpCtx} />} />
         <Route path="company-management/branch-management"
-          element={<BranchManagement />} />
+          element={<BranchManagement
+            branches={erpCtx.branches || []}
+            addBranch={erpCtx.addBranch}
+            updateBranch={erpCtx.updateBranch}
+            deleteBranch={erpCtx.deleteBranch}
+          />} />
         <Route path="company-management/user-management"
           element={<UserManagement users={users} {...erpCtx} />} />
         <Route path="company-management/roles-permissions"
@@ -105,23 +111,23 @@ function AppRoutes() {
         <Route path="purchase-inventory/supplier-management"
           element={<SupplierManagement suppliers={erpCtx.suppliers} addSupplier={erpCtx.addSupplier} updateSupplier={erpCtx.updateSupplier} deleteSupplier={erpCtx.deleteSupplier} />} />
         <Route path="purchase-inventory/purchase-management"
-          element={<PurchaseManagement purchases={purchases} products={products} suppliers={erpCtx.suppliers} {...erpCtx} />} />
+          element={<PurchaseManagement branches={erpCtx.branches || []} purchases={purchases} products={products} suppliers={erpCtx.suppliers} {...erpCtx} />} />
         <Route path="purchase-inventory/inventory-management"
-          element={<InventoryManagement inventory={inventory} products={products} warehouses={warehouses} {...erpCtx} />} />
+          element={<InventoryManagement branches={erpCtx.branches || []} inventory={inventory} products={products} warehouses={warehouses} {...erpCtx} />} />
         <Route path="purchase-inventory/stock-transfer"
-          element={<StockTransfer transfers={transfers} warehouses={warehouses} products={products} {...erpCtx} />} />
+          element={<StockTransfer branches={erpCtx.branches || []} transfers={transfers} warehouses={warehouses} products={products} {...erpCtx} />} />
         <Route path="purchase-inventory/warehouse-management"
-          element={<WarehouseManagement warehouses={warehouses} transfers={transfers} inventory={inventory} {...erpCtx} />} />
+          element={<WarehouseManagement branches={erpCtx.branches || []} warehouses={warehouses} transfers={transfers} inventory={inventory} {...erpCtx} />} />
 
         {/* ── Marketplace ──────────────────────────────── */}
         <Route path="marketplace/product-search"
           element={<ProductSearch products={products} enquiries={enquiries} {...erpCtx} />} />
         <Route path="marketplace/enquiry-management"
-          element={<EnquiryManagement enquiries={enquiries} inventory={inventory} orders={orders} products={products} {...erpCtx} />} />
+          element={<EnquiryManagement enquiries={enquiries} inventory={inventory} orders={orders} products={products} branches={erpCtx.branches || []} {...erpCtx} />} />
         <Route path="marketplace/order-management"
-          element={<OrderManagement orders={orders} enquiries={enquiries} products={products} {...erpCtx} />} />
+          element={<OrderManagement branches={erpCtx.branches || []} orders={orders} enquiries={enquiries} products={products} {...erpCtx} />} />
         <Route path="marketplace/dispatch-management"
-          element={<DispatchManagement dispatches={dispatches} orders={orders} {...erpCtx} />} />
+          element={<DispatchManagement branches={erpCtx.branches || []} dispatches={dispatches} orders={orders} {...erpCtx} />} />
 
         {/* ── CRM ──────────────────────────────────────── */}
         <Route path="crm/customer-management"
@@ -135,9 +141,9 @@ function AppRoutes() {
         <Route path="finance/quotation-manager"
           element={<QuotationManager products={products} enquiries={enquiries} customers={customers} />} />
         <Route path="finance/sales-management"
-          element={<SalesManagement sales={sales} orders={orders} {...erpCtx} />} />
+          element={<SalesManagement branches={erpCtx.branches || []} sales={sales} orders={orders} {...erpCtx} />} />
         <Route path="finance/expense-management"
-          element={<ExpenseManagement expenses={expenses} {...erpCtx} />} />
+          element={<ExpenseManagement branches={erpCtx.branches || []} expenses={expenses} {...erpCtx} />} />
         <Route path="finance/payment-management"
           element={<PaymentManagement payments={payments} recordPayment={erpCtx.recordPayment} />} />
         <Route path="finance/accounts-management"
@@ -146,8 +152,10 @@ function AppRoutes() {
           element={<ProfitLoss sales={sales} purchases={purchases} orders={orders} />} />
 
         {/* ── HR ───────────────────────────────────────── */}
+        <Route path="hr/employee-master"
+          element={<EmployeeMasterManagement />} />
         <Route path="hr/employee-management"
-          element={<EmployeeManagement employees={employees} {...erpCtx} />} />
+          element={<EmployeeManagement branches={erpCtx.branches || []} employees={employees} {...erpCtx} />} />
 
         {/* ── Reports ──────────────────────────────────── */}
         <Route path="reports/dashboard-analytics"
@@ -160,10 +168,10 @@ function AppRoutes() {
           element={<NotificationSystem notifications={notifications} {...erpCtx} />} />
         <Route path="system/document-management"
           element={<DocumentManagement documents={documents} {...erpCtx} />} />
-        <Route path="system/subscription"   element={<SubscriptionSystem />} />
+        <Route path="system/subscription"   element={<SubscriptionSystem enquiries={enquiries} />} />
         <Route path="system/settings"       element={<Settings />} />
         <Route path="system/profile"        element={<Profile />} />
-        <Route path="subscription"          element={<SubscriptionSystem />} />
+        <Route path="subscription"          element={<SubscriptionSystem enquiries={enquiries} />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/dashboard" replace />} />

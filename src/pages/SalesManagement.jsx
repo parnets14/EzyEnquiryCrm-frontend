@@ -6,6 +6,7 @@ import { TrendingUp, Search, Download } from 'lucide-react'
 const salCode     = s => s.sale_code      || s.id       || ''
 const salCustomer = s => s.customer_name  || s.customer || ''
 const salProduct  = s => s.product_name   || s.product  || ''
+const salBranch   = s => s.branch_name    || s.branch   || ''
 const salDate     = s => s.sale_date
   ? new Date(s.sale_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
   : (s.date || '')
@@ -15,8 +16,10 @@ const salGst      = s => s.gst_amount     || s.gst      || 0
 const salPayment  = s => s.payment_status || s.payment  || 'Pending'
 const salOrderRef = s => s.order_id       || s.orderId  || ''
 
-export default function SalesManagement({ sales = [], orders = [] }) {
+export default function SalesManagement({ branches = [], sales = [], orders = [] }) {
+  const branchNames = branches.map(b => b.name || b).filter(Boolean)
   const [search, setSearch] = useState('')
+  const [branchFilter, setBranchFilter] = useState('All')
 
   // Calculate live totals using API fields
   const totalSales    = sales.reduce((a, s) => a + salTotal(s), 0)
@@ -34,9 +37,10 @@ export default function SalesManagement({ sales = [], orders = [] }) {
   if (trendData.length === 0) trendData.push({ month: 'Current', sales: totalSales })
 
   const filtered = sales.filter(s =>
-    salCustomer(s).toLowerCase().includes(search.toLowerCase()) ||
+    (branchFilter === 'All' || salBranch(s) === branchFilter) &&
+    (salCustomer(s).toLowerCase().includes(search.toLowerCase()) ||
     salCode(s).includes(search) ||
-    salProduct(s).toLowerCase().includes(search.toLowerCase())
+    salProduct(s).toLowerCase().includes(search.toLowerCase()))
   )
 
   return (
@@ -84,6 +88,12 @@ export default function SalesManagement({ sales = [], orders = [] }) {
           <span className="card-title">Sales Entries ({filtered.length})</span>
           <div className="header-actions">
             <div className="search-bar"><Search /><input placeholder="Search sales…" value={search} onChange={e => setSearch(e.target.value)} /></div>
+            {branchNames.length > 0 && (
+              <select className="form-control" style={{ width: 160 }} value={branchFilter} onChange={e => setBranchFilter(e.target.value)}>
+                <option value="All">All Branches</option>
+                {branchNames.map(b => <option key={b}>{b}</option>)}
+              </select>
+            )}
             <button className="btn btn-secondary"><Download style={{ width: 15 }} />Export</button>
           </div>
         </div>
@@ -91,7 +101,7 @@ export default function SalesManagement({ sales = [], orders = [] }) {
           <table>
             <thead>
               <tr>
-                <th>Sale ID</th><th>Date</th><th>Customer</th><th>Product</th><th>Qty</th>
+                <th>Sale ID</th><th>Date</th><th>Branch</th><th>Customer</th><th>Product</th><th>Qty</th>
                 <th>Rate</th><th>Amount</th><th>GST</th><th>Total</th><th>Order Ref</th><th>Payment</th>
               </tr>
             </thead>
@@ -100,6 +110,9 @@ export default function SalesManagement({ sales = [], orders = [] }) {
                 <tr key={s._id || s.id}>
                   <td style={{ color: 'var(--primary)', fontWeight: 700 }}>{salCode(s)}</td>
                   <td style={{ fontSize: 12 }}>{salDate(s)}</td>
+                  <td style={{ fontSize: 12 }}>
+                    {salBranch(s) ? <span className="badge badge-blue">{salBranch(s)}</span> : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+                  </td>
                   <td style={{ fontWeight: 600 }}>{salCustomer(s)}</td>
                   <td style={{ fontSize: 12 }}>{salProduct(s)}</td>
                   <td>{(s.qty || 0).toLocaleString()} {s.unit || 'Sq Ft'}</td>
@@ -116,7 +129,7 @@ export default function SalesManagement({ sales = [], orders = [] }) {
                 </tr>
               ))}
               {filtered.length === 0 && (
-                <tr><td colSpan={11} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>
+                <tr><td colSpan={12} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>
                   No sales entries yet. Sales are auto-created when orders are delivered.
                 </td></tr>
               )}
