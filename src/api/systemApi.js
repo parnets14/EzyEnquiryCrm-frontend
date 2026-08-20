@@ -26,11 +26,11 @@ export const notificationApi = {
 
 // ── Documents ─────────────────────────────────────────────────
 export const documentApi = {
-  // params: { entity_type, entity_id, page, limit }
+  // params: { entity_type, entity_id, doc_type, page, limit }
   list: (params = {}) =>
     api.get('/documents', { params }).then(r => r.data),
 
-  // formData must contain files[] + entity_type + entity_id? + doc_type?
+  // formData must contain files[] + entity_type + doc_type
   upload: (formData) =>
     api.post('/documents', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
@@ -42,6 +42,10 @@ export const documentApi = {
 
 // ── Subscriptions ─────────────────────────────────────────────
 export const subscriptionApi = {
+  // Get current active subscription + plan info
+  getCurrent: () =>
+    api.get('/subscriptions/current').then(r => r.data),
+
   list: () =>
     api.get('/subscriptions').then(r => r.data),
 
@@ -55,19 +59,27 @@ export const subscriptionApi = {
 
 // ── Reports / Analytics ───────────────────────────────────────
 export const reportApi = {
-  // Full dashboard KPIs + top products + top customers + recent enquiries
   getDashboardStats: () =>
     api.get('/reports/dashboard').then(r => r.data),
 
-  // params: { from_date, to_date, group_by: 'day'|'month' }
   getSalesReport: (params = {}) =>
     api.get('/reports/sales', { params }).then(r => r.data),
 
-  // params: { from_date, to_date }
   getPurchaseReport: (params = {}) =>
     api.get('/reports/purchases', { params }).then(r => r.data),
 
-  // params: { from_date, to_date }
   getExpenseReport: (params = {}) =>
     api.get('/reports/expenses', { params }).then(r => r.data),
+
+  getCustomerReport: (params = {}) =>
+    api.get('/reports/customers', { params }).then(r => r.data),
+
+  getSupplierReport: (params = {}) =>
+    api.get('/reports/suppliers', { params }).then(r => r.data),
+
+  getInventoryReport: (params = {}) =>
+    api.get('/reports/inventory', { params }).then(r => r.data),
+
+  getEmployeeReport: (params = {}) =>
+    api.get('/reports/employees', { params }).then(r => r.data),
 }

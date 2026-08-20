@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useAuth } from '../context/AuthContext'
-import { Plus, Search, Eye, ArrowRight, MessageCircle, CheckCircle, X, LayoutList, Sparkles, ScanEye, Reply, Handshake, BadgeCheck, Ban, Package } from 'lucide-react'
+import { Plus, Search, Eye, ArrowRight, MessageCircle, CheckCircle, X, LayoutList, Sparkles, ScanEye, Reply, Handshake, BadgeCheck, Ban, Package, Trash2, Edit2 } from 'lucide-react'
 
 // ── API field helpers (backend snake_case → frontend) ─────────
 const eid         = e => e._id            || e.id           || ''
@@ -45,7 +45,7 @@ const RETAILER_ROLES   = ['Retailer']
 
 export default function EnquiryManagement({
   enquiries = [], inventory = [], orders = [], products = [], branches = [],
-  addEnquiry, updateEnquiry, convertEnquiryToOrder,
+  addEnquiry, updateEnquiry, deleteEnquiry, convertEnquiryToOrder,
 }) {
   const { user } = useAuth()
   const userRole  = user?.role || 'Manager'
@@ -57,6 +57,9 @@ export default function EnquiryManagement({
   const [statusFilter,  setStatusFilter] = useState('All')
   const [selected,      setSelected]     = useState(null)
   const [showNewModal,  setShowNewModal] = useState(false)
+  const [editEnquiry,   setEditEnquiry]  = useState(null)   // enquiry being edited
+  const [deleteConfirm, setDeleteConfirm]= useState(null)   // { id, code }
+  const [deleting,      setDeleting]     = useState(false)
   const [replyText,     setReplyText]    = useState('')
   const [negText,       setNegText]      = useState('')
   const [offerPrice,    setOfferPrice]   = useState('')
@@ -185,17 +188,17 @@ export default function EnquiryManagement({
     const errs = {}
     if (!newForm.retailer.trim()) errs.retailer = 'Retailer name required'
     if (!newForm.mobile.trim() || !/^\d{10}$/.test(newForm.mobile)) errs.mobile = 'Valid 10-digit mobile required'
-    if (!newForm.product_id)      errs.product  = 'Select a product'
+    if (!newForm.product_id && !newForm.product.trim()) errs.product = 'Select a product'
     if (!newForm.location.trim()) errs.location = 'Delivery location required'
     if (!newForm.qty || isNaN(newForm.qty) || +newForm.qty < 1) errs.qty = 'Valid quantity required'
     if (Object.keys(errs).length) { setEnqErrors(errs); return }
 
     setSaving(true)
-    await addEnquiry?.({
+    const payload = {
       retailer_name:   newForm.retailer.trim(),
       retailer_mobile: newForm.mobile.trim(),
       retailer_email:  newForm.email.trim(),
-      product_id:      newForm.product_id,
+      product_id:      newForm.product_id || undefined,
       product_code:    newForm.productCode,
       product_name:    newForm.product,
       qty:             Number(newForm.qty),
@@ -203,13 +206,61 @@ export default function EnquiryManagement({
       offered_price:   newForm.offeredPrice ? Number(newForm.offeredPrice) : null,
       location:        newForm.location.trim(),
       remarks:         newForm.remarks.trim(),
-    })
-    setSaving(false)
+    }
+
+    if (editEnquiry) {
+      // UPDATE existing enquiry
+      const result = await updateEnquiry?.(eid(editEnquiry), payload)
+      setSaving(false)
+      if (result?.success === false) { toast(`Error: ${result.message}`); return }
+      toast(`✓ Enquiry ${enqCode(editEnquiry)} updated`)
+    } else {
+      // CREATE new enquiry
+      await addEnquiry?.(payload)
+      setSaving(false)
+      toast('✓ Enquiry submitted successfully')
+    }
+
     setShowNewModal(false)
+    setEditEnquiry(null)
     setNewForm(EMPTY_FORM)
     setSelectedProduct(null)
     setEnqErrors({})
-    toast('✓ Enquiry submitted successfully')
+  }
+
+  // ── Delete Enquiry ────────────────────────────────────────────
+  const handleDelete = async () => {
+    if (!deleteConfirm) return
+    setDeleting(true)
+    const result = await deleteEnquiry?.(deleteConfirm.id)
+    setDeleting(false)
+    if (result?.success === false) {
+      toast(`Error: ${result.message}`)
+    } else {
+      toast(`✓ Enquiry ${deleteConfirm.code} deleted`)
+      setDeleteConfirm(null)
+      if (selected && eid(selected) === deleteConfirm.id) setSelected(null)
+    }
+  }
+
+  // ── Open Edit modal ───────────────────────────────────────────
+  const openEdit = (e) => {
+    setEditEnquiry(e)
+    setNewForm({
+      retailer:     enqRetailer(e),
+      mobile:       enqMobile(e),
+      email:        enqEmail(e),
+      product_id:   e.product_id || '',
+      productCode:  e.product_code || '',
+      product:      enqProduct(e),
+      qty:          String(e.qty || ''),
+      unit:         e.unit || 'Sq Ft',
+      offeredPrice: String(enqPrice(e) || ''),
+      location:     e.location || '',
+      remarks:      enqRemarks(e),
+    })
+    setEnqErrors({})
+    setShowNewModal(true)
   }
 
   // ── Status flow progress bar ──────────────────────────────────
@@ -382,6 +433,16 @@ export default function EnquiryManagement({
                       {/* View button — everyone can view */}
                       <button className="btn btn-ghost btn-xs" title="View Details" onClick={() => openDetail(e)}>
                         <Eye style={{ width: 13 }} />
+                      </button>
+                      {/* Edit button */}
+                      <button className="btn btn-ghost btn-xs" title="Edit Enquiry" onClick={() => openEdit(e)}>
+                        <Edit2 style={{ width: 13 }} />
+                      </button>
+                      {/* Delete button */}
+                      <button className="btn btn-ghost btn-xs" title="Delete Enquiry"
+                        style={{ color: 'var(--danger)' }}
+                        onClick={() => setDeleteConfirm({ id: eid(e), code: enqCode(e) })}>
+                        <Trash2 style={{ width: 13 }} />
                       </button>
                       {/* Wholesaler-only: quick reply button for Viewed enquiries */}
                       {isWholesaler && e.status === 'Viewed' && (
@@ -744,8 +805,8 @@ export default function EnquiryManagement({
         <div className="modal-overlay" onClick={() => setShowNewModal(false)}>
           <div className="modal" style={{ maxWidth: 640 }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <span className="modal-title">Raise New Enquiry</span>
-              <button className="btn-ghost" onClick={() => setShowNewModal(false)}><X style={{ width: 16 }} /></button>
+              <span className="modal-title">{editEnquiry ? `Edit Enquiry — ${enqCode(editEnquiry)}` : 'Raise New Enquiry'}</span>
+              <button className="btn-ghost" onClick={() => { setShowNewModal(false); setEditEnquiry(null) }}><X style={{ width: 16 }} /></button>
             </div>
             <div className="modal-body">
 
@@ -976,9 +1037,36 @@ export default function EnquiryManagement({
             </div>
 
             <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setShowNewModal(false)}>Cancel</button>
+              <button className="btn btn-secondary" onClick={() => { setShowNewModal(false); setEditEnquiry(null) }}>Cancel</button>
               <button className="btn btn-primary" disabled={saving} onClick={handleNewEnquiry}>
-                {saving ? 'Submitting…' : 'Submit Enquiry'}
+                {saving ? (editEnquiry ? 'Updating…' : 'Submitting…') : (editEnquiry ? 'Update Enquiry' : 'Submit Enquiry')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ DELETE CONFIRM MODAL ══ */}
+      {deleteConfirm && (
+        <div className="modal-overlay" onClick={() => setDeleteConfirm(null)}>
+          <div className="modal" style={{ maxWidth: 400 }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <span className="modal-title">Delete Enquiry</span>
+              <button className="btn-ghost" onClick={() => setDeleteConfirm(null)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <div className="alert alert-danger" style={{ marginBottom: 0 }}>
+                <Trash2 style={{ width: 16, flexShrink: 0 }} />
+                <span>
+                  Delete enquiry <strong>{deleteConfirm.code}</strong>?
+                  This cannot be undone. Any linked order will remain.
+                </span>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setDeleteConfirm(null)}>Cancel</button>
+              <button className="btn btn-danger" disabled={deleting} onClick={handleDelete}>
+                {deleting ? 'Deleting…' : 'Delete Enquiry'}
               </button>
             </div>
           </div>

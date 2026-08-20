@@ -28,17 +28,6 @@ const TYPE_FILTERS = [
   { key: 'purchase',  label: 'Purchase'   },
 ]
 
-const AUTO_TRIGGERS = [
-  { icon: '📩', event: 'New Enquiry received',        when: 'Retailer submits enquiry',          type: 'enquiry'   },
-  { icon: '🛒', event: 'Order created',               when: 'Enquiry → Confirmed → Order',       type: 'order'     },
-  { icon: '📦', event: 'Purchase entry saved',        when: 'New stock purchased',               type: 'purchase'  },
-  { icon: '📫', event: 'Warehouse packing started',   when: 'Order → Processing',                type: 'warehouse' },
-  { icon: '🚚', event: 'Order dispatched',            when: 'Dispatch created + LR filled',      type: 'dispatch'  },
-  { icon: '✅', event: 'Order delivered',             when: 'Mark Delivered clicked',            type: 'delivery'  },
-  { icon: '💳', event: 'Payment received',            when: 'Delivery / payment collected',      type: 'payment'   },
-  { icon: '⚠️', event: 'Low stock alert',            when: 'Stock falls below alert threshold', type: 'info'      },
-]
-
 export default function NotificationSystem({ notifications = [], markNotifRead, markAllNotifsRead, deleteNotif }) {
   const [filter, setFilter] = useState('all')
 
@@ -186,27 +175,6 @@ export default function NotificationSystem({ notifications = [], markNotifRead, 
         </div>
       </div>
 
-      {/* Auto trigger info */}
-      <div className="card" style={{ marginTop: 16 }}>
-        <div className="card-header">
-          <span className="card-title">Auto Notification Triggers</span>
-          <span className="badge badge-blue">System Info</span>
-        </div>
-        <div className="card-body">
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10 }}>
-            {AUTO_TRIGGERS.map((item, i) => {
-              const cfg = TYPE_CONFIG[item.type] || TYPE_CONFIG.info
-              return (
-                <div key={i} style={{ background: cfg.bg, borderRadius: 10, padding: '10px 12px', border: '1px solid var(--border)' }}>
-                  <div style={{ fontSize: 20, marginBottom: 6 }}>{item.icon}</div>
-                  <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 3 }}>{item.event}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{item.when}</div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      </div>
     </div>
   )
 }

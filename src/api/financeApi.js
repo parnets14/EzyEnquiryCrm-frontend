@@ -1,20 +1,15 @@
 /**
- * financeApi.js — Purchases · Suppliers · Sales · Expenses · Payments · P&L · Ledgers
+ * financeApi.js — Purchases · Suppliers · Sales · Expenses · Payments · P&L · Ledgers · Invoices · Quotations · Accounts
  *
- * Purchase:     GET|POST /purchases  •  GET|PUT|DELETE /purchases/:id
- *               GET /purchases/suppliers/all  •  POST /purchases/suppliers
- *               PUT|DELETE /purchases/suppliers/:id
- *
- * Sales:        GET|POST /sales
- *
- * Expenses:     GET|POST /expenses  •  PUT|DELETE /expenses/:id
- *
- * Payments:     GET /payments/receivables  |  /payables  |  /transactions
- *               PATCH /payments/receivables/:id/collect
- *               PATCH /payments/payables/:id/pay
- *               GET   /payments/profit-loss
- *               GET   /payments/ledger/customer?customer_id=
- *               GET   /payments/ledger/supplier?supplier_id=
+ * Correct backend route mappings:
+ *   Purchases:    /api/purchases
+ *   Sales:        /api/sales
+ *   Expenses:     /api/expenses
+ *   Payments:     /api/payments/receivables | /payables | /transactions
+ *   Profit & Loss:/api/profit-loss          (NOT /payments/profit-loss)
+ *   Accounts:     /api/accounts/ledger/customer | /ledger/supplier | /cash-book | /bank-book
+ *   Quotations:   /api/quotations
+ *   Invoices:     /api/invoices
  */
 import api from './index'
 
@@ -104,15 +99,101 @@ export const paymentApi = {
   listTransactions: (params = {}) =>
     api.get('/payments/transactions', { params }).then(r => r.data),
 
-  // ── Profit & Loss ────────────────────────────────────────
+  // ── Profit & Loss — correct route: /api/profit-loss ──────
   // params: { from_date, to_date }
   getProfitLoss: (params = {}) =>
-    api.get('/payments/profit-loss', { params }).then(r => r.data),
+    api.get('/profit-loss', { params }).then(r => r.data),
 
-  // ── Ledgers ──────────────────────────────────────────────
+  // ── Ledgers — correct routes: /api/accounts/ledger/* ─────
   getCustomerLedger: (customer_id) =>
-    api.get('/payments/ledger/customer', { params: { customer_id } }).then(r => r.data),
+    api.get('/accounts/ledger/customer', { params: { customer_id } }).then(r => r.data),
 
   getSupplierLedger: (supplier_id) =>
-    api.get('/payments/ledger/supplier', { params: { supplier_id } }).then(r => r.data),
+    api.get('/accounts/ledger/supplier', { params: { supplier_id } }).then(r => r.data),
+}
+
+// ── Accounts (Ledger, Cash Book, Bank Book) ───────────────────
+export const accountsApi = {
+  // Customer ledger with running balance
+  getCustomerLedger: (customer_id) =>
+    api.get('/accounts/ledger/customer', { params: { customer_id } }).then(r => r.data),
+
+  // Supplier ledger with running balance
+  getSupplierLedger: (supplier_id) =>
+    api.get('/accounts/ledger/supplier', { params: { supplier_id } }).then(r => r.data),
+
+  // Daily cash flow — Cash mode receipts, payments, expenses
+  // params: { from_date, to_date }
+  getCashBook: (params = {}) =>
+    api.get('/accounts/cash-book', { params }).then(r => r.data),
+
+  // Bank transactions — UPI, Bank Transfer, Cheque
+  // params: { from_date, to_date }
+  getBankBook: (params = {}) =>
+    api.get('/accounts/bank-book', { params }).then(r => r.data),
+}
+
+// ── Profit & Loss ─────────────────────────────────────────────
+export const profitLossApi = {
+  // params: { from_date, to_date }
+  get: (params = {}) =>
+    api.get('/profit-loss', { params }).then(r => r.data),
+}
+
+// ── Quotations ────────────────────────────────────────────────
+export const quotationApi = {
+  // params: { search, status, page, limit }
+  list: (params = {}) =>
+    api.get('/quotations', { params }).then(r => r.data),
+
+  get: (id) =>
+    api.get(`/quotations/${id}`).then(r => r.data),
+
+  create: (data) =>
+    api.post('/quotations', data).then(r => r.data),
+
+  update: (id, data) =>
+    api.put(`/quotations/${id}`, data).then(r => r.data),
+
+  updateStatus: (id, status) =>
+    api.patch(`/quotations/${id}/status`, { status }).then(r => r.data),
+
+  // Convert accepted quotation → invoice
+  convertToInvoice: (id) =>
+    api.post(`/quotations/${id}/convert`).then(r => r.data),
+
+  delete: (id) =>
+    api.delete(`/quotations/${id}`).then(r => r.data),
+}
+
+// ── Invoices ──────────────────────────────────────────────────
+export const invoiceApi = {
+  // params: { search, status, payment_status, from_date, to_date, page, limit }
+  list: (params = {}) =>
+    api.get('/invoices', { params }).then(r => r.data),
+
+  get: (id) =>
+    api.get(`/invoices/${id}`).then(r => r.data),
+
+  // Quick financial summary for dashboard widgets
+  getSummary: () =>
+    api.get('/invoices/summary').then(r => r.data),
+
+  // data: { customer_id, customer_name, items[], grand_total, ... }
+  create: (data) =>
+    api.post('/invoices', data).then(r => r.data),
+
+  update: (id, data) =>
+    api.put(`/invoices/${id}`, data).then(r => r.data),
+
+  // status: 'draft' | 'sent' | 'paid' | 'partially_paid' | 'overdue' | 'cancelled'
+  updateStatus: (id, status) =>
+    api.patch(`/invoices/${id}/status`, { status }).then(r => r.data),
+
+  // Record a payment against invoice: { amount, payment_date, payment_mode, reference_no, note }
+  recordPayment: (id, data) =>
+    api.post(`/invoices/${id}/payment`, data).then(r => r.data),
+
+  delete: (id) =>
+    api.delete(`/invoices/${id}`).then(r => r.data),
 }

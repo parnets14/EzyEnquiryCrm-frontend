@@ -55,22 +55,23 @@ const NAV_CONFIG = [
     ],
   },
   {
-    type: 'section', key: 'crm', label: 'CRM Management', icon: UserCheck,
-    items: [
-      { to: '/crm/customer-management', icon: UserCheck,     label: 'Customer Management' },
-      { to: '/crm/lead-management',     icon: Target,        label: 'Lead Management' },
-      { to: '/crm/followup-management', icon: CalendarClock, label: 'Follow-up Management' },
-    ],
-  },
-  {
     type: 'section', key: 'finance', label: 'Finance Management', icon: TrendingUp,
     items: [
       { to: '/finance/quotation-manager',  icon: FileEdit,   label: 'Quotation Manager' },
+      { to: '/finance/invoice-management', icon: Receipt,    label: 'Invoice Management' },
       { to: '/finance/sales-management',   icon: TrendingUp, label: 'Sales Management' },
       { to: '/finance/expense-management', icon: Receipt,    label: 'Expense Management' },
       { to: '/finance/payment-management', icon: CreditCard, label: 'Payment Management', badgeKey: 'payments' },
       { to: '/finance/accounts-management',icon: BookOpen,   label: 'Accounts Management' },
       { to: '/finance/profit-loss',        icon: LineChart,  label: 'Profit & Loss Management' },
+    ],
+  },
+  {
+    type: 'section', key: 'crm', label: 'CRM Management', icon: UserCheck,
+    items: [
+      { to: '/crm/customer-management', icon: UserCheck,     label: 'Customer Management' },
+      { to: '/crm/lead-management',     icon: Target,        label: 'Lead Management' },
+      { to: '/crm/followup-management', icon: CalendarClock, label: 'Follow-up Management' },
     ],
   },
   {

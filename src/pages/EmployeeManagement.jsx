@@ -181,19 +181,40 @@ export default function EmployeeManagement({
         hrApi.getAttendanceSummary({ date }),
       ])
       if (listRes.status === 'fulfilled') {
-        const data = listRes.value?.data || listRes.value
-        setAttRecords(Array.isArray(data?.attendance) ? data.attendance : [])
+        // API wraps response as { success, data: { attendance } }
+        const raw  = listRes.value
+        const data = raw?.attendance ? raw : (raw?.data || raw)
+        const recs = Array.isArray(data?.attendance) ? data.attendance : []
+        setAttRecords(recs)
+        // Compute client-side summary in case backend summary fails
+        const byId = {}
+        recs.forEach(r => { byId[String(r.employee_id?._id || r.employee_id)] = r.status })
+        let p = 0, a = 0, l = 0, hd = 0, ol = 0
+        activeEmps.forEach(e => {
+          const st = byId[String(e._id || e.id)]
+          if (!st || st === 'Absent')  a++
+          else if (st === 'Present')   p++
+          else if (st === 'Late')      l++
+          else if (st === 'Half Day')  hd++
+          else if (st === 'On Leave')  ol++
+          else p++
+        })
+        setAttSummary({ total: activeEmps.length, present: p, absent: a, late: l, halfDay: hd, onLeave: ol })
       }
       if (sumRes.status === 'fulfilled') {
-        const s = sumRes.value?.data || sumRes.value
-        setAttSummary({
-          total:   s?.total    || activeEmps.length,
-          present: s?.present  || 0,
-          absent:  s?.absent   || 0,
-          late:    s?.late     || 0,
-          halfDay: s?.halfDay  || 0,
-          onLeave: s?.onLeave  || 0,
-        })
+        // API wraps response as { success, data: { total, present, ... } }
+        const raw = sumRes.value
+        const s   = raw?.total !== undefined ? raw : (raw?.data || raw)
+        if (s?.total !== undefined) {
+          setAttSummary({
+            total:   s.total   ?? activeEmps.length,
+            present: s.present ?? 0,
+            absent:  s.absent  ?? 0,
+            late:    s.late    ?? 0,
+            halfDay: s.halfDay ?? 0,
+            onLeave: s.onLeave ?? 0,
+          })
+        }
       }
     } catch { /* non-fatal */ }
     setAttLoading(false)
@@ -210,8 +231,10 @@ export default function EmployeeManagement({
     setSalLoading(true)
     const [year, month] = monthStr.split('-')
     try {
-      const res = await hrApi.listSalary({ month, year, limit: 200 })
-      const data = res?.data || res
+      const res  = await hrApi.listSalary({ month, year, limit: 200 })
+      // API wraps as { success, data: { salaries } }
+      const raw  = res
+      const data = raw?.salaries ? raw : (raw?.data || raw)
       setSalRecords(Array.isArray(data?.salaries) ? data.salaries : [])
     } catch { /* non-fatal */ }
     setSalLoading(false)
@@ -541,12 +564,14 @@ export default function EmployeeManagement({
   const salTotals = activeEmps.reduce((acc, emp) => {
     const id  = String(emp._id || emp.id)
     const rec = salRecordByEmp[id]
-    acc.gross += rec ? rec.gross_salary    : (emp.salary || 0)
-    acc.ded   += rec ? rec.total_deductions : 0
-    acc.net   += rec ? rec.net_salary       : (emp.salary || 0)
-    acc.paid  += rec?.status === 'Paid' ? (rec.net_salary || 0) : 0
+    acc.gross += rec ? (rec.gross_salary    || 0) : (emp.salary || 0)
+    acc.ded   += rec ? (rec.total_deductions || 0) : 0
+    acc.net   += rec ? (rec.net_salary       || 0) : (emp.salary || 0)
+    acc.paid  += (rec?.status === 'Paid') ? (rec.net_salary || 0) : 0
+    acc.paidCount  += (rec?.status === 'Paid')    ? 1 : 0
+    acc.processed  += rec ? 1 : 0
     return acc
-  }, { gross: 0, ded: 0, net: 0, paid: 0 })
+  }, { gross: 0, ded: 0, net: 0, paid: 0, paidCount: 0, processed: 0 })
   const salPending = salTotals.net - salTotals.paid
 
   // ═══════════════════════════════════════════════════════════
@@ -563,23 +588,71 @@ export default function EmployeeManagement({
         <div className="alert alert-info" style={{ marginBottom: 14 }}>✓ {successMsg}</div>
       )}
 
-      {/* Stats row */}
-      <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(4,1fr)', marginBottom: 20 }}>
-        {[
-          { label: 'Total Employees', val: employees.length,                              color: 'blue'   },
-          { label: 'Active Employees', val: activeEmps.length,                             color: 'green'  },
-          { label: 'Present Today',   val: `${attSummary.present} / ${activeEmps.length}`, color: 'purple' },
-          { label: 'Monthly Salary',  val: `₹${totalMonthlySalary.toLocaleString('en-IN')}`, color: 'orange' },
-        ].map(s => (
-          <div key={s.label} className="stat-card" style={{ padding: '14px 16px' }}>
-            <div className={`stat-icon ${s.color}`}><UserCog /></div>
-            <div className="stat-info">
-              <div className="stat-label">{s.label}</div>
-              <div className="stat-value" style={{ fontSize: 20 }}>{s.val}</div>
+      {/* ── Tab-specific stat boxes ── */}
+      {tab === 'list' && (
+        <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(4,1fr)', marginBottom: 20 }}>
+          {[
+            { label: 'Total Employees',  val: employees.length,                                color: 'blue'   },
+            { label: 'Active Employees', val: activeEmps.length,                               color: 'green'  },
+            { label: 'Inactive',         val: employees.length - activeEmps.length,            color: 'orange' },
+            { label: 'Monthly Payroll',  val: `₹${totalMonthlySalary.toLocaleString('en-IN')}`, color: 'purple' },
+          ].map(s => (
+            <div key={s.label} className="stat-card" style={{ padding: '14px 16px' }}>
+              <div className={`stat-icon ${s.color}`}><UserCog /></div>
+              <div className="stat-info">
+                <div className="stat-label">{s.label}</div>
+                <div className="stat-value" style={{ fontSize: 20 }}>{s.val}</div>
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
+
+      {tab === 'attendance' && (
+        <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(6,1fr)', marginBottom: 16 }}>
+          {[
+            { label: 'Total',    val: attSummary.total || activeEmps.length, color: 'blue'   },
+            { label: 'Present',  val: attSummary.present,                    color: 'green'  },
+            { label: 'Absent',   val: attSummary.absent,                     color: 'orange' },
+            { label: 'Late',     val: attSummary.late,                       color: 'purple' },
+            { label: 'Half Day', val: attSummary.halfDay,                    color: 'yellow' },
+            { label: 'On Leave', val: attSummary.onLeave,                    color: 'cyan'   },
+          ].map(s => (
+            <div key={s.label} className="stat-card" style={{ padding: '10px 12px' }}>
+              <div className="stat-info">
+                <div className="stat-label" style={{ fontSize: 11 }}>{s.label}</div>
+                <div className={`stat-value`} style={{ fontSize: 22, fontWeight: 700, color:
+                  s.color === 'green'  ? 'var(--success)' :
+                  s.color === 'orange' ? 'var(--warning)'  :
+                  s.color === 'purple' ? '#7C3AED'         :
+                  s.color === 'cyan'   ? '#0891B2'         :
+                  s.color === 'yellow' ? '#D97706'         : 'var(--primary)'
+                }}>{s.val}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {tab === 'salary' && (
+        <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(5,1fr)', marginBottom: 16 }}>
+          {[
+            { label: 'Total Employees',  val: activeEmps.length,                                  color: 'blue'   },
+            { label: 'Gross Salary',     val: `₹${salTotals.gross.toLocaleString('en-IN')}`,      color: 'purple' },
+            { label: 'Total Deductions', val: `₹${salTotals.ded.toLocaleString('en-IN')}`,        color: 'orange' },
+            { label: 'Net Salary',       val: `₹${salTotals.net.toLocaleString('en-IN')}`,        color: 'green'  },
+            { label: 'Pending Payout',   val: `₹${salPending.toLocaleString('en-IN')}`,           color: 'red'    },
+          ].map(s => (
+            <div key={s.label} className="stat-card" style={{ padding: '10px 12px' }}>
+              <div className={`stat-icon ${s.color}`}><DollarSign /></div>
+              <div className="stat-info">
+                <div className="stat-label" style={{ fontSize: 11 }}>{s.label}</div>
+                <div className="stat-value" style={{ fontSize: 15, fontWeight: 700 }}>{s.val}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="tabs">
@@ -692,25 +765,6 @@ export default function EmployeeManagement({
       {/* ══════════════════ TAB: Attendance ══════════════════ */}
       {tab === 'attendance' && (
         <>
-          {/* Summary cards */}
-          <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(6,1fr)', marginBottom: 16 }}>
-            {[
-              { label:'Total', val: attSummary.total || activeEmps.length, color:'blue' },
-              { label:'Present',  val: attSummary.present,  color:'green'  },
-              { label:'Absent',   val: attSummary.absent,   color:'orange' },
-              { label:'Late',     val: attSummary.late,     color:'purple' },
-              { label:'Half Day', val: attSummary.halfDay,  color:'yellow' },
-              { label:'On Leave', val: attSummary.onLeave,  color:'gray'   },
-            ].map(s => (
-              <div key={s.label} className="stat-card" style={{ padding:'10px 12px' }}>
-                <div className="stat-info">
-                  <div className="stat-label" style={{ fontSize:11 }}>{s.label}</div>
-                  <div className="stat-value" style={{ fontSize:22, fontWeight:700 }}>{s.val}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-
           <div className="card">
             <div className="card-header">
               <div>
@@ -749,7 +803,6 @@ export default function EmployeeManagement({
                 {STATUSES_ATT.map(s => <option key={s}>{s}</option>)}
               </select>
             </div>
-
             <div style={{ padding:'8px 20px', background:'var(--primary-light)', borderBottom:'1px solid var(--border)', fontSize:12, color:'var(--primary)' }}>
               💡 Click <strong>Check In</strong> when employee arrives → <strong>Check Out</strong> when leaving → hours auto-calculated. Use <strong>Edit</strong> to set status manually.
             </div>
@@ -864,24 +917,6 @@ export default function EmployeeManagement({
       {/* ══════════════════ TAB: Salary & Payslips ══════════════════ */}
       {tab === 'salary' && (
         <>
-          {/* Salary summary cards */}
-          <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(5,1fr)', marginBottom: 16 }}>
-            {[
-              { label:'Total Employees',    val: activeEmps.length,                                   color:'blue'   },
-              { label:'Gross Salary',       val: `₹${salTotals.gross.toLocaleString('en-IN')}`,       color:'purple' },
-              { label:'Total Deductions',   val: `₹${salTotals.ded.toLocaleString('en-IN')}`,         color:'orange' },
-              { label:'Net Salary',         val: `₹${salTotals.net.toLocaleString('en-IN')}`,         color:'green'  },
-              { label:'Pending',            val: `₹${salPending.toLocaleString('en-IN')}`,            color:'red'    },
-            ].map(s => (
-              <div key={s.label} className="stat-card" style={{ padding:'10px 12px' }}>
-                <div className="stat-info">
-                  <div className="stat-label" style={{ fontSize:11 }}>{s.label}</div>
-                  <div className="stat-value" style={{ fontSize:16, fontWeight:700 }}>{s.val}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-
           <div className="card">
             <div className="card-header">
               <span className="card-title">Salary &amp; Payslips</span>

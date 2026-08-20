@@ -113,7 +113,18 @@ export function ErpProvider({ children }) {
           return e
         }))
       }
-      if (ok(1))  setOrders(arr(ok(1), 'orders'))
+      if (ok(1))  {
+        const rawOrders = arr(ok(1), 'orders')
+        // Deduplicate by _id to prevent double entries
+        const seen = new Set()
+        const uniqueOrders = rawOrders.filter(o => {
+          const id = String(o._id || o.id || '')
+          if (seen.has(id)) return false
+          seen.add(id)
+          return true
+        })
+        setOrders(uniqueOrders)
+      }
       if (ok(2))  setDispatches(arr(ok(2), 'dispatches'))
       if (ok(3))  setInventory(arr(ok(3), 'inventory'))
       if (ok(4))  setPurchases(arr(ok(4), 'purchases'))
@@ -199,9 +210,19 @@ export function ErpProvider({ children }) {
 
   const deleteEnquiry = useCallback(async (id) => {
     try {
-      await enquiryApi.delete(id)
+      const res = await enquiryApi.delete(id)
+      const data = res?.data || res
+      // Remove enquiry from state
       setEnquiries(prev => prev.filter(e => e._id !== id && e.id !== id))
-      return { success: true }
+      // Cascade: also remove the linked order from state
+      const deletedOrderId = data?.deleted_order_id
+      if (deletedOrderId) {
+        setOrders(prev => prev.filter(o =>
+          (o._id || o.id) !== deletedOrderId &&
+          String(o._id || o.id) !== String(deletedOrderId)
+        ))
+      }
+      return { success: true, deletedOrderId }
     } catch (err) {
       return { success: false, message: err.response?.data?.message || 'Delete failed' }
     }
@@ -268,6 +289,33 @@ export function ErpProvider({ children }) {
   // ─────────────────────────────────────────────────────────
   // ORDER ACTIONS
   // ─────────────────────────────────────────────────────────
+  const addOrder = useCallback(async (data) => {
+    try {
+      const res = await orderApi.create(data)
+      const newOrder = res?.data || res
+      const newId = String(newOrder._id || newOrder.id || '')
+      // Deduplicate: remove any existing entry with same id before prepending
+      setOrders(prev => {
+        const without = prev.filter(o => String(o._id || o.id || '') !== newId)
+        return [newOrder, ...without]
+      })
+      addNotification(`Order ${newOrder.order_code || ''} created for ${data.customer_name}`, 'order')
+      return { success: true, data: newOrder }
+    } catch (err) {
+      return { success: false, message: err.response?.data?.message || 'Failed to create order' }
+    }
+  }, [addNotification])
+
+  const deleteOrder = useCallback(async (id) => {
+    try {
+      await orderApi.delete(id)
+      setOrders(prev => prev.filter(o => (o._id || o.id) !== id))
+      return { success: true }
+    } catch (err) {
+      return { success: false, message: err.response?.data?.message || 'Delete failed' }
+    }
+  }, [])
+
   const updateOrderStatus = useCallback(async (orderId, statusData) => {
     try {
       const res     = await orderApi.updateStatus(orderId, statusData)
@@ -746,6 +794,21 @@ export function ErpProvider({ children }) {
   }, [])
 
   // ─────────────────────────────────────────────────────────
+  // SALES ACTIONS — manual entry (auto-entry via dispatch→deliver)
+  // ─────────────────────────────────────────────────────────
+  const addSale = useCallback(async (data) => {
+    try {
+      const res = await salesApi.create(data)
+      const newSale = res?.data || res
+      setSales(prev => [newSale, ...prev])
+      addNotification(`Sale recorded: ₹${(data.total_amount || 0).toLocaleString()}`, 'sale')
+      return { success: true, data: newSale }
+    } catch (err) {
+      return { success: false, message: err.response?.data?.message || 'Failed to create sale' }
+    }
+  }, [addNotification])
+
+  // ─────────────────────────────────────────────────────────
   // EXPENSE ACTIONS
   // ─────────────────────────────────────────────────────────
   const addExpense = useCallback(async (data) => {
@@ -1037,7 +1100,7 @@ export function ErpProvider({ children }) {
     addEnquiry, updateEnquiry, deleteEnquiry, convertEnquiryToOrder,
 
     // ── Order actions ─────────────────────────────────────
-    updateOrderStatus, startPacking, markReadyForDispatch,
+    addOrder, updateOrderStatus, startPacking, markReadyForDispatch, deleteOrder,
 
     // ── Dispatch actions ──────────────────────────────────
     createDispatch, markInTransit, markDelivered,
@@ -1073,6 +1136,9 @@ export function ErpProvider({ children }) {
 
     // ── Product actions ───────────────────────────────────
     addProduct, updateProduct, deleteProduct, checkProductTransactions,
+
+    // ── Sales actions ─────────────────────────────────────
+    addSale,
 
     // ── Expense actions ───────────────────────────────────
     addExpense, updateExpense, deleteExpense,

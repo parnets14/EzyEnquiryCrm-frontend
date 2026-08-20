@@ -1,253 +1,426 @@
 import { useState, useCallback } from 'react'
 import {
-  Download, FileText, FileSpreadsheet, BarChart3, TrendingUp,
-  Package, Users, ShoppingBag, Receipt, UserCog, RefreshCw,
+  Download, FileText, BarChart3, TrendingUp, Package, Users,
+  ShoppingBag, Receipt, UserCog, RefreshCw, AlertCircle,
+  FileSpreadsheet, CheckCircle,
 } from 'lucide-react'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  CartesianGrid, Legend,
+} from 'recharts'
 import { reportApi } from '../api/systemApi'
-import { paymentApi } from '../api/financeApi'
+import { profitLossApi } from '../api/financeApi'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
+import * as XLSX from 'xlsx'
 
+// ── Report type config ────────────────────────────────────────
 const REPORT_TYPES = [
-  { key: 'sales',     label: 'Sales Report',     icon: <TrendingUp />,      color: 'blue',   desc: 'Customer-wise, daily/monthly/yearly sales data' },
-  { key: 'purchase',  label: 'Purchase Report',  icon: <ShoppingBag />,     color: 'purple', desc: 'Supplier-wise purchase, cost analysis' },
-  { key: 'expense',   label: 'Expense Report',   icon: <Receipt />,         color: 'orange', desc: 'Category-wise expenses, monthly breakdown' },
-  { key: 'profit',    label: 'P&L Report',       icon: <BarChart3 />,       color: 'green',  desc: 'Revenue, cost, net profit across date range' },
-  { key: 'inventory', label: 'Inventory Report', icon: <Package />,         color: 'cyan',   desc: 'Stock levels, movements, low-stock alerts' },
-  { key: 'customer',  label: 'Customer Report',  icon: <Users />,           color: 'blue',   desc: 'Top customers, outstanding, order history' },
-  { key: 'supplier',  label: 'Supplier Report',  icon: <ShoppingBag />,     color: 'purple', desc: 'Supplier-wise purchase & payables' },
-  { key: 'employee',  label: 'Employee Report',  icon: <UserCog />,         color: 'green',  desc: 'Attendance, salary summary' },
+  { key: 'sales',     label: 'Sales Report',     icon: TrendingUp,     color: '#2563EB', badge: 'badge-blue',   desc: 'Daily/monthly revenue, GST, order count' },
+  { key: 'purchase',  label: 'Purchase Report',  icon: ShoppingBag,    color: '#7C3AED', badge: 'badge-purple', desc: 'Supplier-wise purchase & cost analysis' },
+  { key: 'expense',   label: 'Expense Report',   icon: Receipt,        color: '#F97316', badge: 'badge-orange', desc: 'Category-wise expenses breakdown' },
+  { key: 'profit',    label: 'Profit Report',    icon: BarChart3,      color: '#10B981', badge: 'badge-green',  desc: 'P&L — revenue, cost, net profit' },
+  { key: 'customer',  label: 'Customer Report',  icon: Users,          color: '#06B6D4', badge: 'badge-cyan',   desc: 'Top customers, revenue, outstanding' },
+  { key: 'supplier',  label: 'Supplier Report',  icon: ShoppingBag,    color: '#8B5CF6', badge: 'badge-purple', desc: 'Supplier purchase totals & payables' },
+  { key: 'inventory', label: 'Inventory Report', icon: Package,        color: '#F59E0B', badge: 'badge-yellow', desc: 'Stock levels, low-stock alerts' },
+  { key: 'employee',  label: 'Employee Report',  icon: UserCog,        color: '#64748B', badge: 'badge-gray',   desc: 'Employee salary & attendance summary' },
 ]
 
-// Default date range: current month
 const defaultFrom = () => { const d = new Date(); d.setDate(1); return d.toISOString().split('T')[0] }
 const defaultTo   = () => new Date().toISOString().split('T')[0]
+const fmt   = (v) => `₹${(parseFloat(v) || 0).toLocaleString('en-IN')}`
+const fmtDt = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
 
-export default function ReportCenter({ sales = [], purchases = [], orders = [], inventory = [], payments = { receivables: [], payables: [], history: [] } }) {
-  const [selectedReport, setSelectedReport] = useState('sales')
-  const [dateFrom,  setDateFrom]  = useState(defaultFrom)
-  const [dateTo,    setDateTo]    = useState(defaultTo)
-  const [groupBy,   setGroupBy]   = useState('month')
-  const [loading,   setLoading]   = useState(false)
-  const [error,     setError]     = useState(null)
-  const [reportData, setReportData] = useState(null)
+// ── Column definitions per report type ───────────────────────
+const COLUMNS = {
+  sales:     [['#','30'],['Period','120'],['Revenue (incl. GST)','150'],['Base Amount','130'],['GST','100'],['Orders','80']],
+  purchase:  [['#','30'],['Supplier','150'],['Total Purchase','140'],['Orders','80'],['Last Date','120']],
+  expense:   [['#','30'],['Category','140'],['Amount','130'],['Count','80'],['% of Total','120']],
+  profit:    [['Item','250'],['Amount','150']],
+  customer:  [['#','30'],['Customer','150'],['Orders','80'],['Revenue','130'],['Outstanding','130'],['Last Order','120']],
+  supplier:  [['#','30'],['Supplier','150'],['Total Purchase','140'],['Orders','80'],['Outstanding','130'],['Last Date','120']],
+  inventory: [['#','30'],['Product','160'],['Code','80'],['Category','120'],['Warehouse','120'],['In','70'],['Out','70'],['Current','90'],['Status','90']],
+  employee:  [['#','30'],['Code','70'],['Name','140'],['Department','120'],['Gross','110'],['Deductions','110'],['Net Salary','110'],['Days Present','100'],['Salary Status','110']],
+}
 
-  const currentReport = REPORT_TYPES.find(r => r.key === selectedReport)
+function getRows(type, data) {
+  const rows = data?.rows || []
+  if (type === 'sales') return rows.map((r, i) => [i+1, r.period||'—', fmt(r.total_sales), fmt(r.base_amount), fmt(r.total_gst), r.order_count||0])
+  if (type === 'purchase') return rows.map((r, i) => [i+1, r.supplier_name||'—', fmt(r.total), r.count||0, fmtDt(r.last_date)])
+  if (type === 'expense') {
+    const total = Math.max(rows.reduce((a, r) => a + (r.total||0), 0), 1)
+    return rows.map((r, i) => [i+1, r.category||'—', fmt(r.total), r.count||0, `${(((r.total||0)/total)*100).toFixed(1)}%`])
+  }
+  if (type === 'profit') return [
+    ['Sales Revenue',          fmt(data.totalSales)],
+    ['(-) Purchase Cost',      fmt(data.totalPurchase)],
+    ['(-) Operating Expenses', fmt(data.operatingExpenses)],
+    ['(-) Salary',             fmt(data.totalSalary)],
+    ['(-) Marketing',          fmt(data.marketingCost)],
+    ['= Gross Profit',         fmt(data.grossProfit)],
+    ['= Net Profit',           fmt(data.netProfit)],
+  ]
+  if (type === 'customer') return rows.map((r, i) => [i+1, r.customer_name||'—', r.order_count||0, fmt(r.total_sales), fmt(r.outstanding), fmtDt(r.last_order)])
+  if (type === 'supplier') return rows.map((r, i) => [i+1, r.supplier_name||'—', fmt(r.total), r.count||0, fmt(r.outstanding), fmtDt(r.last_date)])
+  if (type === 'inventory') {
+    return rows.map((r, i) => {
+      const st = r.current_stock === 0 ? 'Out of Stock' : r.current_stock <= r.low_stock_alert ? 'Low Stock' : 'In Stock'
+      return [i+1, r.product_name||'—', r.product_code||'—', r.category_name||'—', r.warehouse_name||'—', r.stock_in||0, r.stock_out||0, r.current_stock||0, st]
+    })
+  }
+  if (type === 'employee') return rows.map((r, i) => [i+1, r.emp_code||'—', r.name||'—', r.department||'—', fmt(r.gross_salary), fmt(r.total_deductions), fmt(r.net_salary), r.present_days||0, r.status||'Pending'])
+  return []
+}
+
+// ── PDF export ────────────────────────────────────────────────
+function exportPDF(type, data, label, dateFrom, dateTo) {
+  const doc      = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
+  const colDefs  = COLUMNS[type] || []
+  const head     = [colDefs.map(c => c[0])]
+  const body     = getRows(type, data)
+  const pageW    = doc.internal.pageSize.getWidth()
+
+  // Header gradient bar
+  doc.setFillColor(1, 21, 45)
+  doc.rect(0, 0, pageW, 20, 'F')
+  doc.setFillColor(253, 92, 2)
+  doc.rect(pageW - 60, 0, 60, 20, 'F')
+
+  doc.setTextColor(255, 255, 255)
+  doc.setFontSize(14); doc.setFont('helvetica', 'bold')
+  doc.text('EzyEnquiry ERP', 10, 8)
+  doc.setFontSize(10); doc.setFont('helvetica', 'normal')
+  doc.text(label, 10, 14)
+  doc.setFontSize(9)
+  doc.text(`${dateFrom}  →  ${dateTo}`, pageW - 58, 8)
+  doc.text(`Generated: ${new Date().toLocaleString('en-IN')}`, pageW - 58, 14)
+
+  autoTable(doc, {
+    head, body,
+    startY: 24,
+    styles: { fontSize: 9, cellPadding: 3, font: 'helvetica' },
+    headStyles: { fillColor: [1, 21, 45], textColor: 255, fontStyle: 'bold', halign: 'left' },
+    alternateRowStyles: { fillColor: [248, 250, 255] },
+    columnStyles: Object.fromEntries(colDefs.map((c, i) => [i, { cellWidth: parseFloat(c[1]) * 0.35 }])),
+    tableLineColor: [203, 213, 225], tableLineWidth: 0.1,
+    didDrawPage: (d) => {
+      const pg = doc.internal.getNumberOfPages()
+      doc.setFontSize(8); doc.setTextColor(148, 163, 184)
+      doc.text(`Page ${d.pageNumber} of ${pg}`, pageW / 2, doc.internal.pageSize.getHeight() - 5, { align: 'center' })
+    },
+  })
+
+  doc.save(`${type}_report_${dateFrom}_${dateTo}.pdf`)
+}
+
+// ── Excel export ──────────────────────────────────────────────
+function exportExcel(type, data, label, dateFrom, dateTo) {
+  const colDefs = COLUMNS[type] || []
+  const header  = colDefs.map(c => c[0])
+  const rows    = getRows(type, data)
+  const ws      = XLSX.utils.aoa_to_sheet([header, ...rows])
+
+  // Column widths
+  ws['!cols'] = colDefs.map(c => ({ wch: Math.max(12, Math.floor(parseFloat(c[1]) / 6)) }))
+
+  // Style header row bold (basic)
+  const range = XLSX.utils.decode_range(ws['!ref'] || 'A1')
+  for (let C = range.s.c; C <= range.e.c; C++) {
+    const cell = ws[XLSX.utils.encode_cell({ r: 0, c: C })]
+    if (cell) { cell.s = { font: { bold: true }, fill: { patternType: 'solid', fgColor: { rgb: '01152D' } } } }
+  }
+
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, label.slice(0, 31))
+
+  // Summary sheet for non-detail reports
+  if (['sales','purchase','expense','customer','supplier'].includes(type)) {
+    const totals = data?.totals || {}
+    const summaryData = [
+      ['Report', label],
+      ['Period', `${dateFrom} to ${dateTo}`],
+      ['Generated', new Date().toLocaleString('en-IN')],
+      [],
+      ...Object.entries(totals).map(([k, v]) => [k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()), typeof v === 'number' ? v : String(v)]),
+    ]
+    const wsSummary = XLSX.utils.aoa_to_sheet(summaryData)
+    XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary')
+  }
+
+  XLSX.writeFile(wb, `${type}_report_${dateFrom}_${dateTo}.xlsx`)
+}
+
+export default function ReportCenter() {
+  const [selected,    setSelected]    = useState('sales')
+  const [dateFrom,    setDateFrom]    = useState(defaultFrom)
+  const [dateTo,      setDateTo]      = useState(defaultTo)
+  const [groupBy,     setGroupBy]     = useState('month')
+  const [empMonth,    setEmpMonth]    = useState(new Date().getMonth() + 1)
+  const [empYear,     setEmpYear]     = useState(new Date().getFullYear())
+  const [loading,     setLoading]     = useState(false)
+  const [error,       setError]       = useState(null)
+  const [reportData,  setReportData]  = useState(null)
+  const [successMsg,  setSuccessMsg]  = useState('')
+
+  const currentReport = REPORT_TYPES.find(r => r.key === selected)
 
   const fetchReport = useCallback(async () => {
     setLoading(true); setError(null); setReportData(null)
     try {
-      let data = null
-      if (selectedReport === 'sales') {
-        data = await reportApi.getSalesReport({ from_date: dateFrom, to_date: dateTo, group_by: groupBy })
-      } else if (selectedReport === 'purchase') {
-        data = await reportApi.getPurchaseReport({ from_date: dateFrom, to_date: dateTo })
-      } else if (selectedReport === 'expense') {
-        data = await reportApi.getExpenseReport({ from_date: dateFrom, to_date: dateTo })
-      } else if (selectedReport === 'profit') {
-        data = await paymentApi.getProfitLoss({ from_date: dateFrom, to_date: dateTo })
-      } else if (selectedReport === 'inventory') {
-        // Use passed inventory prop — filter by date is not needed, show current stock
-        data = { rows: inventory, totals: { total: inventory.reduce((a, i) => a + (i.current_stock || 0), 0), count: inventory.length } }
-      } else if (selectedReport === 'customer') {
-        // Build from payments receivables + orders
-        const customerMap = {}
-        ;(payments.receivables || []).forEach(r => {
-          if (!r.customer_name) return
-          if (!customerMap[r.customer_name]) customerMap[r.customer_name] = { name: r.customer_name, outstanding: 0, order_count: 0 }
-          customerMap[r.customer_name].outstanding += (r.outstanding || 0)
-        })
-        orders.forEach(o => {
-          const name = o.customer_name || '—'
-          if (!customerMap[name]) customerMap[name] = { name, outstanding: 0, order_count: 0 }
-          customerMap[name].order_count += 1
-        })
-        data = { rows: Object.values(customerMap).sort((a, b) => b.outstanding - a.outstanding) }
-      } else if (selectedReport === 'supplier') {
-        // Build from purchases
-        const supplierMap = {}
-        purchases.forEach(p => {
-          const name = p.supplier_name || '—'
-          if (!supplierMap[name]) supplierMap[name] = { supplier_name: name, count: 0, total: 0, last_date: '' }
-          supplierMap[name].count += 1
-          supplierMap[name].total += (p.total_amount || 0)
-          const d = p.purchase_date || p.created_at || ''
-          if (d > supplierMap[name].last_date) supplierMap[name].last_date = d
-        })
-        data = { rows: Object.values(supplierMap).sort((a, b) => b.total - a.total) }
-      } else {
-        data = { rows: [], totals: {} }
-      }
-      setReportData(data?.data || data)
+      let res
+      if (selected === 'sales')     res = await reportApi.getSalesReport({ from_date: dateFrom, to_date: dateTo, group_by: groupBy })
+      else if (selected === 'purchase')  res = await reportApi.getPurchaseReport({ from_date: dateFrom, to_date: dateTo })
+      else if (selected === 'expense')   res = await reportApi.getExpenseReport({ from_date: dateFrom, to_date: dateTo })
+      else if (selected === 'profit')    res = await profitLossApi.get({ from_date: dateFrom, to_date: dateTo })
+      else if (selected === 'customer')  res = await reportApi.getCustomerReport({ from_date: dateFrom, to_date: dateTo })
+      else if (selected === 'supplier')  res = await reportApi.getSupplierReport({ from_date: dateFrom, to_date: dateTo })
+      else if (selected === 'inventory') res = await reportApi.getInventoryReport()
+      else if (selected === 'employee')  res = await reportApi.getEmployeeReport({ month: empMonth, year: empYear })
+      setReportData(res?.data || res)
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load report.')
     } finally {
       setLoading(false)
     }
-  }, [selectedReport, dateFrom, dateTo, groupBy, inventory, payments, orders, purchases])
+  }, [selected, dateFrom, dateTo, groupBy, empMonth, empYear])
 
-  // Export as styled HTML (print-ready)
   const handleExport = (format) => {
     if (!reportData) { fetchReport(); return }
-    const rows  = reportData.rows || []
-    const total = reportData.totals || {}
-
-    const tableRows = rows.map((row, i) => {
-      if (selectedReport === 'sales') {
-        const avg = row.order_count > 0 ? Math.round((row.total_sales || 0) / row.order_count) : 0
-        return `<tr><td>${i+1}</td><td>${row.period||'—'}</td><td style="color:#059669;font-weight:700">₹${(row.total_sales||0).toLocaleString('en-IN')}</td><td>${row.order_count||0}</td><td>₹${avg.toLocaleString('en-IN')}</td></tr>`
-      }
-      if (selectedReport === 'purchase') {
-        return `<tr><td>${i+1}</td><td style="font-weight:600">${row.supplier_name||'—'}</td><td style="color:var(--primary)">₹${(row.total||0).toLocaleString('en-IN')}</td><td>${row.count||0}</td></tr>`
-      }
-      if (selectedReport === 'expense') {
-        const totalExp = rows.reduce((a, r) => a + (r.total || 0), 1)
-        const pct = (((row.total||0)/totalExp)*100).toFixed(1)
-        return `<tr><td>${i+1}</td><td style="font-weight:600">${row.category||'—'}</td><td style="color:#DC2626;font-weight:700">₹${(row.total||0).toLocaleString('en-IN')}</td><td>${row.count||0}</td><td>${pct}%</td></tr>`
-      }
-      if (selectedReport === 'inventory') {
-        const st = (row.current_stock||0) === 0 ? 'Out' : (row.current_stock||0) <= (row.low_stock_alert||0) ? 'Low' : 'OK'
-        return `<tr><td>${i+1}</td><td style="font-weight:600">${row.product_name||'—'}</td><td>${row.warehouse_name||'—'}</td><td style="color:#059669">+${row.stock_in||0}</td><td style="color:#DC2626">-${row.stock_out||0}</td><td style="font-weight:700">${row.current_stock||0}</td><td><span style="padding:2px 8px;border-radius:10px;font-size:11px;background:${st==='OK'?'#ECFDF5':st==='Low'?'#FFFBEB':'#FEF2F2'};color:${st==='OK'?'#059669':st==='Low'?'#D97706':'#DC2626'}">${st}</span></td></tr>`
-      }
-      if (selectedReport === 'customer') {
-        return `<tr><td>${i+1}</td><td style="font-weight:700">${row.name||'—'}</td><td>${row.order_count||0}</td><td style="color:#DC2626;font-weight:700">₹${(row.outstanding||0).toLocaleString('en-IN')}</td></tr>`
-      }
-      if (selectedReport === 'supplier') {
-        const ld = row.last_date ? new Date(row.last_date).toLocaleDateString('en-IN') : '—'
-        return `<tr><td>${i+1}</td><td style="font-weight:700">${row.supplier_name||'—'}</td><td style="color:var(--primary);font-weight:700">₹${(row.total||0).toLocaleString('en-IN')}</td><td>${row.count||0}</td><td>${ld}</td></tr>`
-      }
-      return `<tr><td>${i+1}</td><td colspan="4">${JSON.stringify(row)}</td></tr>`
-    }).join('')
-
-    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"/><title>${currentReport?.label}</title>
-<style>
-@page{size:A4 landscape;margin:12mm}
-body{font-family:'Segoe UI',Arial,sans-serif;font-size:12px;color:#1a2540}
-.hdr{background:linear-gradient(135deg,#01152D,#FD5C02);color:#fff;padding:20px 28px;display:flex;justify-content:space-between;align-items:center}
-.hdr h1{font-size:18px;font-weight:800;margin:0}
-.hdr p{font-size:12px;opacity:.8;margin:4px 0 0}
-table{width:100%;border-collapse:collapse;margin-top:16px}
-th{background:#F8FAFC;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#64748B;padding:8px;text-align:left;border-bottom:2px solid #CBD5E1}
-td{padding:8px;border-bottom:1px solid #F1F5F9;font-size:12px}
-tr:nth-child(even){background:#FAFBFF}
-.ftr{margin-top:16px;font-size:10px;color:#94A3B8;display:flex;justify-content:space-between;border-top:1px solid #E2E8F0;padding-top:8px}
-</style></head><body>
-<div class="hdr"><div><h1>${currentReport?.label}</h1><p>${dateFrom} to ${dateTo} · ${rows.length} records</p></div>
-<div style="text-align:right;font-size:12px;opacity:.8">EzyEnquiry ERP · ${new Date().toLocaleString('en-IN')}</div></div>
-<table><thead>${getHeaders(selectedReport)}</thead><tbody>${tableRows}</tbody></table>
-<div class="ftr"><span>EzyEnquiry ERP · ${currentReport?.label}</span><span>Generated: ${new Date().toLocaleString('en-IN')}</span></div>
-</body></html>`
-
-    const blob = new Blob([html], { type: 'text/html;charset=utf-8;' })
-    const url  = URL.createObjectURL(blob)
-    const a    = document.createElement('a')
-    a.href = url
-    a.download = `${selectedReport}_report_${dateFrom}_${dateTo}.html`
-    a.click()
-    URL.revokeObjectURL(url)
+    const label = currentReport?.label || selected
+    if (format === 'pdf')   exportPDF(selected, reportData, label, dateFrom, dateTo)
+    if (format === 'excel') exportExcel(selected, reportData, label, dateFrom, dateTo)
+    setSuccessMsg(`${format.toUpperCase()} exported!`)
+    setTimeout(() => setSuccessMsg(''), 3000)
   }
+
+  const rows = reportData?.rows || []
+  const totals = reportData?.totals || {}
 
   return (
     <>
       <div className="breadcrumb">
-        <span>Reports &amp; Tools</span><span className="breadcrumb-sep">›</span>
+        <span>Reports</span><span className="breadcrumb-sep">›</span>
         <span className="breadcrumb-active">Report Center</span>
       </div>
 
-      <div className="page-grid-2" style={{ gridTemplateColumns: '260px 1fr', gap: 16, alignItems: 'start' }}>
-        {/* Left selector */}
-        <div className="card">
-          <div className="card-header"><span className="card-title">Report Type</span></div>
-          <div style={{ padding: '8px 0' }}>
-            {REPORT_TYPES.map(r => (
-              <button key={r.key} onClick={() => { setSelectedReport(r.key); setReportData(null) }}
-                style={{ display:'flex', alignItems:'flex-start', gap:12, width:'100%', padding:'12px 16px', border:'none',
-                  background: selectedReport===r.key ? 'var(--primary-light)' : 'transparent',
-                  color: selectedReport===r.key ? 'var(--primary)' : 'var(--text)',
-                  cursor:'pointer', fontSize:13, fontWeight: selectedReport===r.key ? 700 : 500,
-                  borderLeft: selectedReport===r.key ? '3px solid var(--primary)' : '3px solid transparent',
-                  textAlign:'left', transition:'all .15s' }}>
-                <span style={{ marginTop:1 }}>{r.icon}</span>
-                <div>
-                  <div>{r.label}</div>
-                  <div style={{ fontSize:11, color:'var(--text-muted)', fontWeight:400, marginTop:2, lineHeight:1.4 }}>{r.desc}</div>
-                </div>
-              </button>
-            ))}
+      {successMsg && (
+        <div className="alert alert-info" style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <CheckCircle style={{ color: 'var(--success)', width: 16 }} />
+          <span style={{ fontWeight: 600 }}>{successMsg}</span>
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: '260px 1fr', gap: 16, alignItems: 'start' }}>
+
+        {/* ── Left: Report selector ── */}
+        <div className="card" style={{ position: 'sticky', top: 16 }}>
+          <div className="card-header" style={{ padding: '12px 16px' }}>
+            <span className="card-title">Reports</span>
+          </div>
+          <div style={{ padding: '4px 0 8px' }}>
+            {REPORT_TYPES.map(r => {
+              const Icon = r.icon
+              const active = selected === r.key
+              return (
+                <button key={r.key}
+                  onClick={() => { setSelected(r.key); setReportData(null); setError(null) }}
+                  style={{
+                    display: 'flex', alignItems: 'flex-start', gap: 10, width: '100%',
+                    padding: '10px 16px', border: 'none', cursor: 'pointer', textAlign: 'left',
+                    background: active ? r.color + '12' : 'transparent',
+                    borderLeft: `3px solid ${active ? r.color : 'transparent'}`,
+                    transition: 'all .15s',
+                  }}>
+                  <Icon style={{ width: 16, color: active ? r.color : 'var(--text-muted)', flexShrink: 0, marginTop: 2 }} />
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: active ? 700 : 500, color: active ? r.color : 'var(--text)' }}>
+                      {r.label}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.4 }}>
+                      {r.desc}
+                    </div>
+                  </div>
+                </button>
+              )
+            })}
           </div>
         </div>
 
-        {/* Right panel */}
-        <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
-          {/* Filters + Generate button */}
+        {/* ── Right: Filters + Output ── */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+          {/* Filter bar */}
           <div className="card">
-            <div className="card-body" style={{ padding:'14px 20px' }}>
-              <div style={{ display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
-                <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                  <label className="form-label" style={{ marginBottom:0 }}>From</label>
-                  <input className="form-control" type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ width:150 }} />
-                </div>
-                <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                  <label className="form-label" style={{ marginBottom:0 }}>To</label>
-                  <input className="form-control" type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={{ width:150 }} />
-                </div>
-                {(selectedReport === 'sales') && (
-                  <div style={{ display:'flex', gap:4 }}>
-                    {['day','month'].map(g => (
-                      <button key={g} className={`btn btn-sm ${groupBy===g?'btn-primary':'btn-secondary'}`} onClick={() => setGroupBy(g)}>
-                        {g === 'day' ? 'Daily' : 'Monthly'}
-                      </button>
+            <div className="card-body" style={{ padding: '14px 20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+
+                {selected !== 'inventory' && selected !== 'employee' && (
+                  <>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)' }}>From</label>
+                      <input type="date" className="form-control" value={dateFrom}
+                        onChange={e => setDateFrom(e.target.value)} style={{ width: 150 }} />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)' }}>To</label>
+                      <input type="date" className="form-control" value={dateTo}
+                        onChange={e => setDateTo(e.target.value)} style={{ width: 150 }} />
+                    </div>
+                  </>
+                )}
+
+                {selected === 'sales' && (
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    {[['day','Daily'],['month','Monthly']].map(([g, l]) => (
+                      <button key={g} className={`btn btn-sm ${groupBy === g ? 'btn-primary' : 'btn-secondary'}`}
+                        onClick={() => setGroupBy(g)}>{l}</button>
                     ))}
                   </div>
                 )}
-                <button className="btn btn-primary btn-sm" onClick={fetchReport} disabled={loading}
-                  style={{ display:'flex', alignItems:'center', gap:6 }}>
-                  <RefreshCw style={{ width:13, animation: loading ? 'spin 1s linear infinite' : 'none' }} />
+
+                {selected === 'employee' && (
+                  <>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)' }}>Month</label>
+                      <select className="form-control" style={{ width: 110 }} value={empMonth}
+                        onChange={e => setEmpMonth(Number(e.target.value))}>
+                        {['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].map((m, i) => (
+                          <option key={i} value={i + 1}>{m}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)' }}>Year</label>
+                      <input type="number" className="form-control" style={{ width: 90 }} value={empYear}
+                        onChange={e => setEmpYear(Number(e.target.value))} min={2020} max={2035} />
+                    </div>
+                  </>
+                )}
+
+                {selected === 'inventory' && (
+                  <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Shows current live stock</span>
+                )}
+
+                <button className="btn btn-primary" onClick={fetchReport} disabled={loading}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <RefreshCw style={{ width: 13, animation: loading ? 'spin 1s linear infinite' : 'none' }} />
                   {loading ? 'Loading…' : 'Generate Report'}
                 </button>
-                <div style={{ marginLeft:'auto', display:'flex', gap:8 }}>
-                  <button className="btn btn-secondary btn-sm" onClick={() => handleExport('html')} disabled={!reportData}>
-                    <FileText style={{ width:13 }} /> Export PDF
-                  </button>
-                  <button className="btn btn-success btn-sm" onClick={() => handleExport('html')} disabled={!reportData}>
-                    <FileSpreadsheet style={{ width:13 }} /> Export
-                  </button>
-                </div>
+
+                {reportData && (
+                  <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+                    <button className="btn btn-secondary btn-sm" onClick={() => handleExport('pdf')}
+                      style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <FileText style={{ width: 13, color: '#EF4444' }} /> Export PDF
+                    </button>
+                    <button className="btn btn-secondary btn-sm" onClick={() => handleExport('excel')}
+                      style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <FileSpreadsheet style={{ width: 13, color: '#10B981' }} /> Export Excel
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
-          {error && <div className="alert alert-danger">{error}</div>}
+          {error && (
+            <div className="alert alert-danger" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <AlertCircle style={{ width: 16 }} />{error}
+            </div>
+          )}
 
-          {/* Not yet generated */}
-          {!reportData && !loading && (
+          {/* Empty state */}
+          {!reportData && !loading && !error && (
             <div className="card">
-              <div className="card-body" style={{ textAlign:'center', padding:'48px 24px' }}>
-                <BarChart3 style={{ width:48, height:48, margin:'0 auto 16px', color:'var(--text-light)', display:'block' }} />
-                <div style={{ fontSize:15, fontWeight:700, marginBottom:8 }}>Select a report and click Generate</div>
-                <div style={{ fontSize:13, color:'var(--text-muted)', marginBottom:20 }}>
-                  Choose a report type from the left, set the date range, then click <strong>Generate Report</strong>.
+              <div className="card-body" style={{ textAlign: 'center', padding: '48px 24px' }}>
+                <BarChart3 style={{ width: 48, height: 48, margin: '0 auto 16px', color: 'var(--text-light)', display: 'block' }} />
+                <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 8 }}>Select a report and click Generate</div>
+                <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20 }}>
+                  Set the date range, then click <strong>Generate Report</strong>. Export as PDF or Excel once generated.
                 </div>
                 <button className="btn btn-primary" onClick={fetchReport}>
-                  <RefreshCw style={{ width:13 }} /> Generate Report
+                  <RefreshCw style={{ width: 13 }} /> Generate Now
                 </button>
               </div>
             </div>
           )}
 
-          {/* Chart — sales/purchase/profit */}
-          {reportData && ['sales','purchase','profit'].includes(selectedReport) && (
+          {/* Summary KPI bar */}
+          {reportData && totals && Object.keys(totals).length > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
+              {Object.entries(totals).map(([k, v]) => (
+                <div key={k} className="stat-card" style={{ padding: '12px 16px' }}>
+                  <div className="stat-info">
+                    <div className="stat-label" style={{ textTransform: 'capitalize' }}>
+                      {k.replace(/_/g, ' ')}
+                    </div>
+                    <div className="stat-value" style={{ fontSize: 16 }}>
+                      {typeof v === 'number' && k.toLowerCase().includes('total') && !k.includes('count') && !k.includes('days') && !k.includes('paid')
+                        ? fmt(v) : typeof v === 'number' ? v.toLocaleString() : String(v)}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Chart */}
+          {reportData && ['sales', 'purchase', 'expense'].includes(selected) && rows.length > 0 && (
             <div className="card">
               <div className="card-header">
-                <span className="card-title">{currentReport?.label} — Trend</span>
-                <span className="badge badge-blue">Live</span>
+                <span className="card-title">{currentReport?.label} — Chart</span>
+                <span className="badge" style={{ background: (currentReport?.color || '#2563EB') + '18', color: currentReport?.color }}>
+                  {rows.length} records
+                </span>
+              </div>
+              <div className="card-body">
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart
+                    data={rows.map(r => ({
+                      label: r.period || r.supplier_name || r.category || '—',
+                      value: r.total_sales || r.total || r.amount || 0,
+                    }))}
+                    barSize={selected === 'expense' ? 20 : 14}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+                    <YAxis tick={{ fontSize: 10 }} tickFormatter={v => `₹${(v / 1000).toFixed(0)}k`} />
+                    <Tooltip formatter={v => fmt(v)} />
+                    <Bar dataKey="value" fill={currentReport?.color || 'var(--primary)'} radius={[4, 4, 0, 0]} name={currentReport?.label} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
+          {/* P&L chart */}
+          {reportData && selected === 'profit' && (
+            <div className="card">
+              <div className="card-header">
+                <span className="card-title">P&L Overview</span>
+                <span className="badge badge-green">Live</span>
               </div>
               <div className="card-body">
                 <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={buildChartData(selectedReport, reportData)} barSize={12}>
-                    <XAxis dataKey="label" tick={{ fontSize:11 }} />
-                    <YAxis tick={{ fontSize:11 }} tickFormatter={v => `₹${(v/1000).toFixed(0)}k`} />
-                    <Tooltip formatter={v => `₹${v.toLocaleString()}`} />
-                    <Bar dataKey="value" fill="var(--primary)" radius={[4,4,0,0]} name={currentReport?.label} />
+                  <BarChart barSize={32} data={[
+                    { label: 'Revenue',  value: reportData.totalSales    || 0, fill: '#2563EB' },
+                    { label: 'Purchase', value: reportData.totalPurchase || 0, fill: '#EF4444' },
+                    { label: 'Expenses', value: reportData.totalExpenses || 0, fill: '#F97316' },
+                    { label: 'Net Profit',value:reportData.netProfit     || 0, fill: '#10B981' },
+                  ]}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 10 }} tickFormatter={v => `₹${(v/1000).toFixed(0)}k`} />
+                    <Tooltip formatter={v => fmt(v)} />
+                    <Bar dataKey="value" name="Amount" radius={[4,4,0,0]}>
+                      {[
+                        { label: 'Revenue', fill: '#2563EB' },
+                        { label: 'Purchase', fill: '#EF4444' },
+                        { label: 'Expenses', fill: '#F97316' },
+                        { label: 'Net Profit', fill: '#10B981' },
+                      ].map((entry, i) => (
+                        <rect key={i} fill={entry.fill} />
+                      ))}
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -255,44 +428,57 @@ tr:nth-child(even){background:#FAFBFF}
           )}
 
           {/* Data table */}
-          {reportData && <ReportTable type={selectedReport} data={reportData} />}
+          {reportData && <ReportTable type={selected} data={reportData} color={currentReport?.color} />}
         </div>
       </div>
     </>
   )
 }
 
-// ── Chart data builder ────────────────────────────────────────
-function buildChartData(type, data) {
-  const rows = data?.rows || []
-  if (type === 'sales') {
-    return rows.map(r => ({ label: r.period || '—', value: r.total_sales || 0 }))
-  }
-  if (type === 'purchase') {
-    return rows.map(r => ({ label: r.supplier_name || '—', value: r.total || 0 }))
-  }
-  if (type === 'profit') {
-    return [
-      { label: 'Revenue', value: data.totalSales    || 0 },
-      { label: 'Purchase',value: data.totalPurchase || 0 },
-      { label: 'Expenses',value: data.totalExpenses || 0 },
-      { label: 'Net Profit',value: data.netProfit   || 0 },
-    ]
-  }
-  return []
-}
-
-// ── Report table component ────────────────────────────────────
-function ReportTable({ type, data }) {
-  const rows   = data?.rows   || []
+// ── Report Table ──────────────────────────────────────────────
+function ReportTable({ type, data, color }) {
+  const rows   = data?.rows || []
   const totals = data?.totals || {}
-  const fmtRs  = (v) => `₹${(parseFloat(v)||0).toLocaleString('en-IN')}`
-  const fmtDt  = (d) => d ? new Date(d).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}) : '—'
+  const fmt    = (v) => `₹${(parseFloat(v) || 0).toLocaleString('en-IN')}`
+  const fmtDt  = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
+
+  if (type === 'profit') {
+    return (
+      <div className="card">
+        <div className="card-header">
+          <span className="card-title">P&L Statement</span>
+          <span className="badge badge-green">Live Data</span>
+        </div>
+        <div className="card-body" style={{ padding: '0 20px 16px' }}>
+          <table style={{ width: '100%', maxWidth: 500, borderCollapse: 'collapse' }}>
+            <tbody>
+              {[
+                { label: 'Sales Revenue',          val: data.totalSales,        indent: false, bold: false, color: 'var(--success)' },
+                { label: '(-) Purchase / COGS',    val: data.totalPurchase,     indent: true,  bold: false, color: 'var(--danger)' },
+                { label: '(-) Operating Expenses', val: data.operatingExpenses, indent: true,  bold: false, color: 'var(--danger)' },
+                { label: '(-) Salary / Payroll',   val: data.totalSalary,       indent: true,  bold: false, color: 'var(--danger)' },
+                { label: '(-) Marketing Cost',     val: data.marketingCost,     indent: true,  bold: false, color: 'var(--danger)' },
+                { label: '= Gross Profit',         val: data.grossProfit,       indent: false, bold: true,  color: 'var(--primary)' },
+                { label: '= Net Profit',           val: data.netProfit,         indent: false, bold: true,  color: (data.netProfit||0) >= 0 ? 'var(--success)' : 'var(--danger)' },
+              ].map((r, i) => (
+                <tr key={i} style={{ background: r.bold ? 'var(--bg)' : 'transparent' }}>
+                  <td style={{ padding: '9px 6px', borderBottom: '1px solid var(--border)', fontWeight: r.bold ? 700 : 400, paddingLeft: r.indent ? 24 : 6 }}>{r.label}</td>
+                  <td style={{ padding: '9px 6px', borderBottom: '1px solid var(--border)', textAlign: 'right', fontWeight: r.bold ? 800 : 500, color: r.color }}>
+                    {fmt(r.val || 0)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )
+  }
 
   if (!rows.length) {
     return (
       <div className="card">
-        <div className="card-body" style={{ textAlign:'center', padding:32, color:'var(--text-muted)' }}>
+        <div className="card-body" style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}>
           No data found for selected period.
         </div>
       </div>
@@ -302,8 +488,15 @@ function ReportTable({ type, data }) {
   return (
     <div className="card">
       <div className="card-header">
-        <span className="card-title">Report Data ({rows.length} records)</span>
-        {totals.total && <span className="badge badge-green">Total: {fmtRs(totals.total)}</span>}
+        <span className="card-title">Report Data</span>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <span className="badge" style={{ background: (color||'#2563EB') + '18', color: color || '#2563EB' }}>
+            {rows.length} records
+          </span>
+          {totals.total && (
+            <span className="badge badge-green">Total: {fmt(totals.total)}</span>
+          )}
+        </div>
       </div>
       <div className="table-wrap">
         {/* Sales */}
@@ -313,47 +506,33 @@ function ReportTable({ type, data }) {
             <tbody>
               {rows.map((r, i) => (
                 <tr key={i}>
-                  <td style={{ color:'var(--text-muted)' }}>{i+1}</td>
-                  <td style={{ fontWeight:600 }}>{r.period || '—'}</td>
-                  <td style={{ fontWeight:700, color:'var(--success)' }}>{fmtRs(r.total_sales)}</td>
-                  <td>{fmtRs(r.base_amount)}</td>
-                  <td style={{ color:'var(--text-muted)' }}>{fmtRs(r.total_gst)}</td>
-                  <td>{r.order_count || 0}</td>
+                  <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{i+1}</td>
+                  <td style={{ fontWeight: 600 }}>{r.period || '—'}</td>
+                  <td style={{ fontWeight: 700, color: 'var(--success)' }}>{fmt(r.total_sales)}</td>
+                  <td>{fmt(r.base_amount)}</td>
+                  <td style={{ color: 'var(--text-muted)' }}>{fmt(r.total_gst)}</td>
+                  <td style={{ fontWeight: 600 }}>{r.order_count || 0}</td>
                 </tr>
               ))}
             </tbody>
-            <tfoot>
-              <tr style={{ background:'var(--bg)', fontWeight:700 }}>
-                <td colSpan={2} style={{ textAlign:'right', color:'var(--text-muted)' }}>Total</td>
-                <td style={{ color:'var(--success)' }}>{fmtRs(totals.total)}</td>
-                <td>{fmtRs(totals.total_gst)}</td>
-                <td colSpan={2} style={{ color:'var(--text-muted)' }}>{totals.count} entries</td>
-              </tr>
-            </tfoot>
           </table>
         )}
 
         {/* Purchase */}
         {type === 'purchase' && (
           <table>
-            <thead><tr><th>#</th><th>Supplier</th><th>Total Purchase</th><th>Orders</th></tr></thead>
+            <thead><tr><th>#</th><th>Supplier</th><th>Total Purchase</th><th>Orders</th><th>Last Date</th></tr></thead>
             <tbody>
               {rows.map((r, i) => (
                 <tr key={i}>
-                  <td style={{ color:'var(--text-muted)' }}>{i+1}</td>
-                  <td style={{ fontWeight:600 }}>{r.supplier_name || r._id || '—'}</td>
-                  <td style={{ fontWeight:700, color:'var(--primary)' }}>{fmtRs(r.total)}</td>
+                  <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{i+1}</td>
+                  <td style={{ fontWeight: 600 }}>{r.supplier_name || '—'}</td>
+                  <td style={{ fontWeight: 700, color: '#7C3AED' }}>{fmt(r.total)}</td>
                   <td>{r.count || 0}</td>
+                  <td style={{ fontSize: 12 }}>{fmtDt(r.last_date)}</td>
                 </tr>
               ))}
             </tbody>
-            <tfoot>
-              <tr style={{ background:'var(--bg)', fontWeight:700 }}>
-                <td colSpan={2} style={{ textAlign:'right', color:'var(--text-muted)' }}>Total</td>
-                <td style={{ color:'var(--primary)' }}>{fmtRs(totals.total)}</td>
-                <td style={{ color:'var(--text-muted)' }}>{totals.count} entries</td>
-              </tr>
-            </tfoot>
           </table>
         )}
 
@@ -363,71 +542,22 @@ function ReportTable({ type, data }) {
             <thead><tr><th>#</th><th>Category</th><th>Amount</th><th>Count</th><th>% of Total</th></tr></thead>
             <tbody>
               {rows.map((r, i) => {
-                const totalExp = Math.max(rows.reduce((a, x) => a + (x.total || 0), 0), 1)
-                const pct = (((r.total || 0) / totalExp) * 100).toFixed(1)
+                const total = Math.max(rows.reduce((a, x) => a + (x.total || 0), 0), 1)
+                const pct = (((r.total || 0) / total) * 100).toFixed(1)
                 return (
                   <tr key={i}>
-                    <td style={{ color:'var(--text-muted)' }}>{i+1}</td>
-                    <td style={{ fontWeight:600 }}>{r.category || '—'}</td>
-                    <td style={{ fontWeight:700, color:'var(--danger)' }}>{fmtRs(r.total)}</td>
+                    <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{i+1}</td>
+                    <td style={{ fontWeight: 600 }}>{r.category || '—'}</td>
+                    <td style={{ fontWeight: 700, color: 'var(--danger)' }}>{fmt(r.total)}</td>
                     <td>{r.count || 0}</td>
                     <td>
-                      <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                        <div className="progress-bar" style={{ flex:1 }}>
-                          <div className="progress-fill" style={{ width:`${pct}%`, background:'#EF4444' }} />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div className="progress-bar" style={{ flex: 1 }}>
+                          <div className="progress-fill" style={{ width: `${pct}%`, background: '#EF4444' }} />
                         </div>
-                        <span style={{ fontSize:11, width:36 }}>{pct}%</span>
+                        <span style={{ fontSize: 11, width: 36 }}>{pct}%</span>
                       </div>
                     </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        )}
-
-        {/* Profit */}
-        {type === 'profit' && (
-          <table>
-            <thead><tr><th>Item</th><th>Amount</th></tr></thead>
-            <tbody>
-              {[
-                { label:'Sales Revenue',     val: data.totalSales,    color:'var(--success)' },
-                { label:'Purchase Cost',     val: data.totalPurchase, color:'var(--danger)'  },
-                { label:'Operating Expenses',val: data.totalExpenses, color:'var(--danger)'  },
-                { label:'Salary',            val: data.totalSalary,   color:'var(--danger)'  },
-                { label:'Gross Profit',      val: data.grossProfit,   color:'var(--primary)', bold:true },
-                { label:'Net Profit',        val: data.netProfit,     color: data.netProfit>=0?'var(--success)':'var(--danger)', bold:true },
-              ].map((row, i) => (
-                <tr key={i} style={{ background: row.bold ? 'var(--bg)' : 'transparent' }}>
-                  <td style={{ fontWeight: row.bold?700:400, paddingLeft: row.bold?8:20 }}>{row.label}</td>
-                  <td style={{ fontWeight: row.bold?800:500, color: row.color, textAlign:'right' }}>
-                    {fmtRs(row.val || 0)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-
-        {/* Inventory */}
-        {type === 'inventory' && (
-          <table>
-            <thead><tr><th>#</th><th>Product</th><th>Warehouse</th><th>Stock In</th><th>Stock Out</th><th>Current Stock</th><th>Status</th></tr></thead>
-            <tbody>
-              {rows.map((r, i) => {
-                const st = (r.current_stock||0) === 0 ? 'Out' : (r.current_stock||0) <= (r.low_stock_alert||0) ? 'Low' : 'OK'
-                return (
-                  <tr key={i}>
-                    <td style={{ color:'var(--text-muted)' }}>{i+1}</td>
-                    <td style={{ fontWeight:600 }}>{r.product_name || '—'}</td>
-                    <td style={{ fontSize:12 }}>{r.warehouse_name || '—'}</td>
-                    <td style={{ color:'var(--success)', fontWeight:600 }}>+{r.stock_in || 0}</td>
-                    <td style={{ color:'var(--danger)', fontWeight:600 }}>-{r.stock_out || 0}</td>
-                    <td style={{ fontWeight:800, color: st==='Out'?'var(--danger)':st==='Low'?'var(--warning)':'var(--text)' }}>
-                      {r.current_stock || 0}
-                    </td>
-                    <td><span className={`badge ${st==='OK'?'badge-green':st==='Low'?'badge-yellow':'badge-red'}`}>{st==='OK'?'In Stock':st==='Low'?'Low Stock':'Out of Stock'}</span></td>
                   </tr>
                 )
               })}
@@ -438,16 +568,16 @@ function ReportTable({ type, data }) {
         {/* Customer */}
         {type === 'customer' && (
           <table>
-            <thead><tr><th>#</th><th>Customer</th><th>Total Orders</th><th>Outstanding</th></tr></thead>
+            <thead><tr><th>#</th><th>Customer</th><th>Orders</th><th>Revenue</th><th>Outstanding</th><th>Last Order</th></tr></thead>
             <tbody>
               {rows.map((r, i) => (
                 <tr key={i}>
-                  <td style={{ color:'var(--text-muted)' }}>{i+1}</td>
-                  <td style={{ fontWeight:700 }}>{r.name || '—'}</td>
-                  <td>{r.order_count || 0}</td>
-                  <td style={{ fontWeight:700, color: r.outstanding > 0 ? 'var(--danger)' : 'var(--success)' }}>
-                    {fmtRs(r.outstanding)}
-                  </td>
+                  <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{i+1}</td>
+                  <td style={{ fontWeight: 700 }}>{r.customer_name || '—'}</td>
+                  <td style={{ fontWeight: 600 }}>{r.order_count || 0}</td>
+                  <td style={{ fontWeight: 700, color: 'var(--success)' }}>{fmt(r.total_sales)}</td>
+                  <td style={{ fontWeight: 700, color: (r.outstanding||0) > 0 ? 'var(--danger)' : 'var(--success)' }}>{fmt(r.outstanding)}</td>
+                  <td style={{ fontSize: 12 }}>{fmtDt(r.last_order)}</td>
                 </tr>
               ))}
             </tbody>
@@ -457,41 +587,81 @@ function ReportTable({ type, data }) {
         {/* Supplier */}
         {type === 'supplier' && (
           <table>
-            <thead><tr><th>#</th><th>Supplier</th><th>Total Purchase</th><th>Orders</th><th>Last Purchase</th></tr></thead>
+            <thead><tr><th>#</th><th>Supplier</th><th>Total Purchase</th><th>Orders</th><th>Outstanding</th><th>Last Date</th></tr></thead>
             <tbody>
               {rows.map((r, i) => (
                 <tr key={i}>
-                  <td style={{ color:'var(--text-muted)' }}>{i+1}</td>
-                  <td style={{ fontWeight:700 }}>{r.supplier_name || '—'}</td>
-                  <td style={{ fontWeight:700, color:'var(--primary)' }}>{fmtRs(r.total)}</td>
+                  <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{i+1}</td>
+                  <td style={{ fontWeight: 700 }}>{r.supplier_name || '—'}</td>
+                  <td style={{ fontWeight: 700, color: '#7C3AED' }}>{fmt(r.total)}</td>
                   <td>{r.count || 0}</td>
-                  <td style={{ fontSize:12 }}>{r.last_date ? new Date(r.last_date).toLocaleDateString('en-IN') : '—'}</td>
+                  <td style={{ fontWeight: 700, color: (r.outstanding||0) > 0 ? 'var(--danger)' : 'var(--success)' }}>{fmt(r.outstanding)}</td>
+                  <td style={{ fontSize: 12 }}>{fmtDt(r.last_date)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
 
-        {/* Employee — placeholder (backend endpoint not in SOW scope yet) */}
+        {/* Inventory */}
+        {type === 'inventory' && (
+          <table>
+            <thead>
+              <tr><th>#</th><th>Product</th><th>Code</th><th>Category</th><th>Warehouse</th><th>In</th><th>Out</th><th>Current Stock</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => {
+                const st = r.current_stock === 0 ? 'Out' : r.current_stock <= r.low_stock_alert ? 'Low' : 'OK'
+                return (
+                  <tr key={i}>
+                    <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{i+1}</td>
+                    <td style={{ fontWeight: 600 }}>{r.product_name || '—'}</td>
+                    <td style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--primary)' }}>{r.product_code || '—'}</td>
+                    <td style={{ fontSize: 12 }}>{r.category_name || '—'}</td>
+                    <td style={{ fontSize: 12 }}>{r.warehouse_name || '—'}</td>
+                    <td style={{ color: 'var(--success)', fontWeight: 600 }}>+{r.stock_in || 0}</td>
+                    <td style={{ color: 'var(--danger)', fontWeight: 600 }}>-{r.stock_out || 0}</td>
+                    <td style={{ fontWeight: 800, color: st === 'Out' ? 'var(--danger)' : st === 'Low' ? 'var(--warning)' : 'var(--text)' }}>
+                      {r.current_stock || 0}
+                    </td>
+                    <td>
+                      <span className={`badge ${st === 'OK' ? 'badge-green' : st === 'Low' ? 'badge-yellow' : 'badge-red'}`}>
+                        {st === 'OK' ? 'In Stock' : st === 'Low' ? 'Low Stock' : 'Out of Stock'}
+                      </span>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        )}
+
+        {/* Employee */}
         {type === 'employee' && (
-          <div className="card-body" style={{ textAlign:'center', padding:32, color:'var(--text-muted)' }}>
-            Employee attendance &amp; salary report. Data from HR module.
-          </div>
+          <table>
+            <thead>
+              <tr><th>#</th><th>Code</th><th>Name</th><th>Department</th><th>Gross</th><th>Deductions</th><th>Net Salary</th><th>Present Days</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={i}>
+                  <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{i+1}</td>
+                  <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{r.emp_code || '—'}</td>
+                  <td style={{ fontWeight: 700 }}>{r.name || '—'}</td>
+                  <td style={{ fontSize: 12 }}>{r.department || '—'}</td>
+                  <td style={{ fontWeight: 600 }}>{fmt(r.gross_salary)}</td>
+                  <td style={{ color: 'var(--danger)' }}>{fmt(r.total_deductions)}</td>
+                  <td style={{ fontWeight: 700, color: 'var(--success)' }}>{fmt(r.net_salary)}</td>
+                  <td style={{ textAlign: 'center' }}>{r.present_days || 0}</td>
+                  <td>
+                    <span className={`badge ${r.status === 'Paid' ? 'badge-green' : 'badge-yellow'}`}>{r.status || 'Pending'}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
     </div>
   )
-}
-
-// ── Table header helper for export ───────────────────────────
-function getHeaders(type) {
-  const h = {
-    sales:     '<tr><th>#</th><th>Period</th><th>Revenue</th><th>Orders</th><th>Avg Order</th></tr>',
-    purchase:  '<tr><th>#</th><th>Supplier</th><th>Total</th><th>Orders</th></tr>',
-    expense:   '<tr><th>#</th><th>Category</th><th>Amount</th><th>Count</th><th>%</th></tr>',
-    inventory: '<tr><th>#</th><th>Product</th><th>Warehouse</th><th>Stock In</th><th>Stock Out</th><th>Current</th><th>Status</th></tr>',
-    customer:  '<tr><th>#</th><th>Customer</th><th>Orders</th><th>Outstanding</th></tr>',
-    supplier:  '<tr><th>#</th><th>Supplier</th><th>Total</th><th>Orders</th><th>Last Date</th></tr>',
-  }
-  return h[type] || '<tr><th>#</th><th>Data</th></tr>'
 }

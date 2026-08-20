@@ -2,8 +2,15 @@ import { useState } from 'react'
 import { Plus, Search, Phone, Mail, Edit2, Trash2 } from 'lucide-react'
 
 const SOURCES = ['Website', 'WhatsApp', 'Facebook', 'Instagram', 'Google Ads', 'Referral']
-const STATUSES = ['New', 'Contacted', 'Qualified', 'Converted', 'Lost']
-const statusColor = { New: 'badge-blue', Contacted: 'badge-cyan', Qualified: 'badge-yellow', Negotiation: 'badge-orange', Converted: 'badge-green', Lost: 'badge-red' }
+// ── Requirement §10: Exact lead statuses ──
+const STATUSES = ['New', 'Follow-up', 'Interested', 'Not Interested', 'Converted']
+const statusColor = {
+  New:            'badge-blue',
+  'Follow-up':    'badge-cyan',
+  Interested:     'badge-yellow',
+  'Not Interested': 'badge-red',
+  Converted:      'badge-green',
+}
 const sourceIcon = { Website: '🌐', WhatsApp: '💬', Facebook: '📘', Instagram: '📸', 'Google Ads': '🔍', Referral: '🤝' }
 
 const EMPTY_FORM = { name: '', mobile: '', email: '', city: '', source: 'WhatsApp', notes: '', followup: '' }
@@ -51,7 +58,8 @@ export default function LeadManagement({ leads = [], addLead, updateLead, delete
       if (result?.success === false) toast(`Error: ${result.message}`)
       else toast('Lead converted to customer')
     } else {
-      await updateLead?.(id, { status: newStatus })
+      const result = await updateLead?.(id, { status: newStatus })
+      if (result?.success === false) toast(`Error: ${result.message}`)
     }
   }
 
@@ -72,7 +80,7 @@ export default function LeadManagement({ leads = [], addLead, updateLead, delete
       {/* Pipeline */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10, marginBottom: 20 }}>
         {STATUSES.map(s => {
-          const borderColor = s === 'Converted' ? 'var(--success)' : s === 'Lost' ? 'var(--danger)' : s === 'Qualified' ? 'var(--warning)' : 'var(--primary)'
+          const borderColor = s === 'Converted' ? 'var(--success)' : s === 'Not Interested' ? 'var(--danger)' : s === 'Interested' ? 'var(--warning)' : s === 'Follow-up' ? 'var(--info)' : 'var(--primary)'
           return (
             <div key={s} className="card" style={{ padding: '14px', textAlign: 'center', cursor: 'pointer', borderTop: `3px solid ${borderColor}` }}
               onClick={() => setStatusFilter(statusFilter === s ? 'All' : s)}>

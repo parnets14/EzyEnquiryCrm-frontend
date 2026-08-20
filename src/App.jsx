@@ -39,6 +39,7 @@ import Settings from './pages/Settings'
 import Profile from './pages/Profile'
 import SubscriptionSystem from './pages/SubscriptionSystem'
 import QuotationManager from './pages/QuotationManager'
+import InvoiceManagement from './pages/InvoiceManagement'
 
 import './index.css'
 
@@ -117,15 +118,15 @@ function AppRoutes() {
         <Route path="purchase-inventory/stock-transfer"
           element={<StockTransfer branches={erpCtx.branches || []} transfers={transfers} warehouses={warehouses} products={products} {...erpCtx} />} />
         <Route path="purchase-inventory/warehouse-management"
-          element={<WarehouseManagement branches={erpCtx.branches || []} warehouses={warehouses} transfers={transfers} inventory={inventory} {...erpCtx} />} />
+          element={<WarehouseManagement branches={erpCtx.branches || []} />} />
 
         {/* ── Marketplace ──────────────────────────────── */}
         <Route path="marketplace/product-search"
-          element={<ProductSearch products={products} enquiries={enquiries} {...erpCtx} />} />
+          element={<ProductSearch products={products} inventory={inventory} {...erpCtx} />} />
         <Route path="marketplace/enquiry-management"
           element={<EnquiryManagement enquiries={enquiries} inventory={inventory} orders={orders} products={products} branches={erpCtx.branches || []} {...erpCtx} />} />
         <Route path="marketplace/order-management"
-          element={<OrderManagement branches={erpCtx.branches || []} orders={orders} enquiries={enquiries} products={products} {...erpCtx} />} />
+          element={<OrderManagement branches={erpCtx.branches || []} orders={orders} enquiries={enquiries} products={products} dispatches={dispatches} {...erpCtx} />} />
         <Route path="marketplace/dispatch-management"
           element={<DispatchManagement branches={erpCtx.branches || []} dispatches={dispatches} orders={orders} {...erpCtx} />} />
 
@@ -140,16 +141,18 @@ function AppRoutes() {
         {/* ── Finance ──────────────────────────────────── */}
         <Route path="finance/quotation-manager"
           element={<QuotationManager products={products} enquiries={enquiries} customers={customers} />} />
+        <Route path="finance/invoice-management"
+          element={<InvoiceManagement products={products} customers={customers} />} />
         <Route path="finance/sales-management"
-          element={<SalesManagement branches={erpCtx.branches || []} sales={sales} orders={orders} {...erpCtx} />} />
+          element={<SalesManagement branches={erpCtx.branches || []} sales={sales} orders={orders} customers={customers} products={products} addSale={erpCtx.addSale} {...erpCtx} />} />
         <Route path="finance/expense-management"
-          element={<ExpenseManagement branches={erpCtx.branches || []} expenses={expenses} {...erpCtx} />} />
+          element={<ExpenseManagement />} />
         <Route path="finance/payment-management"
-          element={<PaymentManagement payments={payments} recordPayment={erpCtx.recordPayment} />} />
+          element={<PaymentManagement />} />
         <Route path="finance/accounts-management"
-          element={<AccountsModule sales={sales} purchases={purchases} payments={payments} orders={orders} inventory={inventory} />} />
+          element={<AccountsModule sales={sales} purchases={purchases} />} />
         <Route path="finance/profit-loss"
-          element={<ProfitLoss sales={sales} purchases={purchases} orders={orders} />} />
+          element={<ProfitLoss />} />
 
         {/* ── HR ───────────────────────────────────────── */}
         <Route path="hr/employee-master"
@@ -159,19 +162,19 @@ function AppRoutes() {
 
         {/* ── Reports ──────────────────────────────────── */}
         <Route path="reports/dashboard-analytics"
-          element={<DashboardAnalytics sales={sales} purchases={purchases} orders={orders} enquiries={enquiries} payments={payments} inventory={inventory} dashboardStats={dashboardStats} />} />
+          element={<DashboardAnalytics />} />
         <Route path="reports/report-center"
-          element={<ReportCenter sales={sales} purchases={purchases} orders={orders} inventory={inventory} payments={payments} />} />
+          element={<ReportCenter />} />
 
         {/* ── System ───────────────────────────────────── */}
         <Route path="system/notification-management"
           element={<NotificationSystem notifications={notifications} {...erpCtx} />} />
         <Route path="system/document-management"
-          element={<DocumentManagement documents={documents} {...erpCtx} />} />
-        <Route path="system/subscription"   element={<SubscriptionSystem enquiries={enquiries} />} />
+          element={<DocumentManagement />} />
+        <Route path="system/subscription"   element={<SubscriptionSystem />} />
         <Route path="system/settings"       element={<Settings />} />
         <Route path="system/profile"        element={<Profile />} />
-        <Route path="subscription"          element={<SubscriptionSystem enquiries={enquiries} />} />
+        <Route path="subscription"          element={<SubscriptionSystem />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/dashboard" replace />} />

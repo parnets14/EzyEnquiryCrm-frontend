@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Edit2, Trash2, CheckCircle, XCircle, Layers, Tag } from 'lucide-react'
+import { Plus, Edit2, Trash2, Layers, Tag } from 'lucide-react'
 import { employeeMasterApi } from '../api/employeeMasterApi'
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -8,7 +8,13 @@ const fmtDate = (d) => {
   return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
-const EMPTY_DEPT = { name: '', description: '', is_active: true }
+// Unwrap the standard API response shape: { success, data, message }
+const unwrap = (res) => {
+  if (res && res.data !== undefined) return res.data
+  return res
+}
+
+const EMPTY_DEPT  = { name: '', description: '', is_active: true }
 const EMPTY_DESIG = { department_id: '', name: '', description: '', is_active: true }
 
 // ─────────────────────────────────────────────────────────────
@@ -16,7 +22,7 @@ export default function EmployeeMasterManagement() {
   const [tab, setTab] = useState('department')
 
   // ── Toast ─────────────────────────────────────────────────
-  const [msg, setMsg] = useState('')
+  const [msg,     setMsg]     = useState('')
   const [msgType, setMsgType] = useState('success')
   const toast = (text, type = 'success') => {
     setMsg(text); setMsgType(type)
@@ -30,7 +36,7 @@ export default function EmployeeMasterManagement() {
   const [deptForm,     setDeptForm]     = useState(EMPTY_DEPT)
   const [deptErrors,   setDeptErrors]   = useState({})
   const [deptSaving,   setDeptSaving]   = useState(false)
-  const [editDept,     setEditDept]     = useState(null)   // null=create, object=edit
+  const [editDept,     setEditDept]     = useState(null)
 
   // ── Designation state ─────────────────────────────────────
   const [designations,  setDesignations]  = useState([])
@@ -48,9 +54,11 @@ export default function EmployeeMasterManagement() {
     setDeptLoading(true)
     try {
       const res  = await employeeMasterApi.listDepartments()
-      const data = res?.data || res
+      const data = unwrap(res)
       setDepartments(Array.isArray(data?.departments) ? data.departments : [])
-    } catch { toast('Failed to load departments', 'error') }
+    } catch {
+      toast('Failed to load departments', 'error')
+    }
     setDeptLoading(false)
   }, [])
 
@@ -58,9 +66,11 @@ export default function EmployeeMasterManagement() {
     setDesigLoading(true)
     try {
       const res  = await employeeMasterApi.listDesignations()
-      const data = res?.data || res
+      const data = unwrap(res)
       setDesignations(Array.isArray(data?.designations) ? data.designations : [])
-    } catch { toast('Failed to load designations', 'error') }
+    } catch {
+      toast('Failed to load designations', 'error')
+    }
     setDesigLoading(false)
   }, [])
 
@@ -86,6 +96,7 @@ export default function EmployeeMasterManagement() {
       is_active:   dept.is_active !== false,
     })
     setDeptErrors({})
+    setShowDeptForm(true)
   }
 
   const cancelDept = () => {
@@ -101,19 +112,23 @@ export default function EmployeeMasterManagement() {
     setDeptSaving(true)
     try {
       if (editDept) {
-        const res    = await employeeMasterApi.updateDepartment(editDept._id || editDept.id, deptForm)
-        const updated = res?.data || res
-        setDepartments(prev => prev.map(d => (d._id === updated._id || d.id === updated.id) ? updated : d))
+        const res     = await employeeMasterApi.updateDepartment(editDept._id || editDept.id, deptForm)
+        const updated = unwrap(res)
+        setDepartments(prev =>
+          prev.map(d =>
+            (String(d._id || d.id) === String(updated._id || updated.id)) ? updated : d
+          )
+        )
         toast(`Department "${updated.name}" updated`)
       } else {
         const res  = await employeeMasterApi.createDepartment(deptForm)
-        const newD = res?.data || res
+        const newD = unwrap(res)
         setDepartments(prev => [...prev, newD])
         toast(`Department "${newD.name}" created`)
       }
       cancelDept()
     } catch (err) {
-      toast(err.response?.data?.message || 'Failed to save department', 'error')
+      toast(err?.response?.data?.message || 'Failed to save department', 'error')
     }
     setDeptSaving(false)
   }
@@ -124,14 +139,13 @@ export default function EmployeeMasterManagement() {
     try {
       await employeeMasterApi.deleteDepartment(deptId)
       setDepartments(prev => prev.filter(d => String(d._id || d.id) !== deptId))
-      // Also remove orphaned designations from local state
       setDesignations(prev => prev.filter(d => {
         const did = String(d.department_id?._id || d.department_id)
         return did !== deptId
       }))
       toast(`Department "${dept.name}" deleted`)
     } catch (err) {
-      toast(err.response?.data?.message || 'Cannot delete department', 'error')
+      toast(err?.response?.data?.message || 'Cannot delete department', 'error')
     }
   }
 
@@ -154,6 +168,7 @@ export default function EmployeeMasterManagement() {
       is_active:     desig.is_active !== false,
     })
     setDesigErrors({})
+    setShowDesigForm(true)
   }
 
   const cancelDesig = () => {
@@ -170,18 +185,22 @@ export default function EmployeeMasterManagement() {
     try {
       if (editDesig) {
         const res     = await employeeMasterApi.updateDesignation(editDesig._id || editDesig.id, desigForm)
-        const updated = res?.data || res
-        setDesignations(prev => prev.map(d => (d._id === updated._id || d.id === updated.id) ? updated : d))
+        const updated = unwrap(res)
+        setDesignations(prev =>
+          prev.map(d =>
+            (String(d._id || d.id) === String(updated._id || updated.id)) ? updated : d
+          )
+        )
         toast(`Designation "${updated.name}" updated`)
       } else {
         const res  = await employeeMasterApi.createDesignation(desigForm)
-        const newD = res?.data || res
+        const newD = unwrap(res)
         setDesignations(prev => [...prev, newD])
         toast(`Designation "${newD.name}" created`)
       }
       cancelDesig()
     } catch (err) {
-      toast(err.response?.data?.message || 'Failed to save designation', 'error')
+      toast(err?.response?.data?.message || 'Failed to save designation', 'error')
     }
     setDesigSaving(false)
   }
@@ -194,24 +213,16 @@ export default function EmployeeMasterManagement() {
       setDesignations(prev => prev.filter(d => String(d._id || d.id) !== desigId))
       toast(`Designation "${desig.name}" deleted`)
     } catch (err) {
-      toast(err.response?.data?.message || 'Failed to delete designation', 'error')
+      toast(err?.response?.data?.message || 'Failed to delete designation', 'error')
     }
   }
 
-  // Also close form on tab switch
   const handleTabSwitch = (t) => {
     setTab(t)
-    setShowDeptForm(false)
-    setEditDept(null)
-    setDeptForm(EMPTY_DEPT)
-    setDeptErrors({})
-    setShowDesigForm(false)
-    setEditDesig(null)
-    setDesigForm(EMPTY_DESIG)
-    setDesigErrors({})
+    cancelDept()
+    cancelDesig()
   }
 
-  // Open dept form (add mode)
   const openAddDept = () => {
     setEditDept(null)
     setDeptForm(EMPTY_DEPT)
@@ -219,16 +230,14 @@ export default function EmployeeMasterManagement() {
     setShowDeptForm(true)
   }
 
-  // Active departments for dropdown in designation form
-  const activeDepts = departments.filter(d => d.is_active !== false)
-
-  // Open desig form (add mode)
   const openAddDesig = () => {
     setEditDesig(null)
     setDesigForm(EMPTY_DESIG)
     setDesigErrors({})
     setShowDesigForm(true)
   }
+
+  const activeDepts = departments.filter(d => d.is_active !== false)
 
   // ─────────────────────────────────────────────────────────
   // RENDER
@@ -254,10 +263,10 @@ export default function EmployeeMasterManagement() {
       {/* Summary cards */}
       <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(4,1fr)', marginBottom: 20 }}>
         {[
-          { label: 'Total Departments',   val: departments.length,                                          color: 'blue'   },
-          { label: 'Active Departments',  val: departments.filter(d => d.is_active !== false).length,       color: 'green'  },
-          { label: 'Total Designations',  val: designations.length,                                         color: 'purple' },
-          { label: 'Active Designations', val: designations.filter(d => d.is_active !== false).length,      color: 'orange' },
+          { label: 'Total Departments',   val: departments.length,                                     color: 'blue'   },
+          { label: 'Active Departments',  val: departments.filter(d => d.is_active !== false).length,  color: 'green'  },
+          { label: 'Total Designations',  val: designations.length,                                    color: 'purple' },
+          { label: 'Active Designations', val: designations.filter(d => d.is_active !== false).length, color: 'orange' },
         ].map(s => (
           <div key={s.label} className="stat-card" style={{ padding: '14px 16px' }}>
             <div className={`stat-icon ${s.color}`}>
@@ -296,16 +305,17 @@ export default function EmployeeMasterManagement() {
               <Plus style={{ width: 14 }} />Add Department
             </button>
           </div>
+
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>Department ID</th>
+                  <th>Dept ID</th>
                   <th>Department Name</th>
                   <th>Description</th>
                   <th>Status</th>
                   <th>Created Date</th>
-                  <th>Action</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -335,7 +345,7 @@ export default function EmployeeMasterManagement() {
                       <div className="table-actions">
                         <button
                           className="btn btn-secondary btn-xs"
-                          onClick={() => { startEditDept(dept); setShowDeptForm(true) }}
+                          onClick={() => startEditDept(dept)}
                         >
                           <Edit2 style={{ width: 12 }} />Edit
                         </button>
@@ -376,13 +386,13 @@ export default function EmployeeMasterManagement() {
             <table>
               <thead>
                 <tr>
-                  <th>Designation ID</th>
+                  <th>Desig ID</th>
                   <th>Department</th>
                   <th>Designation</th>
                   <th>Description</th>
                   <th>Status</th>
                   <th>Created Date</th>
-                  <th>Action</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -417,7 +427,7 @@ export default function EmployeeMasterManagement() {
                       <div className="table-actions">
                         <button
                           className="btn btn-secondary btn-xs"
-                          onClick={() => { startEditDesig(desig); setShowDesigForm(true) }}
+                          onClick={() => startEditDesig(desig)}
                         >
                           <Edit2 style={{ width: 12 }} />Edit
                         </button>
@@ -447,13 +457,13 @@ export default function EmployeeMasterManagement() {
 
       {/* ══════════ DEPARTMENT MODAL ══════════ */}
       {showDeptForm && (
-        <div className="modal-overlay" onClick={() => { setShowDeptForm(false); cancelDept() }}>
+        <div className="modal-overlay" onClick={cancelDept}>
           <div className="modal" style={{ maxWidth: 520 }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <span className="modal-title">
                 {editDept ? `Edit Department — ${editDept.name}` : 'Add Department'}
               </span>
-              <button className="btn-ghost" onClick={() => { setShowDeptForm(false); cancelDept() }}>✕</button>
+              <button className="btn-ghost" onClick={cancelDept}>✕</button>
             </div>
             <div className="modal-body">
               <div className="form-row">
@@ -491,9 +501,7 @@ export default function EmployeeMasterManagement() {
               </div>
             </div>
             <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => { setShowDeptForm(false); cancelDept() }}>
-                Cancel
-              </button>
+              <button className="btn btn-secondary" onClick={cancelDept}>Cancel</button>
               <button className="btn btn-primary" disabled={deptSaving} onClick={saveDept}>
                 {deptSaving ? 'Saving…' : editDept ? 'Update Department' : 'Create Department'}
               </button>
@@ -504,13 +512,13 @@ export default function EmployeeMasterManagement() {
 
       {/* ══════════ DESIGNATION MODAL ══════════ */}
       {showDesigForm && (
-        <div className="modal-overlay" onClick={() => { setShowDesigForm(false); cancelDesig() }}>
+        <div className="modal-overlay" onClick={cancelDesig}>
           <div className="modal" style={{ maxWidth: 520 }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <span className="modal-title">
                 {editDesig ? `Edit Designation — ${editDesig.name}` : 'Add Designation'}
               </span>
-              <button className="btn-ghost" onClick={() => { setShowDesigForm(false); cancelDesig() }}>✕</button>
+              <button className="btn-ghost" onClick={cancelDesig}>✕</button>
             </div>
             <div className="modal-body">
               <div className="form-row">
@@ -571,9 +579,7 @@ export default function EmployeeMasterManagement() {
               </div>
             </div>
             <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => { setShowDesigForm(false); cancelDesig() }}>
-                Cancel
-              </button>
+              <button className="btn btn-secondary" onClick={cancelDesig}>Cancel</button>
               <button className="btn btn-primary" disabled={desigSaving} onClick={saveDesig}>
                 {desigSaving ? 'Saving…' : editDesig ? 'Update Designation' : 'Create Designation'}
               </button>
