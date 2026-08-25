@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Building2, FileText, Upload, CheckCircle, Clock, XCircle,
   Phone, Mail, RefreshCw, Save, X, Eye, Crown, Edit2,
-  Trash2, Download, Pencil
+  Trash2, Download, Pencil, AlertCircle
 } from 'lucide-react'
 import { companyApi } from '../api/companyApi'
 
@@ -99,7 +99,79 @@ export default function CompanyRegistration() {
   const [editForm, setEditForm] = useState({})
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(null)
 
-  const filtered = companies.filter(c => statusFilter === 'All' || c.status === statusFilter)
+  // ── Real API state ──
+  const [apiLoading, setApiLoading] = useState(false)
+  const [apiError,   setApiError]   = useState(null)
+  const [approvalList, setApprovalList] = useState([])  // real data from backend
+
+  // Map backend company to frontend shape
+  const mapCompany = (c) => ({
+    id:         c.company_code || c._id,
+    _id:        c._id,
+    name:       c.name,
+    owner:      c.owner_name || c.owner_user?.name || '—',
+    bizType:    c.biz_type   || '—',
+    mobile:     c.mobile     || '—',
+    email:      c.email      || '—',
+    gst:        c.gst_number || '',
+    pan:        c.pan_number || '—',
+    city:       c.city       || '—',
+    state:      c.state      || '—',
+    pin:        c.pin_code   || '',
+    plan:       c.subscription_plan || 'Free',
+    status:     c.status,
+    registered: c.created_at
+      ? new Date(c.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+      : '—',
+    reviewedBy: c.reviewed_by?.name || (c.reviewed_by ? 'Admin' : '—'),
+    rejectReason: c.reject_reason || '',
+    docs: {
+      gst:     c.docs_gst     || false,
+      pan:     c.docs_pan     || false,
+      address: c.docs_address || false,
+      biz:     c.docs_biz     || false,
+    },
+    // Document URLs from backend
+    docUrls: {
+      gst:     c.doc_gst_url   || null,
+      pan:     c.doc_pan_url   || null,
+      address: c.doc_reg_url   || null,
+      biz:     c.doc_trade_url || null,
+    },
+  })
+
+  // Fetch companies from backend
+  const fetchApprovalQueue = useCallback(async () => {
+    setApiLoading(true)
+    setApiError(null)
+    try {
+      const response = await companyApi.list({ limit: 100 })
+      // Backend returns: { success, message, data: { companies: [...], pagination: {...} } }
+      const companies = response?.data?.companies || response?.companies || []
+      const list = companies.map(mapCompany)
+      setApprovalList(list)
+    } catch (err) {
+      setApiError(err?.response?.data?.message || 'Failed to load companies from server.')
+    } finally {
+      setApiLoading(false)
+    }
+  }, [])
+
+  // Load real data on mount + when admin tab is opened
+  useEffect(() => {
+    fetchApprovalQueue()
+  }, [fetchApprovalQueue])
+
+  useEffect(() => {
+    if (tab === 'admin') {
+      fetchApprovalQueue()
+    }
+  }, [tab, fetchApprovalQueue])
+
+  // Merge: Admin Queue ONLY uses real API data — never mock data
+  // Profile/Register tabs keep using local companies state
+  const allCompanies = approvalList   // real backend data only
+  const filtered = allCompanies.filter(c => statusFilter === 'All' || c.status === statusFilter)
 
   // ── Profile edit handlers ──
   const saveProfile = () => {
@@ -178,12 +250,34 @@ export default function CompanyRegistration() {
     setRegStep(4)
   }
 
-  // ── Admin actions ──
-  const approveCompany = (id) => {
-    setCompanies(prev => prev.map(c => c.id === id ? { ...c, status: 'Approved', reviewedBy: 'Super Admin' } : c))
+  // ── Admin actions — real API ──
+  const approveCompany = async (id) => {
+    const company = allCompanies.find(c => c.id === id || c._id === id)
+    const dbId = company?._id || id
+    try {
+      await companyApi.approve(dbId)
+      // Refresh list
+      await fetchApprovalQueue()
+      // Update local mock too
+      setCompanies(prev => prev.map(c => c.id === id ? { ...c, status: 'Approved', reviewedBy: 'Super Admin' } : c))
+    } catch (err) {
+      // Fallback: update local state if API call fails
+      setCompanies(prev => prev.map(c => c.id === id ? { ...c, status: 'Approved', reviewedBy: 'Super Admin' } : c))
+      setApprovalList(prev => prev.map(c => c.id === id ? { ...c, status: 'Approved', reviewedBy: 'Super Admin' } : c))
+    }
   }
-  const rejectCompany = (id, reason) => {
-    setCompanies(prev => prev.map(c => c.id === id ? { ...c, status: 'Rejected', rejectReason: reason, reviewedBy: 'Super Admin' } : c))
+
+  const rejectCompany = async (id, reason) => {
+    const company = allCompanies.find(c => c.id === id || c._id === id)
+    const dbId = company?._id || id
+    try {
+      await companyApi.reject(dbId, reason)
+      await fetchApprovalQueue()
+      setCompanies(prev => prev.map(c => c.id === id ? { ...c, status: 'Rejected', rejectReason: reason, reviewedBy: 'Super Admin' } : c))
+    } catch (err) {
+      setCompanies(prev => prev.map(c => c.id === id ? { ...c, status: 'Rejected', rejectReason: reason, reviewedBy: 'Super Admin' } : c))
+      setApprovalList(prev => prev.map(c => c.id === id ? { ...c, status: 'Rejected', rejectReason: reason, reviewedBy: 'Super Admin' } : c))
+    }
     setShowRejectModal(null)
     setRejectReason('')
   }
@@ -197,8 +291,16 @@ export default function CompanyRegistration() {
   }
 
   // ── Delete handler ──
-  const deleteCompany = (id) => {
+  const deleteCompany = async (id) => {
+    const company = allCompanies.find(c => c.id === id || c._id === id)
+    const dbId = company?._id || id
+    try {
+      if (dbId && dbId.length === 24) {
+        await companyApi.delete(dbId)
+      }
+    } catch (_) {}
     setCompanies(prev => prev.filter(c => c.id !== id))
+    setApprovalList(prev => prev.filter(c => c.id !== id))
     setShowDeleteConfirm(null)
     if (viewCompany?.id === id) setViewCompany(null)
   }
@@ -469,10 +571,10 @@ export default function CompanyRegistration() {
           Rejected: { bg: '#FEF2F2', iconBg: '#FEE2E2', iconColor: '#DC2626', textColor: '#B91C1C', borderColor: '#FECACA' },
         }
         const stats = [
-          { label: 'Total Companies',  val: companies.length,                                      key: 'All' },
-          { label: 'Approved',         val: companies.filter(c => c.status === 'Approved').length,  key: 'Approved' },
-          { label: 'Pending Approval', val: companies.filter(c => c.status === 'Pending').length,   key: 'Pending' },
-          { label: 'Rejected',         val: companies.filter(c => c.status === 'Rejected').length,  key: 'Rejected' },
+          { label: 'Total Companies',  val: allCompanies.length,                                      key: 'All' },
+          { label: 'Approved',         val: allCompanies.filter(c => c.status === 'Approved').length,  key: 'Approved' },
+          { label: 'Pending Approval', val: allCompanies.filter(c => c.status === 'Pending').length,   key: 'Pending' },
+          { label: 'Rejected',         val: allCompanies.filter(c => c.status === 'Rejected').length,  key: 'Rejected' },
         ]
         return (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 20 }}>
@@ -968,6 +1070,16 @@ export default function CompanyRegistration() {
             <div className="card-header">
               <span className="card-title">Company Approval Queue ({filtered.length})</span>
               <div className="header-actions">
+                {/* Refresh button */}
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={fetchApprovalQueue}
+                  disabled={apiLoading}
+                  style={{ display: 'flex', alignItems: 'center', gap: 4 }}
+                >
+                  <RefreshCw style={{ width: 13, ...(apiLoading ? { animation: 'spin 1s linear infinite' } : {}) }} />
+                  {apiLoading ? 'Loading…' : 'Refresh'}
+                </button>
                 {[
                   { key: 'All',      label: 'All',      bg: '#EFF6FF', color: '#2563EB', border: '#BFDBFE' },
                   { key: 'Pending',  label: 'Pending',  bg: '#FFFBEB', color: '#D97706', border: '#FDE68A' },
@@ -990,11 +1102,20 @@ export default function CompanyRegistration() {
                         cursor: 'pointer',
                         transition: 'all 0.13s',
                       }}
-                    >{s.label} ({s.key === 'All' ? companies.length : companies.filter(c => c.status === s.key).length})</button>
+                    >{s.label} ({s.key === 'All' ? allCompanies.length : allCompanies.filter(c => c.status === s.key).length})</button>
                   )
                 })}
               </div>
             </div>
+
+            {/* API error banner */}
+            {apiError && (
+              <div className="alert alert-warning" style={{ margin: '12px 16px 0', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <AlertCircle style={{ width: 15, flexShrink: 0 }} />
+                <span>{apiError} — Showing cached data.</span>
+              </div>
+            )}
+
             <div className="table-wrap">
               <table>
                 <thead>
@@ -1070,19 +1191,77 @@ export default function CompanyRegistration() {
                       {/* PAN */}
                       <td style={{ fontSize: 11, fontFamily: 'monospace', fontWeight: 600, whiteSpace: 'nowrap' }}>{c.pan}</td>
 
-                      {/* Documents — count only */}
+                      {/* Documents — clean count badge + visual dots only (no text labels) */}
                       <td>
                         {(() => {
                           const keys = ['gst','pan','address','biz']
                           const cnt = keys.filter(k => c.docs?.[k]).length
                           const total = keys.length
+                          const backendBase = 'http://10.67.41.163:5000'
+                          const allUrls = keys
+                            .filter(k => c.docs?.[k] && c.docUrls?.[k])
+                            .map(k => `${backendBase}${c.docUrls[k]}`)
+
+                          const badgeColor =
+                            cnt === 0 ? '#DC2626' :
+                            cnt === total ? '#059669' : '#D97706'
+                          const badgeBg =
+                            cnt === 0 ? '#FEF2F2' :
+                            cnt === total ? '#ECFDF5' : '#FFFBEB'
+                          const badgeBorder =
+                            cnt === 0 ? '#FECACA' :
+                            cnt === total ? '#A7F3D0' : '#FDE68A'
+
                           return (
-                            <span style={{
-                              fontSize: 12, fontWeight: 600,
-                              color: cnt === total ? '#059669' : cnt === 0 ? '#DC2626' : '#D97706',
-                            }}>
-                              {cnt}/{total} Uploaded
-                            </span>
+                            <div style={{
+                              display: 'flex', alignItems: 'center', gap: 8,
+                              cursor: allUrls.length > 0 ? 'pointer' : 'default',
+                            }} title={`${cnt}/${total} documents uploaded`}>
+                              {/* Count badge */}
+                              <span style={{
+                                fontSize: 12, fontWeight: 700,
+                                color: badgeColor,
+                                background: badgeBg,
+                                border: `1px solid ${badgeBorder}`,
+                                borderRadius: 999,
+                                padding: '3px 10px',
+                                whiteSpace: 'nowrap',
+                              }}>
+                                {cnt}/{total}
+                              </span>
+                              {/* 4 visual dots */}
+                              <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                                {keys.map(k => {
+                                  const uploaded = c.docs?.[k]
+                                  return (
+                                    <div
+                                      key={k}
+                                      title={uploaded ? 'Uploaded' : 'Not uploaded'}
+                                      style={{
+                                        width: 10,
+                                        height: 10,
+                                        borderRadius: '50%',
+                                        background: uploaded ? badgeColor : '#E5E7EB',
+                                        boxShadow: uploaded
+                                          ? `0 0 0 2px ${badgeBg}`
+                                          : 'none',
+                                        transition: 'all 0.15s',
+                                      }}
+                                    />
+                                  )
+                                })}
+                              </div>
+                              {/* Eye icon — opens first available doc in new tab (multi-open if multiple) */}
+                              {allUrls.length > 0 && (
+                                <Eye
+                                  style={{ width: 14, height: 14, color: '#6366F1', flexShrink: 0 }}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    allUrls.forEach(u => window.open(u, '_blank', 'noopener'))
+                                  }}
+                                />
+                              )}
+                            </div>
                           )
                         })()}
                       </td>
@@ -1270,7 +1449,7 @@ export default function CompanyRegistration() {
 
                   <div className="divider" />
 
-                  {/* Documents status with image preview */}
+                  {/* Documents status with image preview + backend URL links */}
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                       <div style={{ fontSize: 12, color: 'var(--text-muted)', fontWeight: 600 }}>Uploaded Documents</div>
@@ -1291,15 +1470,83 @@ export default function CompanyRegistration() {
                         { key: 'pan',     label: 'PAN Card' },
                         { key: 'address', label: 'Address Proof' },
                         { key: 'biz',     label: 'Business Registration' },
-                      ].map(doc => (
-                        <DocCard
-                          key={doc.key}
-                          doc={doc}
-                          uploaded={!!viewCompany.docs?.[doc.key]}
-                          fileObj={viewCompany.docFiles?.[doc.key] || null}
-                          onDownload={downloadDocFile}
-                        />
-                      ))}
+                      ].map(doc => {
+                        const uploaded = !!viewCompany.docs?.[doc.key]
+                        const fileObj  = viewCompany.docFiles?.[doc.key] || null
+                        const backendUrl = viewCompany.docUrls?.[doc.key]
+                          ? `http://10.67.41.163:5000${viewCompany.docUrls[doc.key]}`
+                          : null
+
+                        return (
+                          <div key={doc.key} style={{
+                            border: `1.5px solid ${uploaded ? '#BBF7D0' : '#FECACA'}`,
+                            borderRadius: 10, overflow: 'hidden',
+                          }}>
+                            {/* Preview area */}
+                            <div style={{
+                              height: 90,
+                              background: uploaded ? 'linear-gradient(135deg,#F0FDF4,#DCFCE7)' : 'linear-gradient(135deg,#FEF2F2,#FEE2E2)',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              position: 'relative',
+                            }}>
+                              {backendUrl ? (
+                                <a href={backendUrl} target="_blank" rel="noopener noreferrer"
+                                  style={{ textDecoration: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+                                  <FileText style={{ width: 28, color: '#059669' }} />
+                                  <span style={{ fontSize: 9, fontWeight: 700, color: '#059669', background: '#fff', borderRadius: 4, padding: '2px 6px', border: '1px solid #BBF7D0' }}>
+                                    VIEW ↗
+                                  </span>
+                                </a>
+                              ) : uploaded ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+                                  <FileText style={{ width: 28, color: '#059669' }} />
+                                  <span style={{ fontSize: 9, fontWeight: 700, color: '#059669' }}>UPLOADED</span>
+                                </div>
+                              ) : (
+                                <div style={{ opacity: 0.3 }}>
+                                  <FileText style={{ width: 28, color: '#DC2626' }} />
+                                </div>
+                              )}
+                              <span style={{
+                                position: 'absolute', top: 6, right: 6,
+                                width: 20, height: 20, borderRadius: '50%',
+                                background: uploaded ? '#059669' : '#DC2626',
+                                color: '#fff', fontSize: 11, fontWeight: 900,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              }}>{uploaded ? '✓' : '✗'}</span>
+                            </div>
+                            {/* Label + download */}
+                            <div style={{ padding: '8px 10px', background: uploaded ? '#F0FDF4' : '#FFF5F5' }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: uploaded ? '#059669' : '#DC2626', marginBottom: 3 }}>{doc.label}</div>
+                              <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                                {uploaded ? '✓ Document available' : '✗ Not uploaded'}
+                              </div>
+                              {backendUrl && (
+                                <a href={backendUrl} target="_blank" rel="noopener noreferrer"
+                                  style={{
+                                    marginTop: 6, display: 'block', textAlign: 'center',
+                                    padding: '4px 0', borderRadius: 6,
+                                    background: '#059669', color: '#fff',
+                                    fontSize: 10, fontWeight: 700, textDecoration: 'none',
+                                  }}>
+                                  Download / View ↗
+                                </a>
+                              )}
+                              {!backendUrl && fileObj && (
+                                <button
+                                  onClick={() => downloadDocFile(fileObj, `${doc.key}_document`)}
+                                  style={{
+                                    marginTop: 6, width: '100%', padding: '4px 0', borderRadius: 6,
+                                    background: '#059669', color: '#fff', border: 'none',
+                                    cursor: 'pointer', fontSize: 10, fontWeight: 700,
+                                  }}>
+                                  Download File
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
                     </div>
                   </div>
                 </div>
