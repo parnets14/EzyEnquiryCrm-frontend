@@ -7,6 +7,19 @@ const SIZES = [
   '600x600','600x1200','800x800','800x1600',
   '1000x1000','1200x1200','1200x2400',
 ]
+// Calculate Sqft/Box from a tile size string (e.g. "300x300", in mm) and pcs per box.
+// 1 sq ft = 304.8mm x 304.8mm, so tile area (sqft) = (W/304.8) * (H/304.8).
+function calcSqftPerBox(size, pcsPerBox) {
+  if (!size) return ''
+  const m = String(size).toLowerCase().match(/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)/)
+  const pcs = parseFloat(pcsPerBox)
+  if (!m || !pcs || pcs <= 0) return ''
+  const w = parseFloat(m[1]), h = parseFloat(m[2])
+  if (!w || !h) return ''
+  const tileSqft = (w / 304.8) * (h / 304.8)
+  return (tileSqft * pcs).toFixed(2)
+}
+
 const FINISHES   = ['Glossy','Matte','Satin','Anti-Skid','Polished','Rustic','Textured','Natural']
 const SURFACES   = ['Polished','Unpolished','Matt','Glossy','Rough','Structured']
 const GRADES     = ['Grade A','Grade B','Grade C','First Quality','Second Quality','Commercial']
@@ -50,7 +63,7 @@ function imgUrl(p) {
 function downloadProduct(p) {
   const fmtP = (v) => {
     const n = parseFloat(v) || 0
-    return n > 0 ? `â‚¹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : null
+    return n > 0 ? `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : null
   }
   const v = (x) => (x && String(x).trim()) ? String(x).trim() : null
 
@@ -61,7 +74,7 @@ function downloadProduct(p) {
   const priceCard = (label, value) => {
     const n = parseFloat(value) || 0
     if (n <= 0) return ''
-    return `<div class="price-card"><div class="pc-label">${label}</div><div class="pc-value">â‚¹${n.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}</div></div>`
+    return `<div class="price-card"><div class="pc-label">${label}</div><div class="pc-value">₹${n.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}</div></div>`
   }
 
   const chip = (label, value) => v(value)
@@ -79,7 +92,7 @@ function downloadProduct(p) {
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>Product â€” ${p.name || 'Details'}</title>
+<title>Product - ${p.name || 'Details'}</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; color: #1a2540; background: #fff; padding: 32px 40px; }
@@ -219,7 +232,7 @@ ${(p.image_urls||[]).filter(Boolean).length > 0 ? `
 </div>` : ''}
 
 <div class="footer">
-  <span>Product Code: ${v(p.code) || 'â€”'} &nbsp;|&nbsp; Brand: ${v(p.brand_name) || 'â€”'} &nbsp;|&nbsp; Category: ${v(p.category_name) || 'â€”'}</span>
+  <span>Product Code: ${v(p.code) || '-'} &nbsp;|&nbsp; Brand: ${v(p.brand_name) || '-'} &nbsp;|&nbsp; Category: ${v(p.category_name) || '-'}</span>
   <span>${p.created_at ? 'Created: ' + new Date(p.created_at).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) : ''}</span>
 </div>
 
@@ -297,7 +310,7 @@ function SearchableSelect({ label, required, placeholder, value, onChange, optio
               autoFocus
               className="form-control"
               style={{ fontSize:12, padding:'6px 9px' }}
-              placeholder="Type to searchâ€¦"
+              placeholder="Type to search..."
               value={q}
               onChange={e => setQ(e.target.value)}
               onClick={e => e.stopPropagation()}
@@ -307,7 +320,7 @@ function SearchableSelect({ label, required, placeholder, value, onChange, optio
             <div
               style={{ padding:'7px 14px', fontSize:13, color:'var(--text-muted)', cursor:'pointer' }}
               onMouseDown={() => pick('')}
-            >â€” None â€”</div>
+            >— None —</div>
             {filtered.length === 0 && (
               <div style={{ padding:'10px 14px', fontSize:12, color:'var(--text-muted)' }}>No results</div>
             )}
@@ -484,7 +497,7 @@ function PriceInput({ label, required, value, onChange, placeholder }) {
         </label>
       )}
       <div style={{ position:'relative' }}>
-        <span style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', fontSize:13, color:'var(--text-muted)', pointerEvents:'none' }}>â‚¹</span>
+        <span style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', fontSize:13, color:'var(--text-muted)', pointerEvents:'none' }}>₹</span>
         <input
           type="number" min="0" step="0.01"
           className="form-control"
@@ -499,64 +512,54 @@ function PriceInput({ label, required, value, onChange, placeholder }) {
 }
 
 
-// ── Price + Discount combo input ──────────────────────────────
-// Shows a price field with a discount % off MRP helper below it.
-// When discount% is filled and price is empty, auto-fills the price.
+// ── Price + Discount combo input (compact) ────────────────────
+// Single row: the amount field with a small % input beside it.
+// Enter a % (off MRP) and the amount auto-fills; the computed
+// amount is shown as a tiny hint below.
 function PriceDiscountInput({ label, required, priceValue, onPriceChange, discountValue, onDiscountChange, baseMrp, placeholder }) {
   const mrp      = parseFloat(baseMrp) || 0
   const discount = parseFloat(discountValue) || 0
   const computed = mrp > 0 && discount > 0 ? mrp * (1 - discount / 100) : null
 
   return (
-    <div style={{ display:'flex', flexDirection:'column', gap:5 }}>
-      {/* Price field */}
-      <div>
-        {label && (
-          <label className="form-label">
-            {label}{required && <span style={{ color:'var(--danger)' }}> *</span>}
-          </label>
-        )}
-        <div style={{ position:'relative' }}>
-          <span style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', fontSize:13, color:'var(--text-muted)', pointerEvents:'none' }}>&#8377;</span>
+    <div>
+      {label && (
+        <label className="form-label">
+          {label}{required && <span style={{ color:'var(--danger)' }}> *</span>}
+        </label>
+      )}
+      <div style={{ display:'flex', gap:6, alignItems:'stretch' }}>
+        {/* % first */}
+        <div style={{ position:'relative', width:74, flexShrink:0 }}>
+          <input
+            type="number" min="0" max="100" step="0.01"
+            className="form-control no-spin"
+            style={{ paddingRight:22, paddingLeft:10, background:'var(--bg)' }}
+            value={discountValue}
+            onChange={e => onDiscountChange(e.target.value)}
+            placeholder="0"
+            title="Discount % off MRP"
+          />
+          <span style={{ position:'absolute', right:8, top:'50%', transform:'translateY(-50%)', fontSize:12, color:'var(--text-muted)', pointerEvents:'none' }}>%</span>
+        </div>
+        {/* Amount beside it */}
+        <div style={{ position:'relative', flex:1, minWidth:0 }}>
+          <span style={{ position:'absolute', left:9, top:'50%', transform:'translateY(-50%)', fontSize:13, color:'var(--text-muted)', pointerEvents:'none' }}>&#8377;</span>
           <input
             type="number" min="0" step="0.01"
             className="form-control"
-            style={{ paddingLeft:24 }}
+            style={{ paddingLeft:22 }}
             value={priceValue}
             onChange={e => onPriceChange(e.target.value)}
             placeholder={placeholder || '0.00'}
           />
         </div>
-        {computed > 0 && (
-          <div style={{ fontSize:10, color:'var(--primary)', marginTop:2, fontWeight:600 }}>
-            = &#8377;{computed.toFixed(2)} @ {discount}% off MRP
-          </div>
-        )}
       </div>
-
-      {/* Discount % field */}
-      <div>
-        <label className="form-label" style={{ fontSize:10, color:'var(--text-muted)', marginBottom:2 }}>
-          Discount % (off MRP)
-        </label>
-        <div style={{ position:'relative' }}>
-          <input
-            type="number" min="0" max="100" step="0.01"
-            className="form-control"
-            style={{ paddingRight:28, fontSize:12, background:'var(--bg)' }}
-            value={discountValue}
-            onChange={e => {
-              const d = e.target.value
-              onDiscountChange(d)
-              if (!priceValue && mrp > 0 && d) {
-                onPriceChange((mrp * (1 - parseFloat(d) / 100)).toFixed(2))
-              }
-            }}
-            placeholder="0.00"
-          />
-          <span style={{ position:'absolute', right:9, top:'50%', transform:'translateY(-50%)', fontSize:12, color:'var(--text-muted)', pointerEvents:'none' }}>%</span>
+      {computed > 0 && (
+        <div style={{ fontSize:10, color:'var(--primary)', marginTop:2, fontWeight:600 }}>
+          = &#8377;{computed.toFixed(2)} @ {discount}% off MRP
         </div>
-      </div>
+      )}
     </div>
   )
 }
@@ -640,7 +643,40 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, onSa
     setImgResetKey(k => k + 1)
   }, [editProduct])
 
-  const set = useCallback((field, val) => setForm(f => ({ ...f, [field]: val })), [])
+  const set = useCallback((field, val) => setForm(f => {
+    const next = { ...f, [field]: val }
+    // Auto-calculate Sqft/Box when tile size or pcs/box changes.
+    if (field === 'size' || field === 'pcs_per_box') {
+      const sqft = calcSqftPerBox(next.size, next.pcs_per_box)
+      if (sqft) next.sqft_per_box = sqft
+    }
+    // Auto-calculate rates from MRP + discount %.
+    // rate = MRP * (1 - discount/100). Maps each rate to its discount field.
+    const RATE_DISCOUNTS = {
+      retail_rate:    'retail_discount',
+      dealer_rate:    'dealer_discount',
+      wholesale_rate: 'wholesale_discount',
+      project_rate:   'project_discount',
+    }
+    const applyDiscount = (rateField, discField) => {
+      const mrp  = parseFloat(next.mrp)
+      const disc = parseFloat(next[discField])
+      if (mrp > 0 && disc >= 0 && next[discField] !== '' && next[discField] != null) {
+        next[rateField] = (mrp * (1 - disc / 100)).toFixed(2)
+      }
+    }
+    // When a discount field changes, recompute its own rate.
+    for (const [rateField, discField] of Object.entries(RATE_DISCOUNTS)) {
+      if (field === discField) applyDiscount(rateField, discField)
+    }
+    // When MRP changes, recompute every rate that has a discount % set.
+    if (field === 'mrp') {
+      for (const [rateField, discField] of Object.entries(RATE_DISCOUNTS)) {
+        applyDiscount(rateField, discField)
+      }
+    }
+    return next
+  }), [])
 
   const validate = () => {
     const e = {}
@@ -655,7 +691,7 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, onSa
     const e = validate()
     if (Object.keys(e).length) { setErrors(e); return }
 
-    // Build a plain object â€” productApi.create / productApi.update handle FormData internally
+    // Build a plain object - productApi.create / productApi.update handle FormData internally
     // when imageFiles is present. Field name 'file' matches multer's uploadImages middleware.
     const payload = {
       name:            form.name.trim(),
@@ -706,7 +742,7 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, onSa
       dealer_visible:  form.dealer_visible,
       // For update: kept existing image URLs
       image_urls:      existingImages,
-      // imageFiles is the key productApi looks for â€” File[] array, field name 'file' for multer
+      // imageFiles is the key productApi looks for - File[] array, field name 'file' for multer
       imageFiles:      imageFiles,
     }
 
@@ -717,17 +753,26 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, onSa
     await onSave(payload)
   }
 
+  // Ensure the currently-saved value is always selectable, even if it's not in
+  // the predefined option list (e.g. legacy data or values entered elsewhere).
+  // This guarantees "what was chosen is what you see" in the edit form.
+  const withCurrent = (opts, current) => {
+    const cur = (current ?? '').toString().trim()
+    if (!cur) return opts
+    return opts.some(o => o.value === cur) ? opts : [{ value: cur, label: cur }, ...opts]
+  }
+
   const brandOpts    = brands.map(b => ({ value: b._id || b.id, label: b.name }))
   const catOpts      = categories.filter(c => !c.parent_id).map(c => ({ value: c._id || c.id, label: c.name }))
   const subCatOpts   = filteredSubs.map(s => ({ value: s._id || s.id, label: s.name }))
-  const sizeOpts     = SIZES.map(s => ({ value: s, label: s + ' MM' }))
-  const finishOpts   = FINISHES.map(s => ({ value: s, label: s }))
-  const surfaceOpts  = SURFACES.map(s => ({ value: s, label: s }))
-  const gradeOpts    = GRADES.map(s => ({ value: s, label: s }))
-  const tileTypeOpts = TILE_TYPES.map(s => ({ value: s, label: s }))
-  const areaOpts     = AREAS.map(s => ({ value: s, label: s }))
-  const antiSkidOpts = ANTI_SKIDS.map(s => ({ value: s, label: s }))
-  const originOpts   = ORIGINS.map(s => ({ value: s, label: s }))
+  const sizeOpts     = withCurrent(SIZES.map(s => ({ value: s, label: s + ' MM' })), form.size)
+  const finishOpts   = withCurrent(FINISHES.map(s => ({ value: s, label: s })), form.finish)
+  const surfaceOpts  = withCurrent(SURFACES.map(s => ({ value: s, label: s })), form.surface)
+  const gradeOpts    = withCurrent(GRADES.map(s => ({ value: s, label: s })), form.grade)
+  const tileTypeOpts = withCurrent(TILE_TYPES.map(s => ({ value: s, label: s })), form.tile_type)
+  const areaOpts     = withCurrent(AREAS.map(s => ({ value: s, label: s })), form.application)
+  const antiSkidOpts = withCurrent(ANTI_SKIDS.map(s => ({ value: s, label: s })), form.anti_skid)
+  const originOpts   = withCurrent(ORIGINS.map(s => ({ value: s, label: s })), form.origin)
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -760,7 +805,7 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, onSa
             <div>
               <SearchableSelect
                 label="Brand" required
-                placeholder="Search brandsâ€¦"
+                placeholder="Search brands..."
                 value={form.brand_id}
                 onChange={v => set('brand_id', v)}
                 options={brandOpts}
@@ -771,7 +816,7 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, onSa
             <div>
               <SearchableSelect
                 label="Category" required
-                placeholder="Search categoriesâ€¦"
+                placeholder="Search categories..."
                 value={form.category_id}
                 onChange={v => { set('category_id', v); set('sub_category_id', '') }}
                 options={catOpts}
@@ -781,7 +826,7 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, onSa
             {/* Subcategory */}
             <SearchableSelect
               label="Subcategory"
-              placeholder="Search subcategoriesâ€¦"
+              placeholder="Search subcategories..."
               value={form.sub_category_id}
               onChange={v => set('sub_category_id', v)}
               options={subCatOpts}
@@ -890,7 +935,7 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, onSa
               <input className="form-control" type="number" min="0" placeholder="0" value={form.pcs_per_box} onChange={e=>set('pcs_per_box',e.target.value)} />
             </div>
             <div>
-              <label className="form-label">Sqft/Box</label>
+              <label className="form-label">Sqft/Box <span style={{ fontWeight: 400, color: 'var(--text-muted, #94a3b8)', fontSize: 11 }}>(auto)</span></label>
               <input className="form-control" type="number" min="0" step="0.01" placeholder="0.00" value={form.sqft_per_box} onChange={e=>set('sqft_per_box',e.target.value)} />
             </div>
             <div>
@@ -901,16 +946,22 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, onSa
 
           {/* â”€â”€ PRICING â”€â”€ */}
           <FormSection title="Pricing" />
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(6,1fr)', gap:12 }}>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12 }}>
             <PriceInput label="Purchase Rate"   value={form.purchase_rate}   onChange={v=>set('purchase_rate',v)} />
             <PriceInput label="Landing Cost"    value={form.landing_cost}    onChange={v=>set('landing_cost',v)} />
             <PriceInput label="MRP"             value={form.mrp}             onChange={v=>set('mrp',v)} />
-            <PriceInput label="Retail Rate"     value={form.retail_rate}     onChange={v=>set('retail_rate',v)} />
-            <PriceInput label="Dealer Rate"     value={form.dealer_rate}     onChange={v=>set('dealer_rate',v)} />
-            <PriceInput label="Wholesale Rate"  value={form.wholesale_rate}  onChange={v=>set('wholesale_rate',v)} />
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginTop:12 }}>
-            <PriceInput label="Project Rate"      value={form.project_rate}      onChange={v=>set('project_rate',v)} />
+            <PriceDiscountInput label="Retail Rate"    priceValue={form.retail_rate}    onPriceChange={v=>set('retail_rate',v)}
+              discountValue={form.retail_discount}    onDiscountChange={v=>set('retail_discount',v)}    baseMrp={form.mrp} />
+            <PriceDiscountInput label="Dealer Rate"    priceValue={form.dealer_rate}    onPriceChange={v=>set('dealer_rate',v)}
+              discountValue={form.dealer_discount}    onDiscountChange={v=>set('dealer_discount',v)}    baseMrp={form.mrp} />
+            <PriceDiscountInput label="Wholesale Rate" priceValue={form.wholesale_rate} onPriceChange={v=>set('wholesale_rate',v)}
+              discountValue={form.wholesale_discount} onDiscountChange={v=>set('wholesale_discount',v)} baseMrp={form.mrp} />
+            <PriceDiscountInput label="Project Rate"   priceValue={form.project_rate}   onPriceChange={v=>set('project_rate',v)}
+              discountValue={form.project_discount}   onDiscountChange={v=>set('project_discount',v)}   baseMrp={form.mrp} />
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginTop:12 }}>
             <PriceInput label="Min Selling Rate"  value={form.min_selling_rate}  onChange={v=>set('min_selling_rate',v)} />
             <div>
               <label className="form-label">Min Stock Level</label>
@@ -967,7 +1018,7 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, onSa
           <button className="btn btn-secondary" type="button" onClick={onClose}>Cancel</button>
           <button className="btn btn-primary" type="button" disabled={saving} onClick={handleSave}
             style={{ minWidth:120 }}>
-            {saving ? 'Savingâ€¦' : 'Preview & Save'}
+            {saving ? 'Saving...' : 'Preview & Save'}
           </button>
         </div>
       </div>
@@ -1000,18 +1051,19 @@ function ProductViewModal({ product: p, loading, onClose, onEdit }) {
     </div>
   )
 
-  const Field = ({ label, value, mono, highlight, full }) => {
-    if (!v(value)) return null
+  const Field = ({ label, value, mono, highlight, showEmpty }) => {
+    const has = !!v(value)
+    if (!has && !showEmpty) return null
     return (
       <div style={{ minWidth:0 }}>
         <div style={{ fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:'.06em', color:'var(--text-muted)', marginBottom:3 }}>{label}</div>
         <div style={{
           fontSize: highlight ? 14 : 13,
           fontWeight: highlight ? 700 : 500,
-          color: highlight ? 'var(--text)' : 'var(--text)',
+          color: has ? 'var(--text)' : 'var(--text-light)',
           fontFamily: mono ? 'monospace' : 'inherit',
           wordBreak: 'break-word',
-        }}>{value}</div>
+        }}>{has ? value : '—'}</div>
       </div>
     )
   }
@@ -1150,15 +1202,15 @@ function ProductViewModal({ product: p, loading, onClose, onEdit }) {
             <div>
               <SectionTitle icon="📋" title="Basic Information" />
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'10px 16px' }}>
-                <Field label="Product Code"  value={v(p.code)}                                       mono highlight />
-                <Field label="Product Name"  value={v(p.name)}                                       highlight />
-                <Field label="Alias"         value={v(p.alias)} />
-                <Field label="Brand"         value={v(p.brand_name)    || v(p.brand_id?.name)} />
-                <Field label="Category"      value={v(p.category_name) || v(p.category_id?.name)} />
-                <Field label="Sub-Category"  value={v(p.sub_category_name) || v(p.sub_category_id?.name)} />
-                <Field label="Unit"          value={v(p.unit)} />
-                <Field label="GST %"         value={p.gst_percent ? `${p.gst_percent}%` : null} />
-                <Field label="HSN Code"      value={v(p.hsn_code)} />
+                <Field label="Product Code"  value={v(p.code)}                                       mono highlight showEmpty />
+                <Field label="Product Name"  value={v(p.name)}                                       highlight showEmpty />
+                <Field label="Alias"         value={v(p.alias)} showEmpty />
+                <Field label="Brand"         value={v(p.brand_name)    || v(p.brand_id?.name)} showEmpty />
+                <Field label="Category"      value={v(p.category_name) || v(p.category_id?.name)} showEmpty />
+                <Field label="Sub-Category"  value={v(p.sub_category_name) || v(p.sub_category_id?.name)} showEmpty />
+                <Field label="Unit"          value={v(p.unit)} showEmpty />
+                <Field label="GST %"         value={p.gst_percent != null ? `${p.gst_percent}%` : null} showEmpty />
+                <Field label="HSN Code"      value={v(p.hsn_code)} showEmpty />
               </div>
               {v(p.description) && (
                 <div style={{ marginTop:10 }}>
@@ -1775,28 +1827,19 @@ export default function ProductManagement({
             <thead>
               <tr>
                 <th style={{ width:36 }}>#</th>
-                <th style={{ width:52 }}>Image</th>
-                <th>Code</th>
-                <th>Product Name</th>
-                <th>Brand</th>
-                <th>Category / Sub-Cat</th>
-                <th>Size</th>
-                <th>Finish</th>
-                <th>Tile Type</th>
-                <th>Grade</th>
-                <th>Unit / GST</th>
-                <th>MRP</th>
-                <th>Retail Rate</th>
-                <th>Dealer Rate</th>
-                <th>Purchase Rate</th>
-                <th>Pcs/Box · Sqft/Box</th>
-                <th>Status / Type</th>
-                <th>Actions</th>
+                <th>Product</th>
+                <th>Brand / Category</th>
+                <th>Specifications</th>
+                <th style={{ textAlign:'center' }}>Packing</th>
+                <th style={{ textAlign:'center' }}>Unit / GST</th>
+                <th className="col-right">Pricing</th>
+                <th>Status</th>
+                <th className="col-right">Actions</th>
               </tr>
             </thead>
             <tbody>
               {loadingData && (
-                <tr><td colSpan={18} style={{ textAlign:'center', padding:32 }}>
+                <tr><td colSpan={9} style={{ textAlign:'center', padding:32 }}>
                   <div className="spinner"/>
                 </td></tr>
               )}
@@ -1804,138 +1847,120 @@ export default function ProductManagement({
               {!loadingData && filtered.map((p, i) => {
                 const id    = p._id || p.id
                 const thumb = (p.image_urls || []).filter(Boolean)[0]
+                const specs = [
+                  p.size ? `${p.size.toUpperCase()} MM` : null,
+                  p.finish,
+                  p.tile_type,
+                  p.grade,
+                ].filter(Boolean)
                 return (
                   <tr key={id}>
                     <td style={{ color:'var(--text-muted)', fontSize:12 }}>{i+1}</td>
 
-                    {/* Thumbnail */}
+                    {/* Product — thumbnail + name + code */}
                     <td>
-                      {thumb
-                        ? <img src={imgUrl(thumb)} alt="" style={{ width:40, height:40, borderRadius:6, objectFit:'cover', border:'1px solid var(--border)' }}/>
-                        : <div style={{ width:40, height:40, borderRadius:6, background:'var(--bg)', border:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                            <Package size={14} style={{ color:'var(--text-muted)' }}/>
+                      <div style={{ display:'flex', alignItems:'center', gap:10, minWidth:0 }}>
+                        {thumb
+                          ? <img src={imgUrl(thumb)} alt="" style={{ width:42, height:42, borderRadius:8, objectFit:'cover', border:'1px solid var(--border)', flexShrink:0 }}/>
+                          : <div style={{ width:42, height:42, borderRadius:8, background:'var(--bg)', border:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                              <Package size={16} style={{ color:'var(--text-light)' }}/>
+                            </div>
+                        }
+                        <div style={{ minWidth:0 }}>
+                          <div style={{ fontWeight:700, fontSize:13, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:220 }}>{p.name}</div>
+                          <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:2 }}>
+                            <span style={{ fontFamily:'monospace', fontSize:11, fontWeight:800, color:'var(--primary)' }}>{p.code || '—'}</span>
+                            {p.collection && <span style={{ fontSize:11, color:'var(--text-muted)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:120 }}>· {p.collection}</span>}
                           </div>
-                      }
+                        </div>
+                      </div>
                     </td>
 
-                    {/* Code */}
+                    {/* Brand / Category */}
+                    {(() => {
+                      const brandName = p.brand_name || p.brand_id?.name || '—'
+                      const catName   = p.category_name || p.category_id?.name || '—'
+                      const subName   = p.sub_category_name || p.sub_category_id?.name || ''
+                      return (
+                        <td style={{ whiteSpace:'nowrap' }}>
+                          <div style={{ fontSize:12.5, fontWeight:600, color:'var(--text)' }}>{brandName}</div>
+                          <div style={{ fontSize:11.5, color:'var(--text-muted)', marginTop:2 }}>
+                            {catName}{subName ? ` › ${subName}` : ''}
+                          </div>
+                        </td>
+                      )
+                    })()}
+
+                    {/* Specifications — chips */}
                     <td>
-                      <span style={{ fontFamily:'monospace', fontSize:11, fontWeight:700, color:'var(--primary)', background:'rgba(253,92,2,.08)', padding:'2px 7px', borderRadius:5 }}>
-                        {p.code || '—'}
-                      </span>
+                      {specs.length ? (
+                        <div style={{ display:'flex', flexWrap:'wrap', gap:4, maxWidth:230 }}>
+                          {specs.map((s, k) => (
+                            <span key={k} style={{
+                              fontSize:11, fontWeight:600, color:'var(--text-muted)',
+                              background:'var(--bg)', border:'1px solid var(--border)',
+                              borderRadius:6, padding:'2px 8px', whiteSpace:'nowrap',
+                            }}>{s}</span>
+                          ))}
+                        </div>
+                      ) : <span style={{ color:'var(--text-light)', fontSize:12 }}>—</span>}
                     </td>
 
-                    {/* Product Name + alias */}
-                    <td>
-                      <div style={{ fontWeight:600, fontSize:13 }}>{p.name}</div>
-                      {p.alias && (
-                        <div style={{ fontSize:11, color:'var(--text-muted)' }}>Alias: {p.alias}</div>
-                      )}
-                      {p.collection && (
-                        <div style={{ fontSize:11, color:'var(--text-muted)' }}>{p.collection}</div>
-                      )}
+                    {/* Packing */}
+                    <td style={{ textAlign:'center', whiteSpace:'nowrap' }}>
+                      {(p.pcs_per_box || p.sqft_per_box) ? (
+                        <div>
+                          {p.pcs_per_box ? <div style={{ fontSize:12, fontWeight:600 }}>{p.pcs_per_box} pcs</div> : null}
+                          {p.sqft_per_box ? <div style={{ fontSize:11, color:'var(--text-muted)' }}>{parseFloat(p.sqft_per_box).toFixed(2)} sqft</div> : null}
+                        </div>
+                      ) : <span style={{ fontSize:12, color:'var(--text-light)' }}>—</span>}
                     </td>
-
-                    {/* Brand */}
-                    <td style={{ fontSize:12 }}>{p.brand_name || '—'}</td>
-
-                    {/* Category / Sub-Cat */}
-                    <td>
-                      <div style={{ fontSize:12 }}>{p.category_name || '—'}</div>
-                      {p.sub_category_name && (
-                        <div style={{ fontSize:11, color:'var(--text-muted)' }}>{p.sub_category_name}</div>
-                      )}
-                    </td>
-
-                    {/* Size */}
-                    <td style={{ fontSize:12 }}>
-                      {p.size ? (
-                        <span style={{ fontWeight:600 }}>{p.size.toUpperCase()} MM</span>
-                      ) : '—'}
-                    </td>
-
-                    {/* Finish + Surface */}
-                    <td>
-                      <div style={{ fontSize:12 }}>{p.finish || '—'}</div>
-                      {p.surface && p.surface !== p.finish && (
-                        <div style={{ fontSize:11, color:'var(--text-muted)' }}>{p.surface}</div>
-                      )}
-                    </td>
-
-                    {/* Tile Type + Application */}
-                    <td>
-                      <div style={{ fontSize:12 }}>{p.tile_type || '—'}</div>
-                      {p.application && (
-                        <div style={{ fontSize:11, color:'var(--text-muted)' }}>{p.application}</div>
-                      )}
-                    </td>
-
-                    {/* Grade */}
-                    <td style={{ fontSize:12 }}>{p.grade || '—'}</td>
 
                     {/* Unit / GST */}
-                    <td>
-                      <div style={{ fontSize:12 }}>{p.unit || '—'}</div>
+                    <td style={{ textAlign:'center', whiteSpace:'nowrap' }}>
+                      <div style={{ fontSize:12, fontWeight:600 }}>{p.unit || '—'}</div>
                       {p.gst_percent != null && (
                         <div style={{ fontSize:11, color:'var(--text-muted)' }}>GST {p.gst_percent}%</div>
                       )}
                     </td>
 
-                    {/* MRP */}
-                    <td style={{ fontSize:12, fontWeight:600, color:'#FD5C02' }}>
-                      {fmtP(p.mrp)}
-                    </td>
-
-                    {/* Retail Rate */}
-                    <td style={{ fontSize:12, fontWeight:600, color:'var(--success)' }}>
-                      {fmtP(p.retail_price || p.retail_rate)}
-                    </td>
-
-                    {/* Dealer Rate */}
-                    <td style={{ fontSize:12 }}>
-                      {fmtP(p.dealer_price || p.dealer_rate)}
-                    </td>
-
-                    {/* Purchase Rate */}
-                    <td style={{ fontSize:12 }}>
-                      {fmtP(p.purchase_price || p.purchase_rate)}
-                    </td>
-
-                    {/* Pcs/Box · Sqft/Box */}
-                    <td>
-                      {p.pcs_per_box ? (
-                        <div style={{ fontSize:12 }}>{p.pcs_per_box} pcs</div>
-                      ) : null}
-                      {p.sqft_per_box ? (
-                        <div style={{ fontSize:11, color:'var(--text-muted)' }}>{parseFloat(p.sqft_per_box).toFixed(2)} sqft</div>
-                      ) : null}
-                      {!p.pcs_per_box && !p.sqft_per_box && (
-                        <span style={{ fontSize:12, color:'var(--text-muted)' }}>—</span>
+                    {/* Pricing — MRP + retail/dealer */}
+                    <td className="col-right" style={{ whiteSpace:'nowrap' }}>
+                      {fmtP(p.mrp) && (
+                        <div style={{ fontSize:13, fontWeight:800, color:'#FD5C02' }}>{fmtP(p.mrp)}</div>
                       )}
+                      <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:2 }}>
+                        {fmtP(p.retail_price || p.retail_rate) && <span>R: {fmtP(p.retail_price || p.retail_rate)}</span>}
+                        {fmtP(p.dealer_price || p.dealer_rate) && <span> · D: {fmtP(p.dealer_price || p.dealer_rate)}</span>}
+                      </div>
                     </td>
 
-                    {/* Status + Type */}
+                    {/* Status */}
                     <td>
-                      <span className={`badge ${p.is_active !== false ? 'badge-green' : 'badge-gray'}`} style={{ display:'block', marginBottom:3 }}>
+                      <span style={{
+                        display:'inline-flex', alignItems:'center', gap:4,
+                        fontSize:11, fontWeight:600, padding:'3px 9px', borderRadius:20,
+                        background: p.is_active !== false ? '#ECFDF5' : '#FEF2F2',
+                        color:      p.is_active !== false ? '#059669' : '#DC2626',
+                        border:     `1px solid ${p.is_active !== false ? '#A7F3D0' : '#FECACA'}`,
+                      }}>
+                        {p.is_active !== false ? <CheckCircle size={10}/> : <XCircle size={10}/>}
                         {p.is_active !== false ? 'Active' : 'Inactive'}
                       </span>
-                      {p.product_type && p.product_type !== 'Regular Product' && (
-                        <span style={{ fontSize:10, color:'var(--text-muted)' }}>{p.product_type}</span>
-                      )}
-                      <div style={{ display:'flex', gap:3, marginTop:3, flexWrap:'wrap' }}>
-                        {p.new_arrival   && <span style={{ fontSize:9, background:'#FFF3EC', color:'#FD5C02', borderRadius:4, padding:'1px 5px', fontWeight:700 }}>NEW</span>}
-                        {p.featured      && <span style={{ fontSize:9, background:'#EFF6FF', color:'#3B82F6', borderRadius:4, padding:'1px 5px', fontWeight:700 }}>FEAT</span>}
+                      <div style={{ display:'flex', gap:3, marginTop:4, flexWrap:'wrap' }}>
+                        {p.new_arrival && <span style={{ fontSize:9, background:'#FFF3EC', color:'#FD5C02', borderRadius:4, padding:'1px 5px', fontWeight:700 }}>NEW</span>}
+                        {p.featured    && <span style={{ fontSize:9, background:'#EFF6FF', color:'#3B82F6', borderRadius:4, padding:'1px 5px', fontWeight:700 }}>FEAT</span>}
                       </div>
                     </td>
 
                     {/* Actions */}
-                    <td>
-                      <div className="table-actions">
-                        <button className="btn btn-ghost btn-xs" title="Edit" onClick={()=>openEdit(p)}>
-                          <Edit2 size={13}/>
-                        </button>
-                        <button className="btn btn-ghost btn-xs" title="View Full Details" onClick={()=>openView(p)}>
+                    <td className="col-right">
+                      <div className="table-actions" style={{ justifyContent:'flex-end' }}>
+                        <button className="btn btn-ghost btn-xs" title="View Full Details" onClick={()=>openView(p)} style={{ color:'#059669' }}>
                           <Eye size={13}/>
+                        </button>
+                        <button className="btn btn-ghost btn-xs" title="Edit" onClick={()=>openEdit(p)} style={{ color:'#3B82F6' }}>
+                          <Edit2 size={13}/>
                         </button>
                         <button className="btn btn-ghost btn-xs" title="Download Product Sheet"
                           style={{ color:'var(--info)' }} onClick={()=>downloadProduct(p)}>
@@ -1953,16 +1978,16 @@ export default function ProductManagement({
 
               {!loadingData && filtered.length === 0 && (
                 <tr>
-                  <td colSpan={18}>
-                    <div className="empty-state">
-                      <div className="empty-state-icon">📦</div>
-                      <h3>No products found</h3>
-                      <p>{(search || activeFilters > 0)
+                  <td colSpan={9}>
+                    <div className="table-empty">
+                      <div className="table-empty-icon"><Package style={{ width:20 }}/></div>
+                      <div style={{ fontWeight:600, color:'var(--text)' }}>No products found</div>
+                      <div style={{ marginTop:3 }}>{(search || activeFilters > 0)
                         ? 'Try adjusting your search or filters.'
                         : 'Click "New Product" to add your first product.'
-                      }</p>
+                      }</div>
                       {activeFilters > 0 && (
-                        <button className="btn btn-secondary btn-sm" onClick={clearAll} style={{ marginTop:8 }}>
+                        <button className="btn btn-secondary btn-sm" onClick={clearAll} style={{ marginTop:10 }}>
                           Clear Filters
                         </button>
                       )}

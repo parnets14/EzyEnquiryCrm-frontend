@@ -613,28 +613,61 @@ input, select, textarea { font-family: inherit; }
 .btn-icon { padding: 8px; }
 
 /* ── Table ── */
-.table-wrap { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; }
-th {
-  background: var(--bg);
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.table-wrap::-webkit-scrollbar { height: 8px; }
+.table-wrap::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 8px; }
+.table-wrap::-webkit-scrollbar-track { background: transparent; }
+
+table { width: 100%; border-collapse: separate; border-spacing: 0; }
+
+thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #F8FAFC;
   font-size: 11px; font-weight: 700;
   text-transform: uppercase; letter-spacing: 0.5px;
   color: var(--text-muted);
-  padding: 10px 14px;
+  padding: 11px 16px;
   text-align: left;
   white-space: nowrap;
   border-bottom: 1px solid var(--border);
 }
 td {
-  padding: 11px 14px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--border);
   font-size: 13px;
   color: var(--text);
   vertical-align: middle;
 }
-tr:last-child td { border-bottom: none; }
-tr:hover td { background: var(--bg); }
-.table-actions { display: flex; gap: 4px; align-items: center; }
+tbody tr:last-child td { border-bottom: none; }
+tbody tr:nth-child(even) td { background: #FBFCFE; }
+tbody tr { transition: background 0.12s; }
+tbody tr:hover td { background: #F1F5F9; }
+
+/* Right-aligned utility for header + cells (e.g. Actions column) */
+th.col-right, td.col-right { text-align: right; }
+.table-actions { display: flex; gap: 5px; align-items: center; }
+
+/* Empty / loading state row */
+.table-empty {
+  padding: 40px 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.table-empty .table-empty-icon {
+  width: 44px; height: 44px; margin: 0 auto 10px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg);
+  color: var(--text-light);
+}
 
 /* ── Badges ── */
 .badge {
@@ -890,3 +923,8 @@ textarea.form-control { resize: vertical; min-height: 80px; }
   border: 1px solid var(--border) !important;
   box-shadow: var(--shadow-md) !important;
 }
+
+/* Hide number-input spinner arrows (used for compact % fields) */
+.no-spin::-webkit-outer-spin-button,
+.no-spin::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.no-spin { -moz-appearance: textfield; appearance: textfield; }

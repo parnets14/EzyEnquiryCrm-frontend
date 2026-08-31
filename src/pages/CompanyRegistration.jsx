@@ -2,9 +2,11 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Building2, FileText, Upload, CheckCircle, Clock, XCircle,
   Phone, Mail, RefreshCw, Save, X, Eye, Crown, Edit2,
-  Trash2, Download, Pencil, AlertCircle
+  Trash2, Download, Pencil, AlertCircle, Plus, Search
 } from 'lucide-react'
 import { companyApi } from '../api/companyApi'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
 
 // ── Subscription plans — same as SubscriptionSystem ──────────
 const SUBSCRIPTION_PLANS = [
@@ -23,48 +25,15 @@ const statusMeta = {
   Rejected: { color: 'badge-red',    icon: <XCircle     style={{ width: 13 }} /> },
 }
 
-const INIT_COMPANIES = [
-  {
-    id: 'COM-001', name: 'Tiles World Pvt Ltd', owner: 'Priya Sharma',
-    bizType: 'Wholesaler',
-    mobile: '9812345678', email: 'priya@tilesworld.com',
-    gst: '27AABCT3518Q1ZY', pan: 'AABCT3518Q',
-    city: 'Mumbai', state: 'Maharashtra', pin: '400001',
-    plan: 'Gold', status: 'Approved', registered: '15 Feb 2026',
-    reviewedBy: 'Super Admin',
-    docs: { gst: true, pan: true, address: true, biz: false },
-  },
-  {
-    id: 'COM-002', name: 'Global Tiles Co.', owner: 'Suresh Mehta',
-    bizType: 'Distributor',
-    mobile: '9300066778', email: 'global@wholesale.com',
-    gst: '24AAACG3429B1ZN', pan: 'AAACG3429B',
-    city: 'Ahmedabad', state: 'Gujarat', pin: '380001',
-    plan: 'Silver', status: 'Pending', registered: '01 Aug 2026',
-    reviewedBy: '—',
-    docs: { gst: true, pan: false, address: true, biz: false },
-  },
-  {
-    id: 'COM-003', name: 'Rajputana Ceramics', owner: 'Vikram Singh',
-    bizType: 'Manufacturer',
-    mobile: '9955001122', email: 'vikram@rajputana.com',
-    gst: '08AAACR5001B1ZY', pan: 'AAACR5001B',
-    city: 'Jaipur', state: 'Rajasthan', pin: '302001',
-    plan: 'Platinum', status: 'Approved', registered: '20 Mar 2026',
-    reviewedBy: 'Super Admin',
-    docs: { gst: true, pan: true, address: true, biz: true },
-  },
-  {
-    id: 'COM-004', name: 'Delhi Tile House', owner: 'Amit Kumar',
-    bizType: 'Retailer',
-    mobile: '9811223344', email: 'amit@delhitile.com',
-    gst: '', pan: 'AAACK0012B',
-    city: 'Delhi', state: 'Delhi', pin: '110001',
-    plan: 'Free', status: 'Rejected', registered: '03 Aug 2026',
-    reviewedBy: 'Super Admin',
-    docs: { gst: false, pan: true, address: false, biz: false },
-  },
-]
+// Blank company template — no static/mock data. Real records come from the API.
+const BLANK_COMPANY = {
+  id: '', name: '', owner: '', bizType: '',
+  mobile: '', email: '', gst: '', pan: '',
+  city: '', state: '', pin: '',
+  plan: 'Free', status: 'Pending', registered: '',
+  reviewedBy: '—',
+  docs: { gst: false, pan: false, address: false, biz: false },
+}
 
 const BLANK_FORM = {
   name: '', bizType: '', owner: '', mobile: '', email: '',
@@ -73,12 +42,12 @@ const BLANK_FORM = {
 }
 
 export default function CompanyRegistration() {
-  const [tab, setTab] = useState('profile')
-  const [companies, setCompanies] = useState(INIT_COMPANIES)
+  const [tab, setTab] = useState('admin')
+  const [companies, setCompanies] = useState([])
 
   // ── Profile edit state ──
   const [editing, setEditing] = useState(false)
-  const [profileForm, setProfileForm] = useState({ ...INIT_COMPANIES[0] })
+  const [profileForm, setProfileForm] = useState({ ...BLANK_COMPANY })
   const [profileSaved, setProfileSaved] = useState(false)
 
   // ── Register new company state ──
@@ -90,8 +59,21 @@ export default function CompanyRegistration() {
   const [otpVerified, setOtpVerified] = useState(false)
   const [uploadedDocs, setUploadedDocs] = useState({ gst: null, pan: null, address: null, biz: null })
 
+  // Open a fresh registration wizard
+  const openRegister = () => {
+    setRegStep(1)
+    setForm({ ...BLANK_FORM })
+    setUploadedDocs({ gst: null, pan: null, address: null, biz: null })
+    setOtpSent(false)
+    setOtpVerified(false)
+    setOtp(['', '', '', '', '', ''])
+    setFormErrors({})
+    setTab('register')
+  }
+
   // ── Admin state ──
   const [statusFilter, setStatusFilter] = useState('All')
+  const [search, setSearch] = useState('')
   const [viewCompany, setViewCompany] = useState(null)
   const [rejectReason, setRejectReason] = useState('')
   const [showRejectModal, setShowRejectModal] = useState(null)
@@ -103,6 +85,10 @@ export default function CompanyRegistration() {
   const [apiLoading, setApiLoading] = useState(false)
   const [apiError,   setApiError]   = useState(null)
   const [approvalList, setApprovalList] = useState([])  // real data from backend
+
+  // ── In-app document preview modal ──
+  // { label, url, kind: 'image' | 'pdf' | 'other' }
+  const [previewDoc, setPreviewDoc] = useState(null)
 
   // Map backend company to frontend shape
   const mapCompany = (c) => ({
@@ -171,7 +157,15 @@ export default function CompanyRegistration() {
   // Merge: Admin Queue ONLY uses real API data — never mock data
   // Profile/Register tabs keep using local companies state
   const allCompanies = approvalList   // real backend data only
-  const filtered = allCompanies.filter(c => statusFilter === 'All' || c.status === statusFilter)
+  const filtered = allCompanies.filter(c => {
+    const matchStatus = statusFilter === 'All' || c.status === statusFilter
+    const q = search.trim().toLowerCase()
+    if (!q) return matchStatus
+    const haystack = [c.id, c.name, c.owner, c.email, c.mobile, c.city, c.state, c.gst, c.pan, c.bizType]
+      .map(v => (v || '').toString().toLowerCase())
+      .join(' ')
+    return matchStatus && haystack.includes(q)
+  })
 
   // ── Profile edit handlers ──
   const saveProfile = () => {
@@ -305,7 +299,7 @@ export default function CompanyRegistration() {
     if (viewCompany?.id === id) setViewCompany(null)
   }
 
-  // ── Download handler — HTML report with embedded document images ──
+  // ── Download handler — branded PDF report with embedded document images ──
   const downloadCompany = async (c) => {
     // Convert a File object to base64 data URL
     const toDataUrl = (file) => new Promise((resolve) => {
@@ -314,6 +308,15 @@ export default function CompanyRegistration() {
       reader.onload = (e) => resolve(e.target.result)
       reader.onerror = () => resolve(null)
       reader.readAsDataURL(file)
+    })
+
+    // Load an image data URL and return its natural dimensions (for aspect-ratio)
+    const imageSize = (dataUrl) => new Promise((resolve) => {
+      if (!dataUrl) return resolve(null)
+      const img = new Image()
+      img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight })
+      img.onerror = () => resolve(null)
+      img.src = dataUrl
     })
 
     const docDefs = [
@@ -330,114 +333,173 @@ export default function CompanyRegistration() {
         const dataUrl = fileObj ? await toDataUrl(fileObj) : null
         const isImage = fileObj?.type?.startsWith('image/')
         const isPdf   = fileObj?.type === 'application/pdf'
-        return { ...d, uploaded: !!c.docs?.[d.key], fileObj, dataUrl, isImage, isPdf }
+        const size    = isImage && dataUrl ? await imageSize(dataUrl) : null
+        return { ...d, uploaded: !!c.docs?.[d.key], fileObj, dataUrl, isImage, isPdf, size }
       })
     )
 
-    const statusBadge = (uploaded) => uploaded
-      ? `<span style="display:inline-flex;align-items:center;gap:4px;background:#DCFCE7;color:#059669;border-radius:20px;padding:3px 10px;font-size:11px;font-weight:700;">&#10003; Uploaded</span>`
-      : `<span style="display:inline-flex;align-items:center;gap:4px;background:#FEE2E2;color:#DC2626;border-radius:20px;padding:3px 10px;font-size:11px;font-weight:700;">&#10007; Not Uploaded</span>`
+    // ── Build PDF ──────────────────────────────────────────────
+    const doc   = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+    const pageW = doc.internal.pageSize.getWidth()
+    const pageH = doc.internal.pageSize.getHeight()
+    const M     = 14 // page margin
 
-    const renderDocCard = (d) => {
-      let previewHtml = ''
-      if (d.dataUrl && d.isImage) {
-        previewHtml = `<img src="${d.dataUrl}" alt="${d.name}" style="width:100%;height:140px;object-fit:cover;display:block;border-radius:6px 6px 0 0;" />`
-      } else if (d.dataUrl && d.isPdf) {
-        previewHtml = `
-          <div style="height:100px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:linear-gradient(135deg,#FEF2F2,#FEE2E2);gap:6px;">
-            <svg viewBox="0 0 48 56" width="40" height="40" fill="none"><path d="M8 0h24l16 16v40H8V0z" fill="#FEE2E2"/><path d="M32 0l16 16H32V0z" fill="#FECACA"/><rect x="14" y="24" width="20" height="2" rx="1" fill="#DC2626" opacity="0.8"/><rect x="14" y="30" width="16" height="2" rx="1" fill="#DC2626" opacity="0.6"/><rect x="14" y="36" width="18" height="2" rx="1" fill="#DC2626" opacity="0.4"/></svg>
-            <span style="font-size:10px;font-weight:800;color:#DC2626;background:#fff;border:1px solid #FECACA;border-radius:4px;padding:2px 8px;letter-spacing:1px;">PDF</span>
-          </div>`
-      } else if (d.uploaded) {
-        previewHtml = `
-          <div style="height:100px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:linear-gradient(135deg,#F0FDF4,#DCFCE7);gap:6px;">
-            <svg viewBox="0 0 48 56" width="40" height="40" fill="none"><path d="M8 0h24l16 16v40H8V0z" fill="#DCFCE7"/><path d="M32 0l16 16H32V0z" fill="#86EFAC"/><rect x="14" y="24" width="20" height="2" rx="1" fill="#16A34A" opacity="0.8"/><rect x="14" y="30" width="16" height="2" rx="1" fill="#16A34A" opacity="0.6"/><rect x="14" y="36" width="18" height="2" rx="1" fill="#16A34A" opacity="0.4"/></svg>
-            <span style="font-size:10px;font-weight:800;color:#059669;background:#fff;border:1px solid #BBF7D0;border-radius:4px;padding:2px 8px;letter-spacing:1px;">FILE</span>
-          </div>`
-      } else {
-        previewHtml = `
-          <div style="height:100px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#FEF2F2,#FEE2E2);opacity:0.5;">
-            <svg viewBox="0 0 48 56" width="40" height="40" fill="none"><path d="M8 0h24l16 16v40H8V0z" fill="#FEE2E2"/><path d="M32 0l16 16H32V0z" fill="#FECACA"/><rect x="14" y="24" width="20" height="2" rx="1" fill="#DC2626" opacity="0.5"/><rect x="14" y="30" width="16" height="2" rx="1" fill="#DC2626" opacity="0.4"/><rect x="14" y="36" width="18" height="2" rx="1" fill="#DC2626" opacity="0.3"/></svg>
-          </div>`
-      }
+    // Brand palette (navy + orange, matching the app)
+    const NAVY   = [30, 45, 74]
+    const ORANGE = [242, 101, 34]
+    const MUTED  = [100, 116, 139]
 
-      return `
-        <div style="border:1.5px solid ${d.uploaded ? '#BBF7D0' : '#FECACA'};border-radius:10px;overflow:hidden;">
-          ${previewHtml}
-          <div style="padding:10px 12px;background:${d.uploaded ? '#F0FDF4' : '#FFF5F5'};">
-            <div style="font-size:12px;font-weight:700;color:${d.uploaded ? '#059669' : '#DC2626'};margin-bottom:4px;">${d.name}</div>
-            ${statusBadge(d.uploaded)}
-            ${d.fileObj?.name ? `<div style="font-size:10px;color:#64748b;margin-top:5px;word-break:break-all;">${d.fileObj.name}</div>` : ''}
-          </div>
-        </div>`
+    // Header band
+    doc.setFillColor(...NAVY)
+    doc.rect(0, 0, pageW, 24, 'F')
+    doc.setFillColor(...ORANGE)
+    doc.rect(pageW - 46, 0, 46, 24, 'F')
+
+    doc.setTextColor(255, 255, 255)
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(15)
+    doc.text('EzyEnquiry', M, 10)
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
+    doc.text('Company Registration Report', M, 16)
+    doc.setFontSize(7.5)
+    doc.text('Find Stock Instantly', M, 20.5)
+
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(12)
+    doc.text(c.id, pageW - 23, 11, { align: 'center' })
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7)
+    doc.text(
+      new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+      pageW - 23, 17, { align: 'center' }
+    )
+
+    // Section heading helper
+    const sectionHeading = (title, y) => {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(10)
+      doc.setTextColor(...ORANGE)
+      doc.text(title.toUpperCase(), M, y)
+      doc.setDrawColor(226, 232, 240); doc.setLineWidth(0.4)
+      doc.line(M, y + 1.5, pageW - M, y + 1.5)
     }
 
-    const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8"/>
-  <title>Company Report — ${c.id}</title>
-  <style>
-    *{box-sizing:border-box;margin:0;padding:0;}
-    body{font-family:'Segoe UI',Arial,sans-serif;background:#f4f6fa;padding:32px;color:#1e293b;}
-    .wrap{background:#fff;border-radius:14px;box-shadow:0 4px 24px rgba(0,0,0,.10);max-width:740px;margin:0 auto;overflow:hidden;}
-    .hdr{background:linear-gradient(135deg,#6366f1,#4f46e5);color:#fff;padding:26px 30px;}
-    .hdr h1{font-size:21px;font-weight:800;margin-bottom:4px;}
-    .hdr p{font-size:13px;opacity:.82;}
-    .body{padding:26px 30px;}
-    .sec{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.9px;color:#6366f1;margin:22px 0 10px;border-bottom:2px solid #e2e8f0;padding-bottom:6px;}
-    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px 28px;}
-    .grid4{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
-    .f label{font-size:11px;color:#64748b;font-weight:600;display:block;margin-bottom:3px;}
-    .f span{font-size:13px;color:#1e293b;}
-    .mono{font-family:'Courier New',monospace;font-weight:700;}
-    .badge{display:inline-block;padding:3px 11px;border-radius:20px;font-size:11px;font-weight:700;}
-    .bg{background:#DCFCE7;color:#059669;}.by{background:#FEF9C3;color:#D97706;}.br{background:#FEE2E2;color:#DC2626;}.bb{background:#DBEAFE;color:#2563EB;}
-    .ftr{background:#f8fafc;border-top:1px solid #e2e8f0;padding:14px 30px;font-size:11px;color:#94a3b8;text-align:center;}
-  </style>
-</head>
-<body>
-<div class="wrap">
-  <div class="hdr">
-    <h1>Company Registration Report</h1>
-    <p>${c.id}&nbsp;&nbsp;|&nbsp;&nbsp;Generated: ${new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'})}</p>
-  </div>
-  <div class="body">
-    <div class="sec">Company Information</div>
-    <div class="grid2">
-      <div class="f"><label>Company Name</label><span>${c.name}</span></div>
-      <div class="f"><label>Business Type</label><span>${c.bizType || '—'}</span></div>
-      <div class="f"><label>Owner / Contact</label><span>${c.owner}</span></div>
-      <div class="f"><label>Mobile</label><span>${c.mobile}</span></div>
-      <div class="f"><label>Email</label><span>${c.email}</span></div>
-      <div class="f"><label>City &amp; State</label><span>${c.city}, ${c.state} &mdash; ${c.pin}</span></div>
-      <div class="f"><label>GST Number</label><span class="mono">${c.gst || 'Not Registered'}</span></div>
-      <div class="f"><label>PAN Number</label><span class="mono">${c.pan}</span></div>
-    </div>
-    <div class="sec">Account &amp; Status</div>
-    <div class="grid2">
-      <div class="f"><label>Subscription Plan</label><span class="badge bb">${c.plan} Plan</span></div>
-      <div class="f"><label>Status</label><span class="badge ${c.status==='Approved'?'bg':c.status==='Rejected'?'br':'by'}">${c.status}</span></div>
-      <div class="f"><label>Submitted On</label><span>${c.registered}</span></div>
-      <div class="f"><label>Reviewed By</label><span>${c.reviewedBy || '—'}</span></div>
-      ${c.rejectReason ? `<div class="f" style="grid-column:1/-1"><label>Rejection Reason</label><span style="color:#DC2626">${c.rejectReason}</span></div>` : ''}
-    </div>
-    <div class="sec">Uploaded Documents</div>
-    <div class="grid4">
-      ${docData.map(d => renderDocCard(d)).join('')}
-    </div>
-  </div>
-  <div class="ftr">EzyEnquiry &nbsp;&middot;&nbsp; Company Management &nbsp;&middot;&nbsp; Confidential</div>
-</div>
-</body></html>`
+    // ── Company Information (2-column key/value table) ──
+    sectionHeading('Company Information', 34)
+    autoTable(doc, {
+      startY: 38,
+      theme: 'plain',
+      styles: { fontSize: 9.5, cellPadding: 2, textColor: [30, 45, 74] },
+      columnStyles: {
+        0: { fontStyle: 'bold', textColor: MUTED, cellWidth: 34 },
+        1: { cellWidth: 58 },
+        2: { fontStyle: 'bold', textColor: MUTED, cellWidth: 34 },
+        3: { cellWidth: 'auto' },
+      },
+      body: [
+        ['Company', c.name, 'Business Type', c.bizType || '-'],
+        ['Owner', c.owner, 'Mobile', c.mobile],
+        ['Email', c.email, 'Location', `${c.city}, ${c.state} - ${c.pin}`],
+        ['GST Number', c.gst || 'Not Registered', 'PAN Number', c.pan],
+      ],
+      margin: { left: M, right: M },
+    })
 
-    const blob = new Blob([html], { type: 'text/html' })
-    const url  = URL.createObjectURL(blob)
-    const a    = document.createElement('a')
-    a.href     = url
-    a.download = `${c.id}_${c.name.replace(/\s+/g,'_')}_Report.html`
-    a.click()
-    URL.revokeObjectURL(url)
+    // ── Account & Status ──
+    let y = doc.lastAutoTable.finalY + 8
+    sectionHeading('Account & Status', y)
+    autoTable(doc, {
+      startY: y + 4,
+      theme: 'plain',
+      styles: { fontSize: 9.5, cellPadding: 2, textColor: [30, 45, 74] },
+      columnStyles: {
+        0: { fontStyle: 'bold', textColor: MUTED, cellWidth: 34 },
+        1: { cellWidth: 58 },
+        2: { fontStyle: 'bold', textColor: MUTED, cellWidth: 34 },
+        3: { cellWidth: 'auto' },
+      },
+      body: [
+        ['Subscription', `${c.plan} Plan`, 'Status', c.status],
+        ['Submitted On', c.registered, 'Reviewed By', c.reviewedBy || '-'],
+        ...(c.rejectReason ? [['Reject Reason', c.rejectReason, '', '']] : []),
+      ],
+      margin: { left: M, right: M },
+    })
+
+    // ── Documents summary table ──
+    y = doc.lastAutoTable.finalY + 8
+    sectionHeading('Uploaded Documents', y)
+    autoTable(doc, {
+      startY: y + 4,
+      head: [['Document', 'Status', 'File Name']],
+      body: docData.map(d => [
+        d.name,
+        d.uploaded ? 'Uploaded' : 'Not Uploaded',
+        d.fileObj?.name || '-',
+      ]),
+      styles: { fontSize: 9, cellPadding: 2.5 },
+      headStyles: { fillColor: NAVY, textColor: 255, fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [248, 250, 254] },
+      columnStyles: { 0: { cellWidth: 55 }, 1: { cellWidth: 32 } },
+      // Colour the status cell green/red
+      didParseCell: (data) => {
+        if (data.section === 'body' && data.column.index === 1) {
+          const uploaded = data.cell.raw === 'Uploaded'
+          data.cell.styles.textColor = uploaded ? [5, 150, 105] : [220, 38, 38]
+          data.cell.styles.fontStyle = 'bold'
+        }
+      },
+      margin: { left: M, right: M },
+    })
+
+    // ── Embed uploaded document images (each may start a new page) ──
+    const imageDocs = docData.filter(d => d.isImage && d.dataUrl)
+    if (imageDocs.length) {
+      const maxW = pageW - M * 2
+      const maxH = 110 // cap image height so a caption fits
+      y = doc.lastAutoTable.finalY + 10
+
+      for (const d of imageDocs) {
+        // Compute scaled dimensions preserving aspect ratio
+        let drawW = maxW
+        let drawH = maxH
+        if (d.size?.w && d.size?.h) {
+          const ratio = d.size.w / d.size.h
+          drawW = maxW
+          drawH = drawW / ratio
+          if (drawH > maxH) { drawH = maxH; drawW = drawH * ratio }
+        }
+
+        // New page if this image + caption won't fit
+        if (y + drawH + 12 > pageH - M) { doc.addPage(); y = M + 4 }
+
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5)
+        doc.setTextColor(...NAVY)
+        doc.text(d.name, M, y)
+        y += 3
+
+        const fmt = d.fileObj?.type === 'image/png' ? 'PNG' : 'JPEG'
+        try {
+          doc.addImage(d.dataUrl, fmt, M, y, drawW, drawH, undefined, 'FAST')
+        } catch {
+          // If a format can't be embedded, note it instead of failing the export
+          doc.setFont('helvetica', 'normal'); doc.setFontSize(8)
+          doc.setTextColor(...MUTED)
+          doc.text('(preview unavailable)', M, y + 6)
+        }
+        y += drawH + 8
+      }
+    }
+
+    // ── Footer on every page ──
+    const totalPages = doc.internal.getNumberOfPages()
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p)
+      doc.setDrawColor(226, 232, 240); doc.setLineWidth(0.3)
+      doc.line(M, pageH - 10, pageW - M, pageH - 10)
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5)
+      doc.setTextColor(...MUTED)
+      doc.text('EzyEnquiry · Company Management · Confidential', M, pageH - 6)
+      doc.text(`Page ${p} of ${totalPages}`, pageW - M, pageH - 6, { align: 'right' })
+    }
+
+    doc.save(`${c.id}_${c.name.replace(/\s+/g, '_')}_Report.pdf`)
   }
 
   // ── Download individual document file ──
@@ -449,6 +511,115 @@ export default function CompanyRegistration() {
     a.download = fileObj.name || fallbackName
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  // Classify a file/URL into a preview kind
+  const kindOf = ({ mime, name }) => {
+    const m = (mime || '').toLowerCase()
+    const n = (name || '').toLowerCase()
+    if (m.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp)$/.test(n)) return 'image'
+    if (m === 'application/pdf' || n.endsWith('.pdf')) return 'pdf'
+    return 'other'
+  }
+
+  // ── VIEW: open the in-app preview modal ──
+  const viewDocument = async ({ fileObj, companyId, docKey, label }) => {
+    // Case 1: locally uploaded File (during registration) — preview directly
+    if (fileObj) {
+      const src  = URL.createObjectURL(fileObj)
+      const kind = kindOf({ mime: fileObj.type, name: fileObj.name })
+      setPreviewDoc({ label, url: src, kind, isObjectUrl: true })
+      return
+    }
+
+    // Case 2: document stored on the backend — fetch via authenticated API
+    if (companyId && docKey) {
+      setPreviewDoc({ label, url: null, kind: 'loading', isObjectUrl: false })
+      try {
+        const blob = await companyApi.getDocument(companyId, docKey)
+        const src  = URL.createObjectURL(blob)
+        const kind = kindOf({ mime: blob.type, name: '' })
+        setPreviewDoc({ label, url: src, kind, isObjectUrl: true })
+      } catch {
+        setPreviewDoc({ label, url: null, kind: 'error', isObjectUrl: false })
+      }
+    }
+  }
+
+  const closePreview = () => {
+    if (previewDoc?.isObjectUrl) URL.revokeObjectURL(previewDoc.url)
+    setPreviewDoc(null)
+  }
+
+  // Read an image source (URL or File) into a data URL + natural size
+  const loadImage = (src) => new Promise((resolve) => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas')
+        canvas.width = img.naturalWidth
+        canvas.height = img.naturalHeight
+        canvas.getContext('2d').drawImage(img, 0, 0)
+        resolve({ dataUrl: canvas.toDataURL('image/jpeg', 0.92), w: img.naturalWidth, h: img.naturalHeight })
+      } catch {
+        resolve(null) // tainted canvas (CORS) — fall back to raw download
+      }
+    }
+    img.onerror = () => resolve(null)
+    img.src = src
+  })
+
+  // ── DOWNLOAD: save a single document as PDF ──
+  const downloadDocAsPdf = async ({ fileObj, companyId, docKey, label, docId }) => {
+    const baseName = `${docId || label.replace(/\s+/g, '_')}`
+
+    // Resolve the source into a Blob + name/mime, from a local File or the backend
+    let blob = null
+    let name = ''
+    if (fileObj) {
+      blob = fileObj
+      name = fileObj.name || ''
+    } else if (companyId && docKey) {
+      try {
+        blob = await companyApi.getDocument(companyId, docKey)
+      } catch {
+        return // fetch failed; nothing to download
+      }
+    }
+    if (!blob) return
+
+    const mime = blob.type || ''
+    const kind = kindOf({ mime, name })
+
+    // Already a PDF → download as-is with a .pdf name
+    if (kind === 'pdf') {
+      return downloadDocFile(blob, `${baseName}.pdf`)
+    }
+
+    // Image → wrap into a single-page PDF sized to the image
+    if (kind === 'image') {
+      const src = URL.createObjectURL(blob)
+      const img = await loadImage(src)
+      URL.revokeObjectURL(src)
+
+      if (!img) {
+        // Couldn't read pixels — fall back to raw file download
+        return downloadDocFile(blob, name || `${baseName}`)
+      }
+
+      const pdf = new jsPDF({
+        orientation: img.w >= img.h ? 'landscape' : 'portrait',
+        unit: 'pt',
+        format: [img.w, img.h],
+      })
+      pdf.addImage(img.dataUrl, 'JPEG', 0, 0, img.w, img.h, undefined, 'FAST')
+      pdf.save(`${baseName}.pdf`)
+      return
+    }
+
+    // Anything else → download the original file as-is
+    return downloadDocFile(blob, name || baseName)
   }
 
   // Current company profile (first approved or first in list)
@@ -555,11 +726,16 @@ export default function CompanyRegistration() {
       </div>
 
       {/* Page header */}
-      <div className="page-header" style={{ marginBottom: 18 }}>
+      <div className="page-header" style={{ marginBottom: 18, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
         <div className="page-header-left">
           <div className="page-title">Company Registration</div>
           <div className="page-desc">Register, review and manage companies on the platform</div>
         </div>
+        {tab !== 'register' && (
+          <button className="btn btn-primary" onClick={openRegister} style={{ flexShrink: 0 }}>
+            <Plus style={{ width: 15 }} /> Register Company
+          </button>
+        )}
       </div>
 
       {/* Summary stats — clickable, filter the admin table */}
@@ -619,9 +795,7 @@ export default function CompanyRegistration() {
 
       {/* Tabs */}
       <div className="tabs">
-        <button className={`tab-btn${tab === 'profile'  ? ' active' : ''}`} onClick={() => setTab('profile')}>Company Profile</button>
-        <button className={`tab-btn${tab === 'register' ? ' active' : ''}`} onClick={() => setTab('register')}>Register New Company</button>
-        <button className={`tab-btn${tab === 'admin'    ? ' active' : ''}`} onClick={() => setTab('admin')}>Admin Approval Queue</button>
+        <button className="tab-btn active" onClick={() => setTab('admin')}>Admin Approval Queue</button>
       </div>
 
       {/* ═══════════════════════════════════════
@@ -637,7 +811,7 @@ export default function CompanyRegistration() {
                 ? <button className="btn btn-secondary btn-sm" onClick={() => setEditing(true)}><Edit2 style={{ width: 13 }} />Edit</button>
                 : <div style={{ display: 'flex', gap: 6 }}>
                     <button className="btn btn-primary btn-sm" onClick={saveProfile}><Save style={{ width: 13 }} />Save</button>
-                    <button className="btn btn-secondary btn-sm" onClick={() => { setEditing(false); setProfileForm({ ...INIT_COMPANIES[0] }) }}><X style={{ width: 13 }} />Cancel</button>
+                    <button className="btn btn-secondary btn-sm" onClick={() => { setEditing(false); setProfileForm({ ...BLANK_COMPANY }) }}><X style={{ width: 13 }} />Cancel</button>
                   </div>
               }
             </div>
@@ -786,10 +960,15 @@ export default function CompanyRegistration() {
       )}
 
       {/* ═══════════════════════════════════════
-          TAB: Register New Company
+          Register New Company — centered modal
       ═══════════════════════════════════════ */}
       {tab === 'register' && (
-        <div className="card" style={{ maxWidth: 720 }}>
+        <div className="modal-overlay" onClick={() => setTab('admin')}>
+        <div className="modal" style={{ maxWidth: 720, width: '100%' }} onClick={e => e.stopPropagation()}>
+          <div className="modal-header">
+            <span className="modal-title"><Plus style={{ width: 15 }} /> Register New Company</span>
+            <button className="btn-ghost" onClick={() => setTab('admin')}>✕</button>
+          </div>
           {/* Step indicator */}
           <div style={{ padding: '20px 24px 0', display: 'flex', gap: 0 }}>
             {['Basic Info', 'Documents', 'OTP Verify', 'Done'].map((s, i) => (
@@ -1059,12 +1238,13 @@ export default function CompanyRegistration() {
             </div>
           )}
         </div>
+        </div>
       )}
 
       {/* ═══════════════════════════════════════
-          TAB: Admin Approval Queue
+          Admin Approval Queue — always visible (list stays behind register modal)
       ═══════════════════════════════════════ */}
-      {tab === 'admin' && (
+      {tab !== 'profile' && (
         <>
           <div className="card">
             <div className="card-header">
@@ -1116,80 +1296,144 @@ export default function CompanyRegistration() {
               </div>
             )}
 
+            {/* Search bar */}
+            <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                background: 'var(--bg)', border: '1px solid var(--border)',
+                borderRadius: 8, padding: '8px 12px',
+              }}>
+                <Search style={{ width: 15, color: 'var(--text-light)', flexShrink: 0 }} />
+                <input
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  placeholder="Search by company, ID, owner, email, mobile, GST/PAN, city…"
+                  style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: 13, color: 'var(--text)' }}
+                />
+                {search && (
+                  <button
+                    onClick={() => setSearch('')}
+                    title="Clear"
+                    style={{ background: 'none', border: 'none', color: 'var(--text-light)', cursor: 'pointer', display: 'flex' }}
+                  >
+                    <X style={{ width: 14 }} />
+                  </button>
+                )}
+              </div>
+              {search && (
+                <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 6 }}>
+                  Showing {filtered.length} of {allCompanies.length} companies
+                </div>
+              )}
+            </div>
+
             <div className="table-wrap">
               <table>
                 <thead>
                   <tr>
-                    <th>ID</th>
+                    <th style={{ width: 90 }}>ID</th>
                     <th>Company</th>
-                    <th>Owner</th>
-                    <th>Contact</th>
-                    <th>Email</th>
+                    <th>Owner &amp; Contact</th>
                     <th>Business Type</th>
-                    <th>GST</th>
-                    <th>PAN</th>
+                    <th>GST / PAN</th>
                     <th>Documents</th>
-                    <th>Submitted On</th>
-                    <th>Reviewed By</th>
+                    <th>Submitted</th>
                     <th>Status</th>
-                    <th>Actions</th>
+                    <th className="col-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
+                  {apiLoading && filtered.length === 0 && (
+                    <tr>
+                      <td colSpan={9}>
+                        <div className="table-empty">
+                          <div className="table-empty-icon">
+                            <RefreshCw style={{ width: 20, animation: 'spin 1s linear infinite' }} />
+                          </div>
+                          Loading companies…
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+
+                  {!apiLoading && filtered.length === 0 && (
+                    <tr>
+                      <td colSpan={9}>
+                        <div className="table-empty">
+                          <div className="table-empty-icon">
+                            <Building2 style={{ width: 20 }} />
+                          </div>
+                          <div style={{ fontWeight: 600, color: 'var(--text)' }}>No companies found</div>
+                          <div style={{ marginTop: 3 }}>
+                            {search
+                              ? 'No companies match your search.'
+                              : statusFilter === 'All'
+                                ? 'No companies have registered yet.'
+                                : `No ${statusFilter.toLowerCase()} companies.`}
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+
                   {filtered.map(c => (
                     <tr key={c.id}>
                       {/* ID */}
-                      <td style={{ color: 'var(--primary)', fontWeight: 700, fontSize: 12, whiteSpace: 'nowrap' }}>{c.id}</td>
+                      <td>
+                        <span style={{
+                          display: 'inline-block',
+                          color: 'var(--primary)', fontWeight: 800, fontSize: 12,
+                          fontFamily: 'monospace', letterSpacing: '0.3px', whiteSpace: 'nowrap',
+                        }}>{c.id}</span>
+                      </td>
 
                       {/* Company */}
                       <td>
                         <div className="user-info">
                           <div className="avatar avatar-blue">{c.name.charAt(0)}</div>
-                          <div>
-                            <div className="user-name">{c.name}</div>
+                          <div style={{ minWidth: 0 }}>
+                            <div className="user-name" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 180 }}>{c.name}</div>
                             <div className="user-role">{c.city}, {c.state}</div>
                           </div>
                         </div>
                       </td>
 
-                      {/* Owner */}
-                      <td style={{ fontSize: 13, whiteSpace: 'nowrap' }}>{c.owner}</td>
-
-                      {/* Contact — mobile only */}
-                      <td style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      {/* Owner & Contact — merged for a cleaner, less crowded table */}
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{c.owner}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
                           <Phone style={{ width: 11, color: 'var(--primary)', flexShrink: 0 }} />
                           {c.mobile}
                         </div>
-                      </td>
-
-                      {/* Email — separate column */}
-                      <td style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
                           <Mail style={{ width: 11, color: 'var(--primary)', flexShrink: 0 }} />
-                          {c.email}
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 180 }}>{c.email}</span>
                         </div>
                       </td>
 
                       {/* Business Type */}
                       <td>
                         <span style={{
-                          fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 20,
+                          fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20,
                           background: 'var(--bg)', border: '1px solid var(--border)',
                           color: 'var(--text-muted)', whiteSpace: 'nowrap',
                         }}>{c.bizType || '—'}</span>
                       </td>
 
-                      {/* GST */}
-                      <td style={{ fontSize: 11, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
-                        {c.gst
-                          ? <span style={{ color: 'var(--text)' }}>{c.gst}</span>
-                          : <span style={{ color: 'var(--text-light)', fontFamily: 'sans-serif', fontSize: 11 }}>Not Registered</span>
-                        }
+                      {/* GST / PAN — merged, stacked and labelled */}
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11 }}>
+                          <span style={{ color: 'var(--text-light)', fontWeight: 700, width: 28, display: 'inline-block' }}>GST</span>
+                          {c.gst
+                            ? <span style={{ color: 'var(--text)', fontFamily: 'monospace' }}>{c.gst}</span>
+                            : <span style={{ color: 'var(--text-light)' }}>Not Registered</span>
+                          }
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, marginTop: 3 }}>
+                          <span style={{ color: 'var(--text-light)', fontWeight: 700, width: 28, display: 'inline-block' }}>PAN</span>
+                          <span style={{ color: 'var(--text)', fontFamily: 'monospace', fontWeight: 600 }}>{c.pan}</span>
+                        </div>
                       </td>
-
-                      {/* PAN */}
-                      <td style={{ fontSize: 11, fontFamily: 'monospace', fontWeight: 600, whiteSpace: 'nowrap' }}>{c.pan}</td>
 
                       {/* Documents — clean count badge + visual dots only (no text labels) */}
                       <td>
@@ -1266,12 +1510,12 @@ export default function CompanyRegistration() {
                         })()}
                       </td>
 
-                      {/* Submitted On */}
-                      <td style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{c.registered}</td>
-
-                      {/* Reviewed By */}
-                      <td style={{ fontSize: 12, whiteSpace: 'nowrap', color: 'var(--text-muted)' }}>
-                        {c.reviewedBy || '—'}
+                      {/* Submitted — date + reviewer */}
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        <div style={{ fontSize: 12, color: 'var(--text)' }}>{c.registered}</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                          by {c.reviewedBy || '—'}
+                        </div>
                       </td>
 
                       {/* Status */}
@@ -1287,9 +1531,9 @@ export default function CompanyRegistration() {
                         </div>
                       </td>
 
-                      {/* Actions — single row, icons only */}
-                      <td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'nowrap' }}>
+                      {/* Actions — right-aligned, icons only */}
+                      <td className="col-right">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'nowrap', justifyContent: 'flex-end' }}>
                           {/* View */}
                           <button
                             title="View Details"
@@ -1473,9 +1717,10 @@ export default function CompanyRegistration() {
                       ].map(doc => {
                         const uploaded = !!viewCompany.docs?.[doc.key]
                         const fileObj  = viewCompany.docFiles?.[doc.key] || null
-                        const backendUrl = viewCompany.docUrls?.[doc.key]
-                          ? `http://10.67.41.163:5000${viewCompany.docUrls[doc.key]}`
-                          : null
+                        // A document exists on the backend for this company
+                        const hasBackendDoc = !!viewCompany.docUrls?.[doc.key]
+                        const companyDbId = viewCompany._id
+                        const canOpen = uploaded && (fileObj || hasBackendDoc)
 
                         return (
                           <div key={doc.key} style={{
@@ -1489,14 +1734,15 @@ export default function CompanyRegistration() {
                               display: 'flex', alignItems: 'center', justifyContent: 'center',
                               position: 'relative',
                             }}>
-                              {backendUrl ? (
-                                <a href={backendUrl} target="_blank" rel="noopener noreferrer"
-                                  style={{ textDecoration: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+                              {canOpen ? (
+                                <button
+                                  onClick={() => viewDocument({ fileObj, companyId: companyDbId, docKey: doc.key, label: doc.label })}
+                                  style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
                                   <FileText style={{ width: 28, color: '#059669' }} />
                                   <span style={{ fontSize: 9, fontWeight: 700, color: '#059669', background: '#fff', borderRadius: 4, padding: '2px 6px', border: '1px solid #BBF7D0' }}>
                                     VIEW ↗
                                   </span>
-                                </a>
+                                </button>
                               ) : uploaded ? (
                                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
                                   <FileText style={{ width: 28, color: '#059669' }} />
@@ -1515,33 +1761,38 @@ export default function CompanyRegistration() {
                                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                               }}>{uploaded ? '✓' : '✗'}</span>
                             </div>
-                            {/* Label + download */}
+                            {/* Label + View / Download buttons */}
                             <div style={{ padding: '8px 10px', background: uploaded ? '#F0FDF4' : '#FFF5F5' }}>
                               <div style={{ fontSize: 11, fontWeight: 700, color: uploaded ? '#059669' : '#DC2626', marginBottom: 3 }}>{doc.label}</div>
                               <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
                                 {uploaded ? '✓ Document available' : '✗ Not uploaded'}
                               </div>
-                              {backendUrl && (
-                                <a href={backendUrl} target="_blank" rel="noopener noreferrer"
-                                  style={{
-                                    marginTop: 6, display: 'block', textAlign: 'center',
-                                    padding: '4px 0', borderRadius: 6,
-                                    background: '#059669', color: '#fff',
-                                    fontSize: 10, fontWeight: 700, textDecoration: 'none',
-                                  }}>
-                                  Download / View ↗
-                                </a>
-                              )}
-                              {!backendUrl && fileObj && (
-                                <button
-                                  onClick={() => downloadDocFile(fileObj, `${doc.key}_document`)}
-                                  style={{
-                                    marginTop: 6, width: '100%', padding: '4px 0', borderRadius: 6,
-                                    background: '#059669', color: '#fff', border: 'none',
-                                    cursor: 'pointer', fontSize: 10, fontWeight: 700,
-                                  }}>
-                                  Download File
-                                </button>
+                              {canOpen && (
+                                <div style={{ display: 'flex', gap: 6, marginTop: 7 }}>
+                                  {/* View — open in-app preview */}
+                                  <button
+                                    onClick={() => viewDocument({ fileObj, companyId: companyDbId, docKey: doc.key, label: doc.label })}
+                                    style={{
+                                      flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+                                      padding: '5px 0', borderRadius: 6,
+                                      background: '#fff', color: '#0F766E',
+                                      border: '1.5px solid #99F6E4',
+                                      cursor: 'pointer', fontSize: 10, fontWeight: 700,
+                                    }}>
+                                    <Eye style={{ width: 12 }} /> View
+                                  </button>
+                                  {/* Download — save as PDF */}
+                                  <button
+                                    onClick={() => downloadDocAsPdf({ fileObj, companyId: companyDbId, docKey: doc.key, label: doc.label, docId: `${viewCompany.id}_${doc.key}` })}
+                                    style={{
+                                      flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+                                      padding: '5px 0', borderRadius: 6,
+                                      background: '#059669', color: '#fff', border: 'none',
+                                      cursor: 'pointer', fontSize: 10, fontWeight: 700,
+                                    }}>
+                                    <Download style={{ width: 12 }} /> PDF
+                                  </button>
+                                </div>
                               )}
                             </div>
                           </div>
@@ -1574,6 +1825,107 @@ export default function CompanyRegistration() {
                     <Download style={{ width: 13 }} />Download Report
                   </button>
                   <button className="btn btn-secondary btn-sm" onClick={() => setViewCompany(null)}>Close</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Document Preview Modal (in-app view) ── */}
+          {previewDoc && (
+            <div
+              className="modal-overlay"
+              style={{ zIndex: 1200, padding: 24 }}
+              onClick={closePreview}
+            >
+              <div
+                onClick={e => e.stopPropagation()}
+                style={{
+                  background: '#fff', borderRadius: 12, overflow: 'hidden',
+                  width: 'min(920px, 96vw)', height: 'min(88vh, 900px)',
+                  display: 'flex', flexDirection: 'column',
+                  boxShadow: '0 24px 60px rgba(0,0,0,0.35)',
+                }}
+              >
+                {/* Header */}
+                <div style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '12px 16px', borderBottom: '1px solid var(--border)', flexShrink: 0,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                    <FileText style={{ width: 16, color: 'var(--primary)', flexShrink: 0 }} />
+                    <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {previewDoc.label}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                    {previewDoc.url && (
+                      <a
+                        href={previewDoc.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-secondary btn-sm"
+                        style={{ textDecoration: 'none' }}
+                      >
+                        Open in new tab ↗
+                      </a>
+                    )}
+                    <button className="btn btn-secondary btn-sm" onClick={closePreview}>
+                      <X style={{ width: 14 }} /> Close
+                    </button>
+                  </div>
+                </div>
+
+                {/* Body — preview area */}
+                <div style={{
+                  flex: 1, minHeight: 0, background: '#F1F5F9',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'auto',
+                }}>
+                  {previewDoc.kind === 'loading' && (
+                    <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
+                      <RefreshCw style={{ width: 26, color: 'var(--primary)', animation: 'spin 1s linear infinite' }} />
+                      <div style={{ marginTop: 10, fontSize: 13 }}>Loading document…</div>
+                    </div>
+                  )}
+                  {previewDoc.kind === 'error' && (
+                    <div style={{ textAlign: 'center', color: 'var(--danger)', padding: 24 }}>
+                      <AlertCircle style={{ width: 40 }} />
+                      <div style={{ marginTop: 10, fontSize: 13, fontWeight: 600 }}>Couldn’t load this document.</div>
+                      <div style={{ marginTop: 4, fontSize: 12, color: 'var(--text-muted)' }}>
+                        The file may be missing on the server, or the backend isn’t reachable.
+                      </div>
+                    </div>
+                  )}
+                  {previewDoc.kind === 'image' && (
+                    <img
+                      src={previewDoc.url}
+                      alt={previewDoc.label}
+                      style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block' }}
+                    />
+                  )}
+                  {previewDoc.kind === 'pdf' && (
+                    <iframe
+                      title={previewDoc.label}
+                      src={previewDoc.url}
+                      style={{ width: '100%', height: '100%', border: 'none' }}
+                    />
+                  )}
+                  {previewDoc.kind === 'other' && (
+                    <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 24 }}>
+                      <FileText style={{ width: 40, color: 'var(--text-light)' }} />
+                      <div style={{ marginTop: 10, fontSize: 13 }}>
+                        This file type can’t be previewed inline.
+                      </div>
+                      <a
+                        href={previewDoc.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-primary btn-sm"
+                        style={{ marginTop: 12, textDecoration: 'none', display: 'inline-flex' }}
+                      >
+                        Open in new tab ↗
+                      </a>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

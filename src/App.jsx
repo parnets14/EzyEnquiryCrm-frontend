@@ -35,7 +35,6 @@ import ReportCenter from './pages/ReportCenter'
 import DashboardAnalytics from './pages/DashboardAnalytics'
 import WarehouseManagement from './pages/WarehouseManagement'
 import DocumentManagement from './pages/DocumentManagement'
-import Settings from './pages/Settings'
 import Profile from './pages/Profile'
 import SubscriptionSystem from './pages/SubscriptionSystem'
 import QuotationManager from './pages/QuotationManager'
@@ -172,7 +171,6 @@ function AppRoutes() {
         <Route path="system/document-management"
           element={<DocumentManagement />} />
         <Route path="system/subscription"   element={<SubscriptionSystem />} />
-        <Route path="system/settings"       element={<Settings />} />
         <Route path="system/profile"        element={<Profile />} />
         <Route path="subscription"          element={<SubscriptionSystem />} />
       </Route>

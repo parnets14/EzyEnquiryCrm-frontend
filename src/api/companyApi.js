@@ -37,4 +37,10 @@ export const companyApi = {
   // ── Update document status ────────────────────────────────
   updateDocs: (id, docs) =>
     api.patch(`/companies/${id}/docs`, docs).then(r => r.data),
+
+  // ── Fetch a KYC document as a Blob (auth header applied by axios) ──
+  // type: 'gst' | 'pan' | 'address' | 'biz'
+  getDocument: (id, type) =>
+    api.get(`/companies/${id}/documents/${type}`, { responseType: 'blob' })
+      .then(r => r.data),
 }
