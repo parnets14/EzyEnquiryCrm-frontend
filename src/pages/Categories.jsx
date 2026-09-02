@@ -252,14 +252,18 @@ export default function Categories({
                   <th style={{width:44}}>#</th>
                   <th>Category Code</th>
                   <th>Category Name</th>
-                  <th>Products</th>
+                  <th style={{textAlign:'center'}}>Products</th>
                   <th>Description</th>
                   <th>Status</th>
-                  <th>Actions</th>
+                  <th className="col-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {loadingData && <tr><td colSpan={7} style={{textAlign:'center',padding:32}}>Loading…</td></tr>}
+                {loadingData && (
+                  <tr><td colSpan={7}>
+                    <div className="table-empty">Loading…</div>
+                  </td></tr>
+                )}
                 {!loadingData && filteredCats.map((cat, i) => {
                   const id = cat._id || cat.id
                   return (
@@ -269,39 +273,60 @@ export default function Categories({
                       {/* Category Code */}
                       <td>
                         {cat.code
-                          ? <span style={{fontFamily:'monospace',fontSize:12,fontWeight:700,color:'var(--primary)',background:'rgba(99,102,241,.1)',padding:'3px 9px',borderRadius:6}}>{cat.code}</span>
-                          : <span style={{color:'var(--text-muted)',fontSize:12}}>—</span>
+                          ? <span style={{
+                              display:'inline-block', fontFamily:'monospace', fontSize:12, fontWeight:800,
+                              color:'var(--primary)', letterSpacing:'0.3px', whiteSpace:'nowrap',
+                            }}>{cat.code}</span>
+                          : <span style={{color:'var(--text-light)',fontSize:12}}>—</span>
                         }
                       </td>
 
                       {/* Category Name */}
-                      <td style={{fontWeight:700,fontSize:13}}>{cat.name}</td>
+                      <td>
+                        <div style={{display:'flex',alignItems:'center',gap:9}}>
+                          <div style={{width:32,height:32,borderRadius:8,background:'#EFF6FF',border:'1px solid #BFDBFE',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                            <FolderOpen size={14} color="#2563EB" />
+                          </div>
+                          <span style={{fontWeight:700,fontSize:13}}>{cat.name}</span>
+                        </div>
+                      </td>
 
                       {/* Products count */}
-                      <td>
-                        <span style={{display:'inline-block',padding:'2px 9px',borderRadius:12,background:'rgba(139,92,246,.1)',color:'#7c3aed',fontSize:11,fontWeight:700}}>
+                      <td style={{textAlign:'center'}}>
+                        <span style={{
+                          display:'inline-block', padding:'2px 10px', borderRadius:12, minWidth:24, textAlign:'center',
+                          background:'#F5F3FF', color:'#7C3AED', fontSize:12, fontWeight:700,
+                          border:'1px solid #DDD6FE',
+                        }}>
                           {cat.product_count ?? 0}
                         </span>
                       </td>
 
                       {/* Description */}
-                      <td style={{color:'var(--text-muted)',fontSize:12,maxWidth:200}}>{cat.description || '—'}</td>
+                      <td style={{color:'var(--text-muted)',fontSize:12,maxWidth:220,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{cat.description || '—'}</td>
 
                       {/* Status */}
                       <td>
-                        <span className={`badge ${cat.is_active !== false ? 'badge-green' : 'badge-gray'}`}>
+                        <span style={{
+                          display:'inline-flex', alignItems:'center', gap:4,
+                          fontSize:11, fontWeight:600, padding:'3px 9px', borderRadius:20,
+                          background: cat.is_active !== false ? '#ECFDF5' : '#FEF2F2',
+                          color:      cat.is_active !== false ? '#059669' : '#DC2626',
+                          border:     `1px solid ${cat.is_active !== false ? '#A7F3D0' : '#FECACA'}`,
+                        }}>
+                          {cat.is_active !== false ? <CheckCircle size={10}/> : <XCircle size={10}/>}
                           {cat.is_active !== false ? 'Active' : 'Inactive'}
                         </span>
                       </td>
 
                       {/* Actions */}
-                      <td>
-                        <div className="table-actions">
-                          <button className="btn btn-ghost btn-xs" title="Edit" onClick={() => openEditCat(cat)}><Edit2 size={13}/></button>
-                          <button className="btn btn-ghost btn-xs" title={cat.is_active!==false?'Deactivate':'Activate'} onClick={() => toggleCat(cat)}>
-                            {cat.is_active!==false ? <ToggleRight size={15} style={{color:'var(--success)'}}/> : <ToggleLeft size={15}/>}
+                      <td className="col-right">
+                        <div className="table-actions" style={{justifyContent:'flex-end'}}>
+                          <button className="btn btn-ghost btn-xs" title="Edit" onClick={() => openEditCat(cat)} style={{color:'#3B82F6'}}><Edit2 size={13}/></button>
+                          <button className="btn btn-ghost btn-xs" title={cat.is_active!==false?'Deactivate':'Activate'} onClick={() => toggleCat(cat)} style={{color: cat.is_active!==false ? '#059669' : '#94A3B8'}}>
+                            {cat.is_active!==false ? <ToggleRight size={15}/> : <ToggleLeft size={15}/>}
                           </button>
-                          <button className="btn btn-ghost btn-xs" style={{color:'var(--danger)'}} title="Delete" onClick={() => deleteCat(id)}><Trash2 size={13}/></button>
+                          <button className="btn btn-ghost btn-xs" title="Delete" onClick={() => deleteCat(id)} style={{color:'#EF4444'}}><Trash2 size={13}/></button>
                         </div>
                       </td>
                     </tr>
@@ -309,10 +334,12 @@ export default function Categories({
                 })}
                 {!loadingData && filteredCats.length === 0 && (
                   <tr><td colSpan={7}>
-                    <div className="empty-state">
-                      <div className="empty-state-icon">📂</div>
-                      <h3>No categories found</h3>
-                      <p>Click "Add Category" to create your first category.</p>
+                    <div className="table-empty">
+                      <div className="table-empty-icon"><FolderOpen style={{width:20}}/></div>
+                      <div style={{fontWeight:600,color:'var(--text)'}}>No categories found</div>
+                      <div style={{marginTop:3}}>
+                        {catSearch ? 'Try adjusting your search.' : 'Click "Add Category" to create your first category.'}
+                      </div>
                     </div>
                   </td></tr>
                 )}
@@ -405,11 +432,15 @@ export default function Categories({
                   <th>Category Name</th>
                   <th>Description</th>
                   <th>Status</th>
-                  <th>Actions</th>
+                  <th className="col-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {loadingData && <tr><td colSpan={7} style={{textAlign:'center',padding:32}}>Loading…</td></tr>}
+                {loadingData && (
+                  <tr><td colSpan={7}>
+                    <div className="table-empty">Loading…</div>
+                  </td></tr>
+                )}
                 {!loadingData && filteredSubs.map((s, i) => {
                   const id = s._id || s.id
                   return (
@@ -419,13 +450,23 @@ export default function Categories({
                       {/* Sub-Category Code */}
                       <td>
                         {s.code
-                          ? <span style={{fontFamily:'monospace',fontSize:12,fontWeight:700,color:'var(--primary)',background:'rgba(99,102,241,.1)',padding:'3px 9px',borderRadius:6}}>{s.code}</span>
-                          : <span style={{color:'var(--text-muted)',fontSize:12}}>—</span>
+                          ? <span style={{
+                              display:'inline-block', fontFamily:'monospace', fontSize:12, fontWeight:800,
+                              color:'var(--primary)', letterSpacing:'0.3px', whiteSpace:'nowrap',
+                            }}>{s.code}</span>
+                          : <span style={{color:'var(--text-light)',fontSize:12}}>—</span>
                         }
                       </td>
 
                       {/* Sub-Category Name */}
-                      <td style={{fontWeight:700,fontSize:13}}>{s.name}</td>
+                      <td>
+                        <div style={{display:'flex',alignItems:'center',gap:9}}>
+                          <div style={{width:32,height:32,borderRadius:8,background:'#FFF7ED',border:'1px solid #FED7AA',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                            <Tag size={14} color="#EA580C" />
+                          </div>
+                          <span style={{fontWeight:700,fontSize:13}}>{s.name}</span>
+                        </div>
+                      </td>
 
                       {/* Category Name */}
                       <td>
@@ -433,23 +474,30 @@ export default function Categories({
                       </td>
 
                       {/* Description */}
-                      <td style={{color:'var(--text-muted)',fontSize:12,maxWidth:200}}>{s.description || '—'}</td>
+                      <td style={{color:'var(--text-muted)',fontSize:12,maxWidth:220,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{s.description || '—'}</td>
 
                       {/* Status */}
                       <td>
-                        <span className={`badge ${s.is_active !== false ? 'badge-green' : 'badge-gray'}`}>
+                        <span style={{
+                          display:'inline-flex', alignItems:'center', gap:4,
+                          fontSize:11, fontWeight:600, padding:'3px 9px', borderRadius:20,
+                          background: s.is_active !== false ? '#ECFDF5' : '#FEF2F2',
+                          color:      s.is_active !== false ? '#059669' : '#DC2626',
+                          border:     `1px solid ${s.is_active !== false ? '#A7F3D0' : '#FECACA'}`,
+                        }}>
+                          {s.is_active !== false ? <CheckCircle size={10}/> : <XCircle size={10}/>}
                           {s.is_active !== false ? 'Active' : 'Inactive'}
                         </span>
                       </td>
 
                       {/* Actions */}
-                      <td>
-                        <div className="table-actions">
-                          <button className="btn btn-ghost btn-xs" title="Edit" onClick={() => openEditSub(s)}><Edit2 size={13}/></button>
-                          <button className="btn btn-ghost btn-xs" title={s.is_active!==false?'Deactivate':'Activate'} onClick={() => toggleSub(s)}>
-                            {s.is_active!==false ? <ToggleRight size={15} style={{color:'var(--success)'}}/> : <ToggleLeft size={15}/>}
+                      <td className="col-right">
+                        <div className="table-actions" style={{justifyContent:'flex-end'}}>
+                          <button className="btn btn-ghost btn-xs" title="Edit" onClick={() => openEditSub(s)} style={{color:'#3B82F6'}}><Edit2 size={13}/></button>
+                          <button className="btn btn-ghost btn-xs" title={s.is_active!==false?'Deactivate':'Activate'} onClick={() => toggleSub(s)} style={{color: s.is_active!==false ? '#059669' : '#94A3B8'}}>
+                            {s.is_active!==false ? <ToggleRight size={15}/> : <ToggleLeft size={15}/>}
                           </button>
-                          <button className="btn btn-ghost btn-xs" style={{color:'var(--danger)'}} title="Delete" onClick={() => deleteSub(id)}><Trash2 size={13}/></button>
+                          <button className="btn btn-ghost btn-xs" title="Delete" onClick={() => deleteSub(id)} style={{color:'#EF4444'}}><Trash2 size={13}/></button>
                         </div>
                       </td>
                     </tr>
@@ -457,10 +505,12 @@ export default function Categories({
                 })}
                 {!loadingData && filteredSubs.length === 0 && (
                   <tr><td colSpan={7}>
-                    <div className="empty-state">
-                      <div className="empty-state-icon">📁</div>
-                      <h3>No sub-categories found</h3>
-                      <p>Click "Add Sub-Category" to create your first sub-category.</p>
+                    <div className="table-empty">
+                      <div className="table-empty-icon"><Tag style={{width:20}}/></div>
+                      <div style={{fontWeight:600,color:'var(--text)'}}>No sub-categories found</div>
+                      <div style={{marginTop:3}}>
+                        {subSearch ? 'Try adjusting your search.' : 'Click "Add Sub-Category" to create your first sub-category.'}
+                      </div>
                     </div>
                   </td></tr>
                 )}

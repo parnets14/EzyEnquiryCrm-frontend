@@ -10,12 +10,12 @@ import {
   UserCog,
   FileBarChart, PieChart,
   Bell, FolderOpen, Settings, UserCircle, LogOut,
-  ChevronDown, Menu, X, Sun, Moon, Layers,
+  ChevronDown, Menu, X, Layers,
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import logoImg from '/logo.png'
 
-const BRAND = { orange: '#FD5C02', navy: '#01152D' }
+const BRAND = { orange: '#F26522', blue: '#1E2D4A', navy: '#1E2D4A' }
 
 const NAV_CONFIG = [
   { type: 'item', to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
@@ -94,29 +94,48 @@ const NAV_CONFIG = [
       { to: '/system/notification-management', icon: Bell,       label: 'Notification Management', badgeKey: 'notifs' },
       { to: '/system/document-management',     icon: FolderOpen, label: 'Document Management' },
       { to: '/system/subscription',            icon: CreditCard, label: 'Subscription' },
-      { to: '/system/settings',                icon: Settings,   label: 'Settings' },
       { to: '/system/profile',                 icon: UserCircle, label: 'Profile' },
     ],
   },
 ]
 
 const LIGHT = {
-  sidebarBg: '#01152D', sidebarBorder: 'rgba(255,255,255,0.07)',
-  sidebarText: '#8BA3BE', sidebarHover: '#F0F6FF',
-  sidebarActiveBg: 'rgba(253,92,2,0.16)', sidebarActiveText: '#FFA05C',
-  sidebarAccent: '#FD5C02', sidebarSectionText: '#5B7A9A',
+  sidebarBg: '#FFFFFF', sidebarBorder: 'rgba(30,45,74,0.10)',
+  sidebarText: '#1E2D4A', sidebarHover: '#FFF3EB',
+  sidebarActiveBg: 'rgba(242,101,34,0.12)', sidebarActiveText: '#F26522',
+  sidebarAccent: '#F26522', sidebarSectionText: '#1E2D4A',
   mainBg: '#F4F6F9', topbarBg: '#FFFFFF', topbarBorder: '#E2E8F0',
-  topbarText: '#01152D', topbarMuted: '#64748B',
+  topbarText: '#1E2D4A', topbarMuted: '#64748B',
   topbarCtrlBg: '#F4F6F9', topbarCtrlBorder: '#E2E8F0',
+  // sidebar extras
+  logoText: '#1E2D4A', logoBoxBg: 'rgba(30,45,74,0.05)',
+  sidebarHoverBg: 'rgba(242,101,34,0.07)',
+  folderHeaderText: '#1E2D4A', folderHeaderTextActive: '#F26522',
+  folderHeaderHoverBg: 'rgba(242,101,34,0.07)',
+  folderHeaderActiveBg: 'rgba(242,101,34,0.10)',
+  folderBodyBg: 'transparent',
+  childText: '#1E2D4A', childActiveText: '#F26522',
+  childActiveBg: 'rgba(242,101,34,0.12)', childHoverBg: 'rgba(242,101,34,0.06)',
+  footerBg: 'rgba(30,45,74,0.03)',
 }
 const DARK = {
-  sidebarBg: '#0A0F1A', sidebarBorder: 'rgba(255,255,255,0.06)',
-  sidebarText: '#6B8BA8', sidebarHover: '#C7D5E8',
-  sidebarActiveBg: 'rgba(253,92,2,0.18)', sidebarActiveText: '#FD8A42',
-  sidebarAccent: '#FD5C02', sidebarSectionText: '#445A70',
+  sidebarBg: '#0F1626', sidebarBorder: 'rgba(255,255,255,0.06)',
+  sidebarText: '#C3D0E0', sidebarHover: '#E4ECF7',
+  sidebarActiveBg: 'rgba(242,101,34,0.20)', sidebarActiveText: '#FF8A4C',
+  sidebarAccent: '#F26522', sidebarSectionText: '#C3D0E0',
   mainBg: '#111827', topbarBg: '#1F2937', topbarBorder: '#374151',
   topbarText: '#F9FAFB', topbarMuted: '#9CA3AF',
   topbarCtrlBg: '#374151', topbarCtrlBorder: '#4B5563',
+  // sidebar extras
+  logoText: '#FFFFFF', logoBoxBg: 'rgba(255,255,255,0.08)',
+  sidebarHoverBg: 'rgba(242,101,34,0.12)',
+  folderHeaderText: '#C3D0E0', folderHeaderTextActive: '#FF8A4C',
+  folderHeaderHoverBg: 'rgba(242,101,34,0.12)',
+  folderHeaderActiveBg: 'rgba(242,101,34,0.18)',
+  folderBodyBg: 'transparent',
+  childText: '#C3D0E0', childActiveText: '#FF8A4C',
+  childActiveBg: 'rgba(242,101,34,0.18)', childHoverBg: 'rgba(242,101,34,0.10)',
+  footerBg: 'rgba(0,0,0,0.25)',
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -133,13 +152,10 @@ export default function Layout({
   const location = useLocation()
   const navigate = useNavigate()
 
-  const [dark, setDark] = useState(() => localStorage.getItem('erp-theme') === 'dark')
+  const [dark] = useState(() => localStorage.getItem('erp-theme') === 'dark')
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [open, setOpen] = useState(() => {
-    const s = {}
-    NAV_CONFIG.forEach(n => { if (n.type === 'section') s[n.key] = true })
-    return s
-  })
+  // Accordion: only one section open at a time. Holds the open section key (or null).
+  const [openKey, setOpenKey] = useState(null)
 
   const T = dark ? DARK : LIGHT
 
@@ -151,14 +167,13 @@ export default function Layout({
     localStorage.setItem('erp-theme', dark ? 'dark' : 'light')
   }, [dark])
 
-  /* auto-open section that contains the active route */
+  /* auto-open (accordion) the section that contains the active route */
   useEffect(() => {
-    NAV_CONFIG.forEach(n => {
-      if (n.type === 'section') {
-        const hit = n.items.some(i => location.pathname === i.to || location.pathname.startsWith(i.to + '/'))
-        if (hit) setOpen(p => ({ ...p, [n.key]: true }))
-      }
-    })
+    const active = NAV_CONFIG.find(n =>
+      n.type === 'section' &&
+      n.items.some(i => location.pathname === i.to || location.pathname.startsWith(i.to + '/'))
+    )
+    if (active) setOpenKey(active.key)
   }, [location.pathname])
 
   /* badge counts from live ERP state */
@@ -181,7 +196,8 @@ export default function Layout({
   const hasActive = (items) =>
     items.some(i => location.pathname === i.to || location.pathname.startsWith(i.to + '/'))
 
-  const toggleSection = (key) => setOpen(p => ({ ...p, [key]: !p[key] }))
+  /* accordion toggle: open the clicked section, close the rest (click again to close) */
+  const toggleSection = (key) => setOpenKey(prev => (prev === key ? null : key))
 
   /* shared sidebar JSX */
   const sidebar = (
@@ -189,7 +205,7 @@ export default function Layout({
       T={T}
       location={location}
       navigate={navigate}
-      open={open}
+      openKey={openKey}
       toggleSection={toggleSection}
       hasActive={hasActive}
       BADGES={BADGES}
@@ -218,7 +234,8 @@ export default function Layout({
         style={{
           width: 264, background: T.sidebarBg, flexShrink: 0,
           display: 'flex', flexDirection: 'column', zIndex: 50,
-          boxShadow: '4px 0 28px rgba(0,0,0,0.3)',
+          borderRight: `1px solid ${T.sidebarBorder}`,
+          boxShadow: dark ? '4px 0 28px rgba(0,0,0,0.3)' : '2px 0 16px rgba(1,21,45,0.06)',
         }}
       >
         {sidebar}
@@ -271,15 +288,6 @@ export default function Layout({
           {/* Right controls */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto' }}>
 
-            {/* Theme toggle */}
-            <TopBtn
-              title={dark ? 'Light Mode' : 'Dark Mode'}
-              onClick={() => setDark(d => !d)}
-              T={T}
-            >
-              {dark ? <Sun size={16} /> : <Moon size={16} />}
-            </TopBtn>
-
             {/* Notification bell */}
             <TopBtn title="Notifications" onClick={() => navigate('/system/notification-management')} T={T}>
               <Bell size={17} />
@@ -310,7 +318,7 @@ export default function Layout({
             >
               <div style={{
                 width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
-                background: `linear-gradient(135deg, ${BRAND.orange}, #FE8A3A)`,
+                background: `linear-gradient(135deg, ${BRAND.orange}, #FF8A4C)`,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontSize: 10, fontWeight: 800, color: '#fff',
               }}>SA</div>
@@ -346,7 +354,7 @@ export default function Layout({
 /* ═══════════════════════════════════════════════════════
    SIDEBAR CONTENT
 ═══════════════════════════════════════════════════════ */
-function SidebarContent({ T, location, navigate, open, toggleSection, hasActive, BADGES, onLogout, onClose }) {
+function SidebarContent({ T, location, navigate, openKey, toggleSection, hasActive, BADGES, onLogout, onClose }) {
   return (
     <>
       {/* Logo strip */}
@@ -357,14 +365,18 @@ function SidebarContent({ T, location, navigate, open, toggleSection, hasActive,
       }}>
         <div style={{
           width: 46, height: 46, borderRadius: 12, flexShrink: 0,
-          background: 'rgba(255,255,255,0.08)', overflow: 'hidden',
+          background: T.logoBoxBg, overflow: 'hidden',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
           <img src={logoImg} alt="EzyEnquiry" style={{ width: 40, height: 40, objectFit: 'contain' }} />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 20, fontWeight: 800, color: '#fff', letterSpacing: '-0.5px', lineHeight: 1.2 }}>
-            EzyEnquiry
+          <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: '-0.5px', lineHeight: 1.2 }}>
+            <span style={{ color: BRAND.orange }}>Ezy</span>
+            <span style={{ color: T.logoText }}>Enquiry</span>
+          </div>
+          <div style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: '1.5px', color: T.topbarMuted, textTransform: 'uppercase' }}>
+            Find Stock Instantly
           </div>
         </div>
         {/* Mobile close button */}
@@ -376,7 +388,7 @@ function SidebarContent({ T, location, navigate, open, toggleSection, hasActive,
             color: T.sidebarText, borderRadius: 6, cursor: 'pointer',
             display: 'flex', alignItems: 'center',
           }}
-          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = '#fff' }}
+          onMouseEnter={e => { e.currentTarget.style.background = T.sidebarHoverBg; e.currentTarget.style.color = T.sidebarAccent }}
           onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = T.sidebarText }}
         >
           <X size={15} />
@@ -403,14 +415,14 @@ function SidebarContent({ T, location, navigate, open, toggleSection, hasActive,
                 to={item.to}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 10,
-                  padding: '9px 16px', margin: '1px 0',
+                  padding: '10px 16px', margin: '1px 0',
                   color: isActive ? T.sidebarActiveText : T.sidebarText,
-                  fontSize: 13, fontWeight: isActive ? 700 : 500,
+                  fontSize: 14.5, fontWeight: isActive ? 800 : 700,
                   textDecoration: 'none', transition: 'all 0.14s',
                   background: isActive ? T.sidebarActiveBg : 'transparent',
                   borderLeft: `3px solid ${isActive ? T.sidebarAccent : 'transparent'}`,
                 }}
-                onMouseEnter={e => { if (!isActive) { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = T.sidebarHover } }}
+                onMouseEnter={e => { if (!isActive) { e.currentTarget.style.background = T.sidebarHoverBg; e.currentTarget.style.color = T.sidebarAccent } }}
                 onMouseLeave={e => { if (!isActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = T.sidebarText } }}
               >
                 <item.icon size={16} style={{ opacity: isActive ? 1 : 0.7, flexShrink: 0 }} />
@@ -420,38 +432,43 @@ function SidebarContent({ T, location, navigate, open, toggleSection, hasActive,
             )
           }
 
-          /* ── Collapsible section (folder style) ── */
+          /* ── Collapsible section (accordion) ── */
           const sectionActive = hasActive(item.items)
-          const isOpen = open[item.key]
+          const isOpen = openKey === item.key
+          const headerText = (isOpen || sectionActive) ? T.folderHeaderTextActive : T.folderHeaderText
 
           return (
-            <div key={item.key} style={{ margin: '3px 8px' }}>
+            <div key={item.key} style={{ margin: '1px 8px' }}>
               {/* Folder header */}
               <button
                 onClick={() => toggleSection(item.key)}
                 style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  width: '100%', padding: '8px 10px',
-                  background: 'rgba(253,92,2,0.18)',
+                  width: '100%', padding: '9px 10px',
+                  background: isOpen ? T.folderHeaderActiveBg : 'transparent',
                   border: 'none',
                   borderRadius: '8px',
-                  cursor: 'pointer', transition: 'all 0.18s',
+                  cursor: 'pointer', transition: 'all 0.16s',
                 }}
+                onMouseEnter={e => { if (!isOpen) e.currentTarget.style.background = T.folderHeaderHoverBg }}
+                onMouseLeave={e => { if (!isOpen) e.currentTarget.style.background = 'transparent' }}
               >
-                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                  <item.icon size={16} style={{ color: headerText, flexShrink: 0, opacity: (isOpen || sectionActive) ? 1 : 0.7 }} />
                   <span style={{
-                    fontSize: 11, fontWeight: 700,
-                    color: '#FFB380',
+                    fontSize: 13, fontWeight: (isOpen || sectionActive) ? 700 : 600,
+                    color: headerText,
                     textAlign: 'left', lineHeight: 1.3,
+                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                   }}>
                     {item.label}
                   </span>
                 </span>
                 <ChevronDown
-                  size={16}
+                  size={15}
                   style={{
-                    color: '#FFB380',
-                    flexShrink: 0,
+                    color: headerText,
+                    flexShrink: 0, opacity: 0.7,
                     transition: 'transform 0.22s',
                     transform: isOpen ? 'rotate(0deg)' : 'rotate(-90deg)',
                   }}
@@ -461,10 +478,12 @@ function SidebarContent({ T, location, navigate, open, toggleSection, hasActive,
               {/* Children list — folder contents */}
               {isOpen && (
                 <div style={{
-                  background: 'rgba(0,0,0,0.15)',
-                  borderRadius: '0 0 8px 8px',
+                  background: T.folderBodyBg,
                   overflow: 'hidden',
-                  marginBottom: 2,
+                  margin: '2px 0 4px',
+                  paddingLeft: 12,
+                  borderLeft: `1.5px solid ${T.sidebarActiveBg}`,
+                  marginLeft: 8,
                 }}>
                   {item.items.map((child) => {
                     const childActive = location.pathname === child.to || location.pathname.startsWith(child.to + '/')
@@ -475,26 +494,26 @@ function SidebarContent({ T, location, navigate, open, toggleSection, hasActive,
                         to={child.to}
                         style={{
                           display: 'flex', alignItems: 'center', gap: 8,
-                          padding: '7px 12px',
-                          color: childActive ? '#fff' : '#fff',
-                          fontSize: 12, fontWeight: childActive ? 600 : 400,
+                          padding: '7px 10px', margin: '1px 0', borderRadius: 6,
+                          color: childActive ? T.childActiveText : T.childText,
+                          fontSize: 13, fontWeight: childActive ? 700 : 500,
                           textDecoration: 'none', transition: 'all 0.13s',
-                          background: childActive ? 'rgba(255,255,255,0.08)' : 'transparent',
+                          background: childActive ? T.childActiveBg : 'transparent',
                         }}
                         onMouseEnter={e => {
                           if (!childActive) {
-                            e.currentTarget.style.background = 'rgba(255,255,255,0.06)'
-                            e.currentTarget.style.color = '#fff'
+                            e.currentTarget.style.background = T.childHoverBg
+                            e.currentTarget.style.color = T.childActiveText
                           }
                         }}
                         onMouseLeave={e => {
                           if (!childActive) {
                             e.currentTarget.style.background = 'transparent'
-                            e.currentTarget.style.color = '#fff'
+                            e.currentTarget.style.color = T.childText
                           }
                         }}
                       >
-                        <child.icon size={14} style={{ opacity: childActive ? 1 : 0.65, flexShrink: 0 }} />
+                        <child.icon size={15} style={{ opacity: childActive ? 1 : 0.75, flexShrink: 0 }} />
                         <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {child.label}
                         </span>
@@ -543,35 +562,22 @@ function SidebarContent({ T, location, navigate, open, toggleSection, hasActive,
         display: 'flex', alignItems: 'center', gap: 10,
         padding: '11px 14px', flexShrink: 0,
         borderTop: `1px solid ${T.sidebarBorder}`,
-        background: 'rgba(0,0,0,0.25)',
+        background: T.footerBg,
       }}>
         <div style={{
           width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
-          background: `linear-gradient(135deg, ${BRAND.orange}, #FE8A3A)`,
+          background: `linear-gradient(135deg, ${BRAND.orange}, #FF8A4C)`,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 11, fontWeight: 800, color: '#fff',
         }}>SA</div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#F1F5F9', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: T.sidebarSectionText, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             Super Admin
           </div>
           <div style={{ fontSize: 10, color: T.sidebarText, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             admin@ezyenquiry.com
           </div>
         </div>
-        <button
-          onClick={() => navigate('/system/settings')}
-          title="Settings"
-          style={{
-            padding: 5, background: 'transparent', border: 'none',
-            color: T.sidebarText, cursor: 'pointer', borderRadius: 5,
-            display: 'flex', alignItems: 'center',
-          }}
-          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = '#fff' }}
-          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = T.sidebarText }}
-        >
-          <Settings size={13} />
-        </button>
       </div>
     </>
   )

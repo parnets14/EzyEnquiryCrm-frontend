@@ -1,84 +1,99 @@
 import { useState } from 'react'
 import { Plus, Search, ArrowLeftRight, CheckCircle, Clock, XCircle, Eye, Pencil, Trash2 } from 'lucide-react'
 
-const PRODUCTS = [
-  'Kajaria Vitrified Floor Tile 800×800mm',
-  'Somany Ceramic Floor Tile 600×600mm',
-  'Johnson Wall Tile 300×600mm',
-  'Kajaria Outdoor Parking Tile 400×400mm',
-  'Somany Mosaic Collection 300×300mm',
-]
-
-const INIT_TRANSFERS = [
-  { id: 'TRF-001', date: '02 Aug 2026', branch: '', from: 'Main Warehouse – Surat', to: 'Branch Warehouse – Mumbai', product: 'Kajaria Vitrified Floor Tile 800×800mm', qty: 500, reason: 'Restock', status: 'Completed', approvedBy: 'Admin' },
-  { id: 'TRF-002', date: '01 Aug 2026', branch: '', from: 'Branch Warehouse – Mumbai', to: 'Main Warehouse – Surat', product: 'Somany Mosaic Collection 300×300mm', qty: 50, reason: 'Return', status: 'Completed', approvedBy: 'Admin' },
-  { id: 'TRF-003', date: '31 Jul 2026', branch: '', from: 'Main Warehouse – Surat', to: 'Depot – Ahmedabad', product: 'Johnson Wall Tile 300×600mm', qty: 200, reason: 'Customer Order', status: 'In Transit', approvedBy: 'Admin' },
-  { id: 'TRF-004', date: '30 Jul 2026', branch: '', from: 'Branch Warehouse – Mumbai', to: 'Main Warehouse – Surat', product: 'Kajaria Outdoor Parking Tile 400×400mm', qty: 300, reason: 'Restock', status: 'Pending', approvedBy: '' },
-]
-
 const statusBadge = { Completed: 'badge-green', 'In Transit': 'badge-cyan', Pending: 'badge-yellow', Cancelled: 'badge-red' }
-const statusIcon  = { Completed: CheckCircle, 'In Transit': ArrowLeftRight, Pending: Clock, Cancelled: XCircle }
 
-export default function StockTransfer({ branches = [] }) {
-  const branchNames = branches.map(b => b.name || b).filter(Boolean)
-  const defaultBranch = branchNames[0] || ''
+const REASONS = ['Restock', 'Return', 'Customer Order', 'Overflow', 'Quality Check', 'Other']
 
-  const [transfers, setTransfers] = useState(INIT_TRANSFERS)
+// Normalise a backend transfer doc into the shape the table renders.
+function normalizeTransfer(t) {
+  const id = t._id || t.id
+  return {
+    _id:        id,
+    ref:        t.transfer_code || (id ? `TRF-${String(id).slice(-4).toUpperCase()}` : ''),
+    date:       t.created_at ? new Date(t.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '',
+    from:       t.from_warehouse_name || t.from || '—',
+    to:         t.to_warehouse_name   || t.to   || '—',
+    product:    t.product_name || t.product || '—',
+    qty:        t.quantity ?? t.qty ?? 0,
+    reason:     t.reason || '',
+    notes:      t.notes || '',
+    status:     t.status || 'Pending',
+    approvedBy: t.transferred_by_name || t.approved_by_name || '',
+    raw:        t,
+  }
+}
+
+export default function StockTransfer({
+  transfers = [], warehouses = [], products = [],
+  createTransfer, updateTransferStatus, deleteTransfer,
+}) {
+  const rows = transfers.map(normalizeTransfer)
+
   const [search, setSearch]       = useState('')
   const [statusFilter, setStatusFilter] = useState('All')
-  const [branchFilter, setBranchFilter] = useState('All')
   const [showModal, setShowModal]  = useState(false)
-  const [form, setForm] = useState({ branch: defaultBranch, from: '', to: '', product: PRODUCTS[0], qty: '', reason: '', notes: '' })
+  const [saving, setSaving]        = useState(false)
+  const [form, setForm] = useState({ from: '', to: '', product_id: '', qty: '', reason: 'Restock', notes: '' })
 
-  // View / Edit / Delete state
-  const [viewItem, setViewItem]   = useState(null)
-  const [editItem, setEditItem]   = useState(null)
-  const [editForm, setEditForm]   = useState(null)
+  const [viewItem, setViewItem]     = useState(null)
   const [deleteItem, setDeleteItem] = useState(null)
+  const [busyId, setBusyId]         = useState(null)
 
-  const filtered = transfers.filter(t =>
-    (statusFilter === 'All' || t.status === statusFilter) &&
-    (branchFilter === 'All' || t.branch === branchFilter) &&
-    (t.id.toLowerCase().includes(search.toLowerCase()) ||
-     t.product.toLowerCase().includes(search.toLowerCase()) ||
-     t.from.toLowerCase().includes(search.toLowerCase()) ||
-     t.to.toLowerCase().includes(search.toLowerCase()))
-  )
+  const whId = (w) => w._id || w.id
+  const prodId = (p) => p._id || p.id
 
-  const handleCreate = () => {
-    if (!form.qty || !form.from || !form.to || form.from === form.to) return alert('Fill all fields. From and To must be different warehouses.')
-    const now = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
-    setTransfers(prev => [{
-      id: `TRF-${String(prev.length + 1).padStart(3, '0')}`,
-      date: now, ...form, status: 'Pending', approvedBy: '',
-    }, ...prev])
-    setShowModal(false)
-    setForm({ branch: defaultBranch, from: '', to: '', product: PRODUCTS[0], qty: '', reason: '', notes: '' })
+  const filtered = rows.filter(t => {
+    const q = search.toLowerCase()
+    return (statusFilter === 'All' || t.status === statusFilter) &&
+      (t.ref.toLowerCase().includes(q) ||
+       t.product.toLowerCase().includes(q) ||
+       t.from.toLowerCase().includes(q) ||
+       t.to.toLowerCase().includes(q))
+  })
+
+  const resetForm = () => setForm({ from: '', to: '', product_id: '', qty: '', reason: 'Restock', notes: '' })
+
+  const handleCreate = async () => {
+    if (!form.from || !form.to || !form.product_id || !form.qty)
+      return alert('Please select warehouses, product and quantity.')
+    if (form.from === form.to)
+      return alert('From and To warehouses must be different.')
+    if (parseFloat(form.qty) <= 0)
+      return alert('Quantity must be greater than 0.')
+
+    setSaving(true)
+    const res = await createTransfer({
+      from_warehouse: form.from,
+      to_warehouse:   form.to,
+      product_id:     form.product_id,
+      quantity:       parseFloat(form.qty),
+      reason:         form.reason,
+      notes:          form.notes,
+    })
+    setSaving(false)
+    if (res?.success) {
+      setShowModal(false)
+      resetForm()
+    } else {
+      alert(res?.error || 'Failed to create transfer.')
+    }
   }
 
-  const approveTransfer = (id) => {
-    setTransfers(prev => prev.map(t => t.id === id ? { ...t, status: 'In Transit', approvedBy: 'Admin' } : t))
-  }
-  const completeTransfer = (id) => {
-    setTransfers(prev => prev.map(t => t.id === id ? { ...t, status: 'Completed' } : t))
-  }
-
-  // Edit handlers
-  const openEdit = (t) => {
-    setEditItem(t)
-    setEditForm({ branch: t.branch || defaultBranch, from: t.from, to: t.to, product: t.product, qty: t.qty, reason: t.reason, notes: t.notes || '' })
-  }
-  const saveEdit = () => {
-    if (!editForm.qty || !editForm.from || !editForm.to || editForm.from === editForm.to) return alert('Fill all fields. From and To must be different.')
-    setTransfers(prev => prev.map(t => t.id === editItem.id ? { ...t, ...editForm } : t))
-    setEditItem(null)
-    setEditForm(null)
+  const changeStatus = async (t, status) => {
+    setBusyId(t._id)
+    const res = await updateTransferStatus(t._id, status)
+    setBusyId(null)
+    if (!res?.success) alert(res?.error || 'Failed to update status.')
   }
 
-  // Delete handler
-  const confirmDelete = () => {
-    setTransfers(prev => prev.filter(t => t.id !== deleteItem.id))
+  const confirmDelete = async () => {
+    const t = deleteItem
+    setBusyId(t._id)
+    const res = await deleteTransfer(t._id)
+    setBusyId(null)
     setDeleteItem(null)
+    if (!res?.success) alert(res?.error || 'Failed to delete transfer.')
   }
 
   return (
@@ -100,10 +115,10 @@ export default function StockTransfer({ branches = [] }) {
 
       <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 20 }}>
         {[
-          { label: 'Total Transfers', val: transfers.length,          color: 'blue',   icon: ArrowLeftRight },
-          { label: 'Completed',       val: transfers.filter(t => t.status === 'Completed').length,  color: 'green',  icon: CheckCircle },
-          { label: 'In Transit',      val: transfers.filter(t => t.status === 'In Transit').length, color: 'cyan',   icon: ArrowLeftRight },
-          { label: 'Pending',         val: transfers.filter(t => t.status === 'Pending').length,    color: 'orange', icon: Clock },
+          { label: 'Total Transfers', val: rows.length,                                       color: 'blue',   icon: ArrowLeftRight },
+          { label: 'Completed',       val: rows.filter(t => t.status === 'Completed').length,  color: 'green',  icon: CheckCircle },
+          { label: 'In Transit',      val: rows.filter(t => t.status === 'In Transit').length, color: 'cyan',   icon: ArrowLeftRight },
+          { label: 'Pending',         val: rows.filter(t => t.status === 'Pending').length,    color: 'orange', icon: Clock },
         ].map(s => (
           <div key={s.label} className="stat-card">
             <div className={`stat-icon ${s.color}`}><s.icon size={18} /></div>
@@ -117,12 +132,6 @@ export default function StockTransfer({ branches = [] }) {
           <span className="card-title">Transfer Log ({filtered.length})</span>
           <div className="header-actions">
             <div className="search-bar"><Search size={14} /><input placeholder="Search transfers…" value={search} onChange={e => setSearch(e.target.value)} /></div>
-            {branchNames.length > 0 && (
-              <select className="form-control" style={{ width: 160 }} value={branchFilter} onChange={e => setBranchFilter(e.target.value)}>
-                <option value="All">All Branches</option>
-                {branchNames.map(b => <option key={b}>{b}</option>)}
-              </select>
-            )}
             <select className="form-control" style={{ width: 140 }} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
               <option value="All">All Status</option>
               {['Pending', 'In Transit', 'Completed', 'Cancelled'].map(s => <option key={s}>{s}</option>)}
@@ -132,50 +141,46 @@ export default function StockTransfer({ branches = [] }) {
         <div className="table-wrap">
           <table>
             <thead>
-              <tr><th>Transfer ID</th><th>Date</th><th>Branch</th><th>From Warehouse</th><th>To Warehouse</th><th>Product</th><th>Qty</th><th>Reason</th><th>Approved By</th><th>Status</th><th>Actions</th></tr>
+              <tr><th>Transfer ID</th><th>Date</th><th>From Warehouse</th><th>To Warehouse</th><th>Product</th><th>Qty</th><th>Reason</th><th>Approved By</th><th>Status</th><th>Actions</th></tr>
             </thead>
             <tbody>
               {filtered.map(t => (
-                <tr key={t.id}>
-                  <td style={{ color: 'var(--primary)', fontWeight: 700 }}>{t.id}</td>
+                <tr key={t._id}>
+                  <td style={{ color: 'var(--primary)', fontWeight: 700 }}>{t.ref}</td>
                   <td style={{ fontSize: 12 }}>{t.date}</td>
-                  <td style={{ fontSize: 12 }}>{t.branch ? <span className="badge badge-blue">{t.branch}</span> : <span style={{ color: 'var(--text-muted)' }}>—</span>}</td>
                   <td style={{ fontSize: 12, maxWidth: 140 }}>{t.from}</td>
                   <td style={{ fontSize: 12, maxWidth: 140 }}>{t.to}</td>
                   <td style={{ fontWeight: 600, fontSize: 12 }}>{t.product}</td>
                   <td style={{ fontWeight: 700, color: 'var(--primary)' }}>{t.qty}</td>
-                  <td style={{ fontSize: 12 }}>{t.reason}</td>
+                  <td style={{ fontSize: 12 }}>{t.reason || '—'}</td>
                   <td style={{ fontSize: 12 }}>{t.approvedBy || <span className="badge badge-gray">Pending</span>}</td>
-                  <td><span className={`badge ${statusBadge[t.status]}`}>{t.status}</span></td>
+                  <td><span className={`badge ${statusBadge[t.status] || 'badge-gray'}`}>{t.status}</span></td>
                   <td>
                     <div className="table-actions" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                       {t.status === 'Pending' && (
-                        <button className="btn btn-success btn-xs" onClick={() => approveTransfer(t.id)}>Approve</button>
+                        <button className="btn btn-success btn-xs" disabled={busyId === t._id} onClick={() => changeStatus(t, 'In Transit')}>Approve</button>
                       )}
                       {t.status === 'In Transit' && (
-                        <button className="btn btn-primary btn-xs" onClick={() => completeTransfer(t.id)}>Complete</button>
+                        <button className="btn btn-primary btn-xs" disabled={busyId === t._id} onClick={() => changeStatus(t, 'Completed')}>Complete</button>
                       )}
                       <button title="View" onClick={() => setViewItem(t)}
                         style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 6, color: '#3B82F6', display: 'flex', alignItems: 'center' }}
                         onMouseEnter={e => e.currentTarget.style.background = '#EFF6FF'}
                         onMouseLeave={e => e.currentTarget.style.background = 'none'}
                       ><Eye size={15} /></button>
-                      <button title="Edit" onClick={() => openEdit(t)}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 6, color: '#F59E0B', display: 'flex', alignItems: 'center' }}
-                        onMouseEnter={e => e.currentTarget.style.background = '#FFFBEB'}
-                        onMouseLeave={e => e.currentTarget.style.background = 'none'}
-                      ><Pencil size={15} /></button>
-                      <button title="Delete" onClick={() => setDeleteItem(t)}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 6, color: '#EF4444', display: 'flex', alignItems: 'center' }}
-                        onMouseEnter={e => e.currentTarget.style.background = '#FEF2F2'}
-                        onMouseLeave={e => e.currentTarget.style.background = 'none'}
-                      ><Trash2 size={15} /></button>
+                      {t.status !== 'Completed' && (
+                        <button title="Delete" disabled={busyId === t._id} onClick={() => setDeleteItem(t)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 6, color: '#EF4444', display: 'flex', alignItems: 'center' }}
+                          onMouseEnter={e => e.currentTarget.style.background = '#FEF2F2'}
+                          onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                        ><Trash2 size={15} /></button>
+                      )}
                     </div>
                   </td>
                 </tr>
               ))}
               {filtered.length === 0 && (
-                <tr><td colSpan={11}><div className="empty-state"><div className="empty-state-icon">🔄</div><h3>No transfers found</h3><p>Create a new stock transfer to get started.</p></div></td></tr>
+                <tr><td colSpan={10}><div className="empty-state"><div className="empty-state-icon">🔄</div><h3>No transfers found</h3><p>Create a new stock transfer to get started.</p></div></td></tr>
               )}
             </tbody>
           </table>
@@ -190,29 +195,27 @@ export default function StockTransfer({ branches = [] }) {
               <button className="modal-close" onClick={() => setShowModal(false)}>✕</button>
             </div>
             <div className="modal-body">
-              {branchNames.length > 0 && (
-                <div className="form-group">
-                  <label className="form-label">Branch *</label>
-                  <select className="form-control" value={form.branch} onChange={e => setForm(f => ({ ...f, branch: e.target.value }))}>
-                    <option value="">Select Branch</option>
-                    {branchNames.map(b => <option key={b}>{b}</option>)}
-                  </select>
-                </div>
-              )}
               <div className="form-row">
                 <div className="form-group">
                   <label className="form-label">From Warehouse *</label>
-                  <input className="form-control" placeholder="e.g. Main Warehouse – Surat" value={form.from} onChange={e => setForm(f => ({ ...f, from: e.target.value }))} />
+                  <select className="form-control" value={form.from} onChange={e => setForm(f => ({ ...f, from: e.target.value }))}>
+                    <option value="">Select warehouse</option>
+                    {warehouses.map(w => <option key={whId(w)} value={whId(w)}>{w.name}{w.city ? ` – ${w.city}` : ''}</option>)}
+                  </select>
                 </div>
                 <div className="form-group">
                   <label className="form-label">To Warehouse *</label>
-                  <input className="form-control" placeholder="e.g. Branch Warehouse – Mumbai" value={form.to} onChange={e => setForm(f => ({ ...f, to: e.target.value }))} />
+                  <select className="form-control" value={form.to} onChange={e => setForm(f => ({ ...f, to: e.target.value }))}>
+                    <option value="">Select warehouse</option>
+                    {warehouses.map(w => <option key={whId(w)} value={whId(w)}>{w.name}{w.city ? ` – ${w.city}` : ''}</option>)}
+                  </select>
                 </div>
               </div>
               <div className="form-group">
                 <label className="form-label">Product *</label>
-                <select className="form-control" value={form.product} onChange={e => setForm(f => ({ ...f, product: e.target.value }))}>
-                  {PRODUCTS.map(p => <option key={p}>{p}</option>)}
+                <select className="form-control" value={form.product_id} onChange={e => setForm(f => ({ ...f, product_id: e.target.value }))}>
+                  <option value="">Select product</option>
+                  {products.map(p => <option key={prodId(p)} value={prodId(p)}>{p.name}{p.code ? ` (${p.code})` : ''}</option>)}
                 </select>
               </div>
               <div className="form-row">
@@ -223,7 +226,7 @@ export default function StockTransfer({ branches = [] }) {
                 <div className="form-group">
                   <label className="form-label">Reason</label>
                   <select className="form-control" value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}>
-                    {['Restock', 'Return', 'Customer Order', 'Overflow', 'Quality Check', 'Other'].map(r => <option key={r}>{r}</option>)}
+                    {REASONS.map(r => <option key={r}>{r}</option>)}
                   </select>
                 </div>
               </div>
@@ -234,7 +237,7 @@ export default function StockTransfer({ branches = [] }) {
             </div>
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleCreate}>Create Transfer</button>
+              <button className="btn btn-primary" disabled={saving} onClick={handleCreate}>{saving ? 'Creating…' : 'Create Transfer'}</button>
             </div>
           </div>
         </div>
@@ -245,19 +248,18 @@ export default function StockTransfer({ branches = [] }) {
         <div className="modal-overlay" onClick={() => setViewItem(null)}>
           <div className="modal" style={{ maxWidth: 500 }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <span className="modal-title">Transfer Details — {viewItem.id}</span>
+              <span className="modal-title">Transfer Details — {viewItem.ref}</span>
               <button className="modal-close" onClick={() => setViewItem(null)}>✕</button>
             </div>
             <div className="modal-body">
               {[
-                ['Transfer ID', viewItem.id],
+                ['Transfer ID', viewItem.ref],
                 ['Date', viewItem.date],
-                ['Branch', viewItem.branch || '—'],
                 ['From Warehouse', viewItem.from],
                 ['To Warehouse', viewItem.to],
                 ['Product', viewItem.product],
                 ['Quantity', viewItem.qty],
-                ['Reason', viewItem.reason],
+                ['Reason', viewItem.reason || '—'],
                 ['Notes', viewItem.notes || '—'],
                 ['Approved By', viewItem.approvedBy || 'Not yet approved'],
                 ['Status', viewItem.status],
@@ -270,65 +272,9 @@ export default function StockTransfer({ branches = [] }) {
             </div>
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setViewItem(null)}>Close</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── EDIT MODAL ── */}
-      {editItem && editForm && (
-        <div className="modal-overlay" onClick={() => setEditItem(null)}>
-          <div className="modal" style={{ maxWidth: 540 }} onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <span className="modal-title">Edit Transfer — {editItem.id}</span>
-              <button className="modal-close" onClick={() => setEditItem(null)}>✕</button>
-            </div>
-            <div className="modal-body">
-              {branchNames.length > 0 && (
-                <div className="form-group">
-                  <label className="form-label">Branch *</label>
-                  <select className="form-control" value={editForm.branch || ''} onChange={e => setEditForm(f => ({ ...f, branch: e.target.value }))}>
-                    <option value="">Select Branch</option>
-                    {branchNames.map(b => <option key={b}>{b}</option>)}
-                  </select>
-                </div>
+              {viewItem.status === 'In Transit' && (
+                <button className="btn btn-warning" onClick={() => { changeStatus(viewItem, 'Cancelled'); setViewItem(null) }}>Cancel Transfer</button>
               )}
-              <div className="form-row">
-                <div className="form-group">
-                  <label className="form-label">From Warehouse *</label>
-                  <input className="form-control" placeholder="e.g. Main Warehouse – Surat" value={editForm.from} onChange={e => setEditForm(f => ({ ...f, from: e.target.value }))} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">To Warehouse *</label>
-                  <input className="form-control" placeholder="e.g. Branch Warehouse – Mumbai" value={editForm.to} onChange={e => setEditForm(f => ({ ...f, to: e.target.value }))} />
-                </div>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Product *</label>
-                <select className="form-control" value={editForm.product} onChange={e => setEditForm(f => ({ ...f, product: e.target.value }))}>
-                  {PRODUCTS.map(p => <option key={p}>{p}</option>)}
-                </select>
-              </div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label className="form-label">Quantity *</label>
-                  <input className="form-control" type="number" min={1} value={editForm.qty} onChange={e => setEditForm(f => ({ ...f, qty: e.target.value }))} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Reason</label>
-                  <select className="form-control" value={editForm.reason} onChange={e => setEditForm(f => ({ ...f, reason: e.target.value }))}>
-                    {['Restock', 'Return', 'Customer Order', 'Overflow', 'Quality Check', 'Other'].map(r => <option key={r}>{r}</option>)}
-                  </select>
-                </div>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Notes</label>
-                <textarea className="form-control" rows={2} value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} />
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setEditItem(null)}>Cancel</button>
-              <button className="btn btn-primary" onClick={saveEdit}>Save Changes</button>
             </div>
           </div>
         </div>
@@ -345,16 +291,16 @@ export default function StockTransfer({ branches = [] }) {
             <div className="modal-body" style={{ textAlign: 'center', padding: '24px 20px' }}>
               <div style={{ fontSize: 40, marginBottom: 12 }}>🗑️</div>
               <p style={{ fontSize: 14, color: '#1E293B', fontWeight: 600 }}>
-                Are you sure you want to delete <span style={{ color: '#EF4444' }}>{deleteItem.id}</span>?
+                Are you sure you want to delete <span style={{ color: '#EF4444' }}>{deleteItem.ref}</span>?
               </p>
               <p style={{ fontSize: 12, color: '#64748B', marginTop: 6 }}>
                 {deleteItem.product} — {deleteItem.from} → {deleteItem.to}
               </p>
-              <p style={{ fontSize: 12, color: '#94A3B8', marginTop: 4 }}>This action cannot be undone.</p>
+              <p style={{ fontSize: 12, color: '#94A3B8', marginTop: 4 }}>Stock movement will be reversed. This cannot be undone.</p>
             </div>
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setDeleteItem(null)}>Cancel</button>
-              <button className="btn btn-danger" onClick={confirmDelete} style={{ background: '#EF4444', color: '#fff', border: 'none' }}>Delete</button>
+              <button className="btn btn-danger" disabled={busyId === deleteItem._id} onClick={confirmDelete} style={{ background: '#EF4444', color: '#fff', border: 'none' }}>Delete</button>
             </div>
           </div>
         </div>
