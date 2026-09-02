@@ -14,6 +14,10 @@ export const companyApi = {
   get: (id) =>
     api.get(`/companies/${id}`).then(r => r.data),
 
+  // ── Get signed URLs for a company's KYC documents (admin) ──
+  documents: (id) =>
+    api.get(`/companies/${id}/documents`).then(r => r.data),
+
   // ── Register a new company ────────────────────────────────
   create: (data) =>
     api.post('/companies', data).then(r => r.data),

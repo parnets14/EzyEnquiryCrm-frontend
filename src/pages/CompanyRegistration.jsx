@@ -5,6 +5,11 @@ import {
   Trash2, Download, Pencil, AlertCircle
 } from 'lucide-react'
 import { companyApi } from '../api/companyApi'
+import { authApi } from '../api/authApi'
+
+// Base URL of the backend file server (for /uploads/... document images).
+// Derived from the API URL so it works on localhost, LAN, and production.
+const FILE_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace(/\/api\/?$/, '')
 
 // ── Subscription plans — same as SubscriptionSystem ──────────
 const SUBSCRIPTION_PLANS = [
@@ -73,7 +78,9 @@ const BLANK_FORM = {
 }
 
 export default function CompanyRegistration() {
-  const [tab, setTab] = useState('profile')
+  // Flow order: Register a company → it lands in the Admin Approval Queue → once
+  // approved it becomes a Company Profile. Default to the first step: Register.
+  const [tab, setTab] = useState('register')
   const [companies, setCompanies] = useState(INIT_COMPANIES)
 
   // ── Profile edit state ──
@@ -90,9 +97,26 @@ export default function CompanyRegistration() {
   const [otpVerified, setOtpVerified] = useState(false)
   const [uploadedDocs, setUploadedDocs] = useState({ gst: null, pan: null, address: null, biz: null })
 
+  // ── Registration API state ──
+  const [otpChannel, setOtpChannel]   = useState('email') // which channel the OTP was sent to
+  const [otpSending, setOtpSending]   = useState(false)
+  const [otpVerifying, setOtpVerifying] = useState(false)
+  const [devOtp, setDevOtp]           = useState('')      // dev-mode OTP hint from backend
+  const [regSubmitting, setRegSubmitting] = useState(false)
+  const [regError, setRegError]       = useState(null)
+
   // ── Admin state ──
   const [statusFilter, setStatusFilter] = useState('All')
   const [viewCompany, setViewCompany] = useState(null)
+  const [signedDocs, setSignedDocs]   = useState({})   // { gst, pan, address, biz } signed URLs
+  const [signedDocsLoading, setSignedDocsLoading] = useState(false)
+
+  // ── Company Profile tab — searchable selector ──
+  const [profileCompany, setProfileCompany] = useState(null)  // selected approved company (mapped)
+  const [profileSearch, setProfileSearch]   = useState('')
+  const [profileDropdownOpen, setProfileDropdownOpen] = useState(false)
+  const [profileSignedDocs, setProfileSignedDocs] = useState({})
+  const [profileDocsLoading, setProfileDocsLoading] = useState(false)
   const [rejectReason, setRejectReason] = useState('')
   const [showRejectModal, setShowRejectModal] = useState(null)
   const [editCompany, setEditCompany] = useState(null)
@@ -168,6 +192,50 @@ export default function CompanyRegistration() {
     }
   }, [tab, fetchApprovalQueue])
 
+  // When the View modal opens, fetch short-lived signed URLs for the company's
+  // KYC documents (they are private on the backend and not publicly served).
+  useEffect(() => {
+    const dbId = viewCompany?._id
+    if (!dbId || String(dbId).length !== 24) { setSignedDocs({}); return }
+
+    let cancelled = false
+    setSignedDocsLoading(true)
+    companyApi.documents(dbId)
+      .then(res => {
+        if (cancelled) return
+        const docs = res?.data?.documents || res?.documents || {}
+        // Prefix relative signed paths with the API origin so <img>/links resolve.
+        const abs = {}
+        for (const [k, v] of Object.entries(docs)) abs[k] = v ? `${FILE_BASE}${v}` : null
+        setSignedDocs(abs)
+      })
+      .catch(() => { if (!cancelled) setSignedDocs({}) })
+      .finally(() => { if (!cancelled) setSignedDocsLoading(false) })
+
+    return () => { cancelled = true }
+  }, [viewCompany])
+
+  // Load signed KYC URLs for the company selected in the Company Profile tab.
+  useEffect(() => {
+    const dbId = profileCompany?._id
+    if (!dbId || String(dbId).length !== 24) { setProfileSignedDocs({}); return }
+
+    let cancelled = false
+    setProfileDocsLoading(true)
+    companyApi.documents(dbId)
+      .then(res => {
+        if (cancelled) return
+        const docs = res?.data?.documents || res?.documents || {}
+        const abs = {}
+        for (const [k, v] of Object.entries(docs)) abs[k] = v ? `${FILE_BASE}${v}` : null
+        setProfileSignedDocs(abs)
+      })
+      .catch(() => { if (!cancelled) setProfileSignedDocs({}) })
+      .finally(() => { if (!cancelled) setProfileDocsLoading(false) })
+
+    return () => { cancelled = true }
+  }, [profileCompany])
+
   // Merge: Admin Queue ONLY uses real API data — never mock data
   // Profile/Register tabs keep using local companies state
   const allCompanies = approvalList   // real backend data only
@@ -211,43 +279,93 @@ export default function CompanyRegistration() {
     const next = [...otp]; next[i] = v; setOtp(next)
     if (v && i < 5) document.getElementById(`cotp-${i + 1}`)?.focus()
   }
-  const verifyOtp = () => {
-    const code = otp.join('')
-    if (code.length === 6) { setOtpVerified(true) }
-    else { setFormErrors({ otp: 'Enter complete 6-digit OTP' }) }
+  // Send OTP via the real backend (purpose: registration).
+  const sendRegistrationOtp = async (channel) => {
+    const target = channel === 'mobile' ? form.mobile : form.email
+    const type   = channel === 'mobile' ? 'mobile' : 'email'
+    setOtpChannel(channel)
+    setOtpSending(true)
+    setFormErrors(prev => ({ ...prev, otp: undefined }))
+    setDevOtp('')
+    try {
+      const res = await authApi.sendOtp(target, type, 'registration')
+      setOtpSent(true)
+      setOtp(['', '', '', '', '', ''])
+      // In dev mode the backend returns the OTP so it can be shown for testing.
+      if (res?.data?.otp) setDevOtp(String(res.data.otp))
+    } catch (err) {
+      setFormErrors(prev => ({ ...prev, otp: err?.response?.data?.message || 'Failed to send OTP. Try again.' }))
+    } finally {
+      setOtpSending(false)
+    }
   }
 
-  // ── Submit registration ──
-  const submitRegistration = () => {
-    const formatDate = (d) => {
-      if (!d) return new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
-      const dt = new Date(d)
-      return dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+  // Verify OTP against the real backend.
+  const verifyOtp = async () => {
+    const code = otp.join('')
+    if (code.length !== 6) { setFormErrors({ otp: 'Enter complete 6-digit OTP' }); return }
+    const target = otpChannel === 'mobile' ? form.mobile : form.email
+    setOtpVerifying(true)
+    setFormErrors(prev => ({ ...prev, otp: undefined }))
+    try {
+      await authApi.verifyOtp(target, code, 'registration')
+      setOtpVerified(true)
+    } catch (err) {
+      setFormErrors({ otp: err?.response?.data?.message || 'Invalid or expired OTP.' })
+    } finally {
+      setOtpVerifying(false)
     }
-    const newCom = {
-      id: `COM-${String(companies.length + 1).padStart(3, '0')}`,
-      name: form.name, owner: form.owner, mobile: form.mobile,
-      email: form.email, gst: form.gst, pan: form.pan,
-      bizType: form.bizType,
-      city: form.city, state: form.state, pin: form.pin,
-      plan: form.plan,
-      status: form.status,
-      registered: formatDate(form.submittedDate),
-      reviewedBy: '—',
-      docs: {
-        gst: !!uploadedDocs.gst, pan: !!uploadedDocs.pan,
-        address: !!uploadedDocs.address, biz: !!uploadedDocs.biz,
-      },
-      // Store actual File objects for image preview in View modal
-      docFiles: {
-        gst: uploadedDocs.gst || null,
-        pan: uploadedDocs.pan || null,
-        address: uploadedDocs.address || null,
-        biz: uploadedDocs.biz || null,
-      },
+  }
+
+  // ── Submit registration — saves company AND uploads KYC docs to the backend ──
+  const submitRegistration = async () => {
+    setRegSubmitting(true)
+    setRegError(null)
+
+    // Step 1: register the company (creates Company + Owner user, keyed by mobile).
+    const registerPayload = {
+      companyName:  form.name.trim(),
+      ownerName:    form.owner.trim(),
+      businessType: form.bizType || 'Wholesaler',
+      mobile:       form.mobile.trim(),
+      email:        form.email.trim(),
+      gstNumber:    form.gst.trim(),
+      panNumber:    form.pan.trim(),
+      address:      form.address?.trim() || '',
+      city:         form.city.trim(),
+      state:        form.state.trim(),
+      pincode:      form.pin.trim(),
     }
-    setCompanies(prev => [newCom, ...prev])
-    setRegStep(4)
+
+    try {
+      await authApi.register(registerPayload)
+
+      // Step 2: upload the KYC documents so their URLs are saved on the company.
+      // Form keys → backend upload fields: address→reg, biz→trade.
+      const files = {
+        gst:   uploadedDocs.gst   || null,
+        pan:   uploadedDocs.pan   || null,
+        reg:   uploadedDocs.address || null,
+        trade: uploadedDocs.biz   || null,
+      }
+      const hasFiles = Object.values(files).some(Boolean)
+      if (hasFiles) {
+        try {
+          await authApi.uploadDocs(form.mobile.trim(), files)
+        } catch (docErr) {
+          // Company is registered; only the document upload failed. Warn but continue.
+          setRegError('Company registered, but document upload failed: ' + (docErr?.response?.data?.message || 'please re-upload from the company profile.'))
+        }
+      }
+
+      // Refresh the admin queue so the new company (with its docs) shows up.
+      await fetchApprovalQueue()
+      setRegStep(4)
+    } catch (err) {
+      setRegError(err?.response?.data?.message || 'Failed to submit registration. Please try again.')
+    } finally {
+      setRegSubmitting(false)
+    }
   }
 
   // ── Admin actions — real API ──
@@ -451,9 +569,6 @@ export default function CompanyRegistration() {
     URL.revokeObjectURL(url)
   }
 
-  // Current company profile (first approved or first in list)
-  const currentCompany = profileForm
-
   // ── Stable document preview component (avoids revoking before render) ──
   const DocCard = ({ doc, uploaded, fileObj, onDownload }) => {
     const [previewUrl, setPreviewUrl] = useState(null)
@@ -619,15 +734,107 @@ export default function CompanyRegistration() {
 
       {/* Tabs */}
       <div className="tabs">
-        <button className={`tab-btn${tab === 'profile'  ? ' active' : ''}`} onClick={() => setTab('profile')}>Company Profile</button>
-        <button className={`tab-btn${tab === 'register' ? ' active' : ''}`} onClick={() => setTab('register')}>Register New Company</button>
-        <button className={`tab-btn${tab === 'admin'    ? ' active' : ''}`} onClick={() => setTab('admin')}>Admin Approval Queue</button>
+        <button className={`tab-btn${tab === 'register' ? ' active' : ''}`} onClick={() => setTab('register')}>1. Register New Company</button>
+        <button className={`tab-btn${tab === 'admin'    ? ' active' : ''}`} onClick={() => setTab('admin')}>2. Admin Approval Queue</button>
+        <button className={`tab-btn${tab === 'profile'  ? ' active' : ''}`} onClick={() => setTab('profile')}>3. Company Profile</button>
       </div>
 
       {/* ═══════════════════════════════════════
           TAB: Company Profile
       ═══════════════════════════════════════ */}
-      {tab === 'profile' && (
+      {tab === 'profile' && (() => {
+        // Approved companies only, filtered by the search text.
+        const approved = allCompanies.filter(c => c.status === 'Approved')
+        const q = profileSearch.trim().toLowerCase()
+        const matches = approved.filter(c =>
+          !q ||
+          c.name?.toLowerCase().includes(q) ||
+          c.owner?.toLowerCase().includes(q) ||
+          c.email?.toLowerCase().includes(q) ||
+          c.mobile?.toLowerCase?.().includes(q) ||
+          c.id?.toLowerCase?.().includes(q)
+        )
+        const sel = profileCompany
+
+        return (
+        <>
+          {/* ── Searchable company selector ── */}
+          <div className="card" style={{ marginBottom: 16 }}>
+            <div className="card-body" style={{ padding: 16 }}>
+              <label className="form-label" style={{ marginBottom: 8 }}>
+                Select an approved company to view its full profile
+              </label>
+              <div style={{ position: 'relative', maxWidth: 520 }}>
+                <div className="search-bar" style={{ width: '100%' }}
+                  onClick={() => setProfileDropdownOpen(true)}>
+                  <Building2 />
+                  <input
+                    placeholder={sel ? sel.name : 'Search company by name, owner, email, mobile…'}
+                    value={profileSearch}
+                    onChange={e => { setProfileSearch(e.target.value); setProfileDropdownOpen(true) }}
+                    onFocus={() => setProfileDropdownOpen(true)}
+                  />
+                  {sel && (
+                    <X style={{ width: 14, cursor: 'pointer', color: 'var(--text-light)' }}
+                      onClick={(e) => { e.stopPropagation(); setProfileCompany(null); setProfileSearch(''); setEditing(false) }} />
+                  )}
+                </div>
+
+                {/* Dropdown list */}
+                {profileDropdownOpen && (
+                  <>
+                    <div style={{ position: 'fixed', inset: 0, zIndex: 20 }} onClick={() => setProfileDropdownOpen(false)} />
+                    <div style={{
+                      position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 21,
+                      background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8,
+                      boxShadow: 'var(--shadow-lg)', maxHeight: 280, overflowY: 'auto',
+                    }}>
+                      {matches.length === 0 ? (
+                        <div style={{ padding: '14px 16px', fontSize: 13, color: 'var(--text-muted)' }}>
+                          {approved.length === 0 ? 'No approved companies yet.' : 'No companies match your search.'}
+                        </div>
+                      ) : matches.map(c => (
+                        <button
+                          key={c._id || c.id}
+                          type="button"
+                          onClick={() => {
+                            setProfileCompany(c); setProfileForm({ ...c })
+                            setProfileSearch(''); setProfileDropdownOpen(false); setEditing(false)
+                          }}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+                            padding: '10px 14px', border: 'none', background: 'none', textAlign: 'left',
+                            cursor: 'pointer', borderBottom: '1px solid var(--border)',
+                          }}
+                          onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
+                          onMouseLeave={e => e.currentTarget.style.background = 'none'}
+                        >
+                          <div className="avatar avatar-blue" style={{ width: 30, height: 30, fontSize: 11 }}>{c.name?.charAt(0)}</div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name}</div>
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{c.owner} · {c.city || '—'}</div>
+                          </div>
+                          <span className={`badge ${PLAN_COLORS[c.plan] || 'badge-gray'}`} style={{ fontSize: 10 }}>{c.plan}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+              <div className="form-hint">{approved.length} approved {approved.length === 1 ? 'company' : 'companies'} available.</div>
+            </div>
+          </div>
+
+          {/* ── Empty state when nothing selected ── */}
+          {!sel ? (
+            <div className="card">
+              <div className="empty-state">
+                <div className="empty-state-icon"><Building2 style={{ width: 44, opacity: 0.4 }} /></div>
+                <h3>No company selected</h3>
+                <p>Use the search above to pick an approved company and view its details, documents, and verification status.</p>
+              </div>
+            </div>
+          ) : (
         <div className="page-grid-2">
           <div className="card">
             <div className="card-header">
@@ -637,7 +844,7 @@ export default function CompanyRegistration() {
                 ? <button className="btn btn-secondary btn-sm" onClick={() => setEditing(true)}><Edit2 style={{ width: 13 }} />Edit</button>
                 : <div style={{ display: 'flex', gap: 6 }}>
                     <button className="btn btn-primary btn-sm" onClick={saveProfile}><Save style={{ width: 13 }} />Save</button>
-                    <button className="btn btn-secondary btn-sm" onClick={() => { setEditing(false); setProfileForm({ ...INIT_COMPANIES[0] }) }}><X style={{ width: 13 }} />Cancel</button>
+                    <button className="btn btn-secondary btn-sm" onClick={() => { setEditing(false); setProfileForm({ ...sel }) }}><X style={{ width: 13 }} />Cancel</button>
                   </div>
               }
             </div>
@@ -693,16 +900,17 @@ export default function CompanyRegistration() {
                 </>
               ) : (
                 [
-                  { label: 'Company Name',      value: currentCompany.name },
-                  { label: 'Owner',             value: currentCompany.owner },
-                  { label: 'Mobile',            value: currentCompany.mobile,  icon: 'phone' },
-                  { label: 'Email',             value: currentCompany.email,   icon: 'mail' },
-                  { label: 'Address',           value: `${currentCompany.city}, ${currentCompany.state}`, icon: 'loc' },
-                  { label: 'GST Number',        value: currentCompany.gst || '—', mono: true },
-                  { label: 'PAN Number',        value: currentCompany.pan, mono: true },
-                  { label: 'Subscription Plan', value: currentCompany.plan + ' Plan', badge: PLAN_COLORS[currentCompany.plan] },
-                  { label: 'Status',            value: currentCompany.status, badge: statusMeta[currentCompany.status]?.color },
-                  { label: 'Registered On',     value: currentCompany.registered },
+                  { label: 'Company Name',      value: sel.name },
+                  { label: 'Owner',             value: sel.owner },
+                  { label: 'Business Type',     value: sel.bizType || '—' },
+                  { label: 'Mobile',            value: sel.mobile,  icon: 'phone' },
+                  { label: 'Email',             value: sel.email,   icon: 'mail' },
+                  { label: 'Address',           value: `${sel.city || '—'}, ${sel.state || '—'}`, icon: 'loc' },
+                  { label: 'GST Number',        value: sel.gst || '—', mono: true },
+                  { label: 'PAN Number',        value: sel.pan, mono: true },
+                  { label: 'Subscription Plan', value: sel.plan + ' Plan', badge: PLAN_COLORS[sel.plan] },
+                  { label: 'Status',            value: sel.status, badge: statusMeta[sel.status]?.color },
+                  { label: 'Registered On',     value: sel.registered },
                 ].map(r => (
                   <div key={r.label} style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
                     <div style={{ minWidth: 140, fontSize: 12, color: 'var(--text-muted)', fontWeight: 600 }}>{r.label}</div>
@@ -724,38 +932,37 @@ export default function CompanyRegistration() {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {/* Uploaded Documents */}
+            {/* Uploaded Documents — real data + secure signed URLs */}
             <div className="card">
-              <div className="card-header"><span className="card-title">Uploaded Documents</span></div>
+              <div className="card-header">
+                <span className="card-title">Uploaded Documents</span>
+                {(() => {
+                  const cnt = ['gst','pan','address','biz'].filter(k => sel.docs?.[k]).length
+                  return <span className="badge badge-gray">{cnt}/4 uploaded</span>
+                })()}
+              </div>
               <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {[
-                  { key: 'gst',     name: 'GST Certificate',      file: 'GST_TilesWorld.pdf' },
-                  { key: 'pan',     name: 'PAN Card',              file: 'PAN_TilesWorld.pdf' },
-                  { key: 'address', name: 'Address Proof',         file: 'Address_TilesWorld.pdf' },
-                  { key: 'biz',     name: 'Business Registration', file: null },
+                  { key: 'gst',     name: 'GST Certificate' },
+                  { key: 'pan',     name: 'PAN Card' },
+                  { key: 'address', name: 'Address Proof' },
+                  { key: 'biz',     name: 'Business Registration' },
                 ].map(doc => {
-                  const uploaded = currentCompany.docs?.[doc.key]
+                  const uploaded = sel.docs?.[doc.key]
+                  const signedUrl = profileSignedDocs[doc.key] || null
                   return (
                     <div key={doc.name} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: 'var(--bg)', borderRadius: 8 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         <FileText style={{ width: 16, color: uploaded ? 'var(--primary)' : 'var(--text-light)' }} />
-                        <div>
-                          <div style={{ fontSize: 13, fontWeight: 600 }}>{doc.name}</div>
-                          {doc.file && uploaded && <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{doc.file}</div>}
-                        </div>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>{doc.name}</div>
                       </div>
                       {uploaded
-                        ? <span className="badge badge-green"><CheckCircle style={{ width: 11 }} /> Uploaded</span>
-                        : (
-                          <label style={{ cursor: 'pointer' }}>
-                            <span className="btn btn-secondary btn-xs"><Upload style={{ width: 11 }} />Upload</span>
-                            <input type="file" style={{ display: 'none' }} onChange={e => {
-                              if (e.target.files[0]) {
-                                setProfileForm(p => ({ ...p, docs: { ...p.docs, [doc.key]: true } }))
-                              }
-                            }} />
-                          </label>
-                        )
+                        ? (signedUrl
+                            ? <a href={signedUrl} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-xs" style={{ color: '#059669', borderColor: '#BBF7D0' }}>
+                                <Eye style={{ width: 11 }} /> View
+                              </a>
+                            : <span className="badge badge-green"><CheckCircle style={{ width: 11 }} /> {profileDocsLoading ? 'Loading…' : 'Uploaded'}</span>)
+                        : <span className="badge badge-red"><XCircle style={{ width: 11 }} /> Not uploaded</span>
                       }
                     </div>
                   )
@@ -763,35 +970,40 @@ export default function CompanyRegistration() {
               </div>
             </div>
 
-            {/* OTP Verification */}
+            {/* Verification status */}
             <div className="card">
-              <div className="card-header"><span className="card-title">OTP Verification</span></div>
+              <div className="card-header"><span className="card-title">Verification</span></div>
               <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {[
-                  { channel: 'Mobile OTP', number: currentCompany.mobile, verified: true },
-                  { channel: 'Email OTP',  number: currentCompany.email,  verified: true },
+                  { channel: 'Mobile', number: sel.mobile },
+                  { channel: 'Email',  number: sel.email },
                 ].map(v => (
                   <div key={v.channel} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: 'var(--bg)', borderRadius: 8 }}>
                     <div>
                       <div style={{ fontSize: 13, fontWeight: 600 }}>{v.channel}</div>
                       <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{v.number}</div>
                     </div>
-                    <span className="badge badge-green"><CheckCircle style={{ width: 11 }} /> Verified</span>
+                    {sel.status === 'Approved'
+                      ? <span className="badge badge-green"><CheckCircle style={{ width: 11 }} /> Verified</span>
+                      : <span className="badge badge-yellow"><Clock style={{ width: 11 }} /> Pending</span>}
                   </div>
                 ))}
               </div>
             </div>
           </div>
         </div>
-      )}
+          )}
+        </>
+        )
+      })()}
 
       {/* ═══════════════════════════════════════
           TAB: Register New Company
       ═══════════════════════════════════════ */}
       {tab === 'register' && (
-        <div className="card" style={{ maxWidth: 720 }}>
+        <div className="card" style={{ maxWidth: 760, margin: '0 auto' }}>
           {/* Step indicator */}
-          <div style={{ padding: '20px 24px 0', display: 'flex', gap: 0 }}>
+          <div style={{ padding: '22px 28px 18px', display: 'flex', gap: 0, borderBottom: '1px solid var(--border)' }}>
             {['Basic Info', 'Documents', 'OTP Verify', 'Done'].map((s, i) => (
               <div key={s} style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
                 <div style={{
@@ -812,126 +1024,131 @@ export default function CompanyRegistration() {
           {/* Step 1 — Basic Info */}
           {regStep === 1 && (
             <>
-              <div className="modal-body">
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Company Name *</label>
-                    <input className="form-control" placeholder="e.g. Tiles World Pvt Ltd" value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} />
-                    {formErrors.name && <div className="form-error">{formErrors.name}</div>}
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Business Type <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
-                    <input
-                      className="form-control"
-                      placeholder="e.g. Wholesaler, Retailer, Manufacturer…"
-                      value={form.bizType}
-                      onChange={e => setForm(p => ({ ...p, bizType: e.target.value }))}
-                    />
-                  </div>
-                </div>
+              <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 26 }}>
 
-                {/* Subscription Plan selection — dropdown */}
-                <div className="form-group">
-                  <label className="form-label">Subscription Plan *</label>
-                  <select
-                    className="form-control"
-                    value={form.plan}
-                    onChange={e => setForm(p => ({ ...p, plan: e.target.value }))}
-                  >
-                    {SUBSCRIPTION_PLANS.map(pl => (
-                      <option key={pl.key} value={pl.key}>
-                        {pl.name} — {pl.price === 0 ? 'Free' : `₹${pl.price.toLocaleString()}/mo`} · {pl.description}
-                      </option>
-                    ))}
-                  </select>
-                  {form.plan && (
-                    <div style={{
-                      marginTop: 8, padding: '10px 14px', borderRadius: 8,
-                      background: 'var(--primary-light)',
-                      border: '1px solid var(--primary)',
-                      display: 'flex', alignItems: 'center', gap: 8,
-                    }}>
-                      <Crown style={{ width: 14, color: 'var(--primary)', flexShrink: 0 }} />
-                      <div>
-                        <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--primary)' }}>
-                          {SUBSCRIPTION_PLANS.find(p => p.key === form.plan)?.name} Plan
-                        </span>
-                        <span className={`badge ${SUBSCRIPTION_PLANS.find(p => p.key === form.plan)?.badge}`} style={{ marginLeft: 8, fontSize: 10 }}>
-                          {SUBSCRIPTION_PLANS.find(p => p.key === form.plan)?.price === 0
-                            ? 'Free'
-                            : `₹${SUBSCRIPTION_PLANS.find(p => p.key === form.plan)?.price.toLocaleString()}/mo`}
-                        </span>
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-                          {SUBSCRIPTION_PLANS.find(p => p.key === form.plan)?.description}
-                        </div>
-                      </div>
+                {/* ── Section: Company Details ── */}
+                <section>
+                  <div className="form-section-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Building2 style={{ width: 13, color: 'var(--primary)' }} /> Company Details
+                  </div>
+                  <div className="form-row">
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label className="form-label">Company Name <span style={{ color: 'var(--danger)' }}>*</span></label>
+                      <input className={`form-control${formErrors.name ? ' error' : ''}`} placeholder="e.g. Tiles World Pvt Ltd" value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} />
+                      {formErrors.name && <div className="form-error">{formErrors.name}</div>}
                     </div>
-                  )}
-                  <div className="form-hint">You can upgrade anytime from Subscription Management.</div>
-                </div>
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Owner / Contact Name *</label>
-                    <input className="form-control" placeholder="Full name" value={form.owner} onChange={e => setForm(p => ({ ...p, owner: e.target.value }))} />
-                    {formErrors.owner && <div className="form-error">{formErrors.owner}</div>}
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label className="form-label">Business Type</label>
+                      <select className="form-control" value={form.bizType} onChange={e => setForm(p => ({ ...p, bizType: e.target.value }))}>
+                        <option value="">Select business type…</option>
+                        {['Wholesaler', 'Retailer', 'Distributor', 'Manufacturer'].map(t => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </div>
                   </div>
-                  <div className="form-group">
-                    <label className="form-label">Mobile Number *</label>
-                    <input className="form-control" placeholder="10-digit mobile" type="tel" value={form.mobile} onChange={e => setForm(p => ({ ...p, mobile: e.target.value }))} />
-                    {formErrors.mobile && <div className="form-error">{formErrors.mobile}</div>}
+                </section>
+
+                {/* ── Section: Contact Person ── */}
+                <section>
+                  <div className="form-section-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Phone style={{ width: 13, color: 'var(--primary)' }} /> Contact Person
                   </div>
-                </div>
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Email Address *</label>
-                    <input className="form-control" placeholder="email@company.com" type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} />
+                  <div className="form-row">
+                    <div className="form-group" style={{ marginBottom: 14 }}>
+                      <label className="form-label">Owner / Contact Name <span style={{ color: 'var(--danger)' }}>*</span></label>
+                      <input className={`form-control${formErrors.owner ? ' error' : ''}`} placeholder="Full name" value={form.owner} onChange={e => setForm(p => ({ ...p, owner: e.target.value }))} />
+                      {formErrors.owner && <div className="form-error">{formErrors.owner}</div>}
+                    </div>
+                    <div className="form-group" style={{ marginBottom: 14 }}>
+                      <label className="form-label">Mobile Number <span style={{ color: 'var(--danger)' }}>*</span></label>
+                      <input className={`form-control${formErrors.mobile ? ' error' : ''}`} placeholder="10-digit mobile" type="tel" maxLength={10} value={form.mobile} onChange={e => setForm(p => ({ ...p, mobile: e.target.value.replace(/\D/g, '') }))} />
+                      {formErrors.mobile && <div className="form-error">{formErrors.mobile}</div>}
+                    </div>
+                  </div>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label">Email Address <span style={{ color: 'var(--danger)' }}>*</span></label>
+                    <input className={`form-control${formErrors.email ? ' error' : ''}`} placeholder="email@company.com" type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} />
                     {formErrors.email && <div className="form-error">{formErrors.email}</div>}
                   </div>
-                  <div className="form-group">
-                    <label className="form-label">City</label>
-                    <input className="form-control" placeholder="City" value={form.city} onChange={e => setForm(p => ({ ...p, city: e.target.value }))} />
-                  </div>
-                </div>
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">State</label>
-                    <input className="form-control" placeholder="State" value={form.state} onChange={e => setForm(p => ({ ...p, state: e.target.value }))} />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">PIN Code</label>
-                    <input className="form-control" placeholder="6-digit PIN" value={form.pin} onChange={e => setForm(p => ({ ...p, pin: e.target.value }))} />
-                  </div>
-                </div>
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">GST Number</label>
-                    <input className="form-control" placeholder="15-character GST" style={{ fontFamily: 'monospace' }} value={form.gst} onChange={e => setForm(p => ({ ...p, gst: e.target.value }))} />
-                    <div className="form-hint">Leave blank if not registered.</div>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">PAN Number *</label>
-                    <input className="form-control" placeholder="10-character PAN" style={{ fontFamily: 'monospace' }} value={form.pan} onChange={e => setForm(p => ({ ...p, pan: e.target.value }))} />
-                    {formErrors.pan && <div className="form-error">{formErrors.pan}</div>}
-                  </div>
-                </div>
+                </section>
 
-                {/* Submitted On — date picker only */}
-                <div className="form-group" style={{ marginTop: 4 }}>
-                  <label className="form-label">Submitted On</label>
-                  <input
-                    type="date"
-                    className="form-control"
-                    value={form.submittedDate}
-                    max={new Date().toISOString().split('T')[0]}
-                    onChange={e => setForm(p => ({ ...p, submittedDate: e.target.value }))}
-                    style={{ cursor: 'pointer' }}
-                  />
-                  {form.submittedDate && (
-                    <div style={{ marginTop: 5, fontSize: 11, color: 'var(--text-muted)', fontWeight: 400 }}>
-                      {new Date(form.submittedDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })}
+                {/* ── Section: Address ── */}
+                <section>
+                  <div className="form-section-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Building2 style={{ width: 13, color: 'var(--primary)' }} /> Address
+                  </div>
+                  <div className="form-row">
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label className="form-label">City</label>
+                      <input className="form-control" placeholder="City" value={form.city} onChange={e => setForm(p => ({ ...p, city: e.target.value }))} />
                     </div>
-                  )}
-                </div>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label className="form-label">State</label>
+                      <input className="form-control" placeholder="State" value={form.state} onChange={e => setForm(p => ({ ...p, state: e.target.value }))} />
+                    </div>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label className="form-label">PIN Code</label>
+                      <input className="form-control" placeholder="6-digit PIN" maxLength={6} value={form.pin} onChange={e => setForm(p => ({ ...p, pin: e.target.value.replace(/\D/g, '') }))} />
+                    </div>
+                  </div>
+                </section>
+
+                {/* ── Section: Tax Details ── */}
+                <section>
+                  <div className="form-section-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <FileText style={{ width: 13, color: 'var(--primary)' }} /> Tax Details
+                  </div>
+                  <div className="form-row">
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label className="form-label">GST Number</label>
+                      <input className="form-control" placeholder="15-character GST" style={{ fontFamily: 'monospace', textTransform: 'uppercase' }} value={form.gst} onChange={e => setForm(p => ({ ...p, gst: e.target.value.toUpperCase() }))} />
+                      <div className="form-hint">Leave blank if not registered.</div>
+                    </div>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label className="form-label">PAN Number <span style={{ color: 'var(--danger)' }}>*</span></label>
+                      <input className={`form-control${formErrors.pan ? ' error' : ''}`} placeholder="10-character PAN" maxLength={10} style={{ fontFamily: 'monospace', textTransform: 'uppercase' }} value={form.pan} onChange={e => setForm(p => ({ ...p, pan: e.target.value.toUpperCase() }))} />
+                      {formErrors.pan && <div className="form-error">{formErrors.pan}</div>}
+                    </div>
+                  </div>
+                </section>
+
+                {/* ── Section: Subscription Plan (selectable cards) ── */}
+                <section>
+                  <div className="form-section-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Crown style={{ width: 13, color: 'var(--primary)' }} /> Subscription Plan
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10 }}>
+                    {SUBSCRIPTION_PLANS.map(pl => {
+                      const active = form.plan === pl.key
+                      return (
+                        <button
+                          type="button"
+                          key={pl.key}
+                          onClick={() => setForm(p => ({ ...p, plan: pl.key }))}
+                          style={{
+                            textAlign: 'left', cursor: 'pointer',
+                            border: `1.5px solid ${active ? 'var(--primary)' : 'var(--border)'}`,
+                            background: active ? 'var(--primary-light)' : 'var(--surface)',
+                            borderRadius: 10, padding: '12px 14px',
+                            boxShadow: active ? '0 0 0 3px rgba(253,92,2,0.10)' : 'none',
+                            transition: 'all 0.15s',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                            <span style={{ fontSize: 13, fontWeight: 800, color: active ? 'var(--primary)' : 'var(--text)' }}>{pl.name}</span>
+                            {active && <CheckCircle style={{ width: 15, color: 'var(--primary)' }} />}
+                          </div>
+                          <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--text)', marginBottom: 4 }}>
+                            {pl.price === 0 ? 'Free' : `₹${pl.price.toLocaleString()}`}
+                            {pl.price !== 0 && <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-muted)' }}>/mo</span>}
+                          </div>
+                          <div style={{ fontSize: 10.5, color: 'var(--text-muted)', lineHeight: 1.4 }}>{pl.description}</div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <div className="form-hint">You can upgrade anytime from Subscription Management.</div>
+                </section>
+
               </div>
               <div className="modal-footer">
                 <button className="btn btn-primary" onClick={() => { if (validateStep1()) setRegStep(2) }}>Next: Upload Documents →</button>
@@ -999,12 +1216,13 @@ export default function CompanyRegistration() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                     <div style={{ padding: '14px 16px', background: 'var(--bg)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><Phone style={{ width: 15, color: 'var(--primary)' }} /><span style={{ fontSize: 13 }}>+91 {form.mobile}</span></div>
-                      <button className="btn btn-primary btn-sm" onClick={() => { setOtpSent(true); setOtp(['', '', '', '', '', '']) }}>Send OTP</button>
+                      <button className="btn btn-primary btn-sm" disabled={otpSending} onClick={() => sendRegistrationOtp('mobile')}>{otpSending && otpChannel === 'mobile' ? 'Sending…' : 'Send OTP'}</button>
                     </div>
                     <div style={{ padding: '14px 16px', background: 'var(--bg)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><Mail style={{ width: 15, color: 'var(--primary)' }} /><span style={{ fontSize: 13 }}>{form.email}</span></div>
-                      <button className="btn btn-secondary btn-sm" onClick={() => { setOtpSent(true); setOtp(['', '', '', '', '', '']) }}>Send OTP</button>
+                      <button className="btn btn-secondary btn-sm" disabled={otpSending} onClick={() => sendRegistrationOtp('email')}>{otpSending && otpChannel === 'email' ? 'Sending…' : 'Send OTP'}</button>
                     </div>
+                    {formErrors.otp && <div className="form-error" style={{ textAlign: 'center' }}>{formErrors.otp}</div>}
                   </div>
                 ) : otpVerified ? (
                   <div className="alert alert-success">
@@ -1012,7 +1230,14 @@ export default function CompanyRegistration() {
                   </div>
                 ) : (
                   <>
-                    <div style={{ textAlign: 'center', marginBottom: 8, fontSize: 13, color: 'var(--text-muted)' }}>Enter the 6-digit OTP sent to +91 {form.mobile}</div>
+                    <div style={{ textAlign: 'center', marginBottom: 8, fontSize: 13, color: 'var(--text-muted)' }}>
+                      Enter the 6-digit OTP sent to {otpChannel === 'mobile' ? `+91 ${form.mobile}` : form.email}
+                    </div>
+                    {devOtp && (
+                      <div className="alert alert-info" style={{ marginBottom: 12, textAlign: 'center', fontSize: 12 }}>
+                        <span>Dev mode OTP: <strong style={{ letterSpacing: 2 }}>{devOtp}</strong></span>
+                      </div>
+                    )}
                     <div className="otp-row">
                       {otp.map((d, i) => (
                         <input key={i} id={`cotp-${i}`} className="otp-input" maxLength={1} value={d}
@@ -1023,18 +1248,28 @@ export default function CompanyRegistration() {
                     </div>
                     {formErrors.otp && <div className="form-error" style={{ textAlign: 'center' }}>{formErrors.otp}</div>}
                     <div style={{ textAlign: 'center', marginTop: 10, display: 'flex', justifyContent: 'center', gap: 12 }}>
-                      <button onClick={verifyOtp} className="btn btn-primary btn-sm">Verify OTP</button>
-                      <button onClick={() => { setOtpSent(false); setOtp(['', '', '', '', '', '']); setFormErrors({}) }}
+                      <button onClick={verifyOtp} disabled={otpVerifying} className="btn btn-primary btn-sm">{otpVerifying ? 'Verifying…' : 'Verify OTP'}</button>
+                      <button onClick={() => sendRegistrationOtp(otpChannel)} disabled={otpSending}
                         style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                        <RefreshCw style={{ width: 12 }} /> Resend
+                        <RefreshCw style={{ width: 12 }} /> {otpSending ? 'Sending…' : 'Resend'}
                       </button>
                     </div>
                   </>
                 )}
               </div>
+              {regError && (
+                <div className="alert alert-warning" style={{ margin: '0 24px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <AlertCircle style={{ width: 15, flexShrink: 0 }} /><span>{regError}</span>
+                </div>
+              )}
               <div className="modal-footer">
                 <button className="btn btn-secondary" onClick={() => setRegStep(2)}>← Back</button>
-                <button className="btn btn-primary" disabled={!otpVerified} style={{ opacity: otpVerified ? 1 : 0.5 }} onClick={submitRegistration}>Submit for Approval →</button>
+                <button
+                  className="btn btn-primary"
+                  disabled={!otpVerified || regSubmitting}
+                  style={{ opacity: (otpVerified && !regSubmitting) ? 1 : 0.5 }}
+                  onClick={submitRegistration}
+                >{regSubmitting ? 'Submitting…' : 'Submit for Approval →'}</button>
               </div>
             </>
           )}
@@ -1050,12 +1285,18 @@ export default function CompanyRegistration() {
                 Company registration is under review. Admin will approve within 24–48 hours. You'll be notified once approved.
               </div>
               <div className="alert alert-warning" style={{ textAlign: 'left', maxWidth: 400, margin: '0 auto' }}>
-                <Clock /><span>Meanwhile, you can explore with limited Free plan access.</span>
+                <Clock /><span>It's now waiting in the Admin Approval Queue. Once approved it will appear as a Company Profile.</span>
               </div>
-              <button className="btn btn-primary" style={{ marginTop: 24 }} onClick={() => {
-                setRegStep(1); setForm({ ...BLANK_FORM }); setUploadedDocs({ gst: null, pan: null, address: null, biz: null })
-                setOtpSent(false); setOtpVerified(false); setOtp(['', '', '', '', '', '']); setFormErrors({})
-              }}>Register Another Company</button>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginTop: 24, flexWrap: 'wrap' }}>
+                <button className="btn btn-primary" onClick={() => { setStatusFilter('Pending'); setTab('admin') }}>
+                  View Approval Queue →
+                </button>
+                <button className="btn btn-secondary" onClick={() => {
+                  setRegStep(1); setForm({ ...BLANK_FORM }); setUploadedDocs({ gst: null, pan: null, address: null, biz: null })
+                  setOtpSent(false); setOtpVerified(false); setOtp(['', '', '', '', '', '']); setFormErrors({})
+                  setDevOtp(''); setRegError(null); setOtpChannel('email')
+                }}>Register Another Company</button>
+              </div>
             </div>
           )}
         </div>
@@ -1197,11 +1438,6 @@ export default function CompanyRegistration() {
                           const keys = ['gst','pan','address','biz']
                           const cnt = keys.filter(k => c.docs?.[k]).length
                           const total = keys.length
-                          const backendBase = 'http://10.67.41.163:5000'
-                          const allUrls = keys
-                            .filter(k => c.docs?.[k] && c.docUrls?.[k])
-                            .map(k => `${backendBase}${c.docUrls[k]}`)
-
                           const badgeColor =
                             cnt === 0 ? '#DC2626' :
                             cnt === total ? '#059669' : '#D97706'
@@ -1215,7 +1451,6 @@ export default function CompanyRegistration() {
                           return (
                             <div style={{
                               display: 'flex', alignItems: 'center', gap: 8,
-                              cursor: allUrls.length > 0 ? 'pointer' : 'default',
                             }} title={`${cnt}/${total} documents uploaded`}>
                               {/* Count badge */}
                               <span style={{
@@ -1251,13 +1486,14 @@ export default function CompanyRegistration() {
                                   )
                                 })}
                               </div>
-                              {/* Eye icon — opens first available doc in new tab (multi-open if multiple) */}
-                              {allUrls.length > 0 && (
+                              {/* Eye icon — open the detail modal (docs load via secure signed URLs there) */}
+                              {cnt > 0 && (
                                 <Eye
-                                  style={{ width: 14, height: 14, color: '#6366F1', flexShrink: 0 }}
+                                  style={{ width: 14, height: 14, color: '#6366F1', flexShrink: 0, cursor: 'pointer' }}
+                                  title="View documents"
                                   onClick={(e) => {
                                     e.stopPropagation()
-                                    allUrls.forEach(u => window.open(u, '_blank', 'noopener'))
+                                    setViewCompany(c)
                                   }}
                                 />
                               )}
@@ -1473,9 +1709,11 @@ export default function CompanyRegistration() {
                       ].map(doc => {
                         const uploaded = !!viewCompany.docs?.[doc.key]
                         const fileObj  = viewCompany.docFiles?.[doc.key] || null
-                        const backendUrl = viewCompany.docUrls?.[doc.key]
-                          ? `http://10.67.41.163:5000${viewCompany.docUrls[doc.key]}`
-                          : null
+                        // Prefer the secure signed URL from the backend.
+                        const backendUrl = signedDocs[doc.key] || null
+                        // The signed link ends in /view — detect image type from the stored path.
+                        const rawPath = viewCompany.docUrls?.[doc.key] || ''
+                        const isImage = /\.(png|jpe?g|gif|webp)$/i.test(rawPath)
 
                         return (
                           <div key={doc.key} style={{
@@ -1489,7 +1727,12 @@ export default function CompanyRegistration() {
                               display: 'flex', alignItems: 'center', justifyContent: 'center',
                               position: 'relative',
                             }}>
-                              {backendUrl ? (
+                              {backendUrl && isImage ? (
+                                <a href={backendUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'block', width: '100%', height: '100%' }}>
+                                  <img src={backendUrl} alt={doc.label}
+                                    style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                </a>
+                              ) : backendUrl ? (
                                 <a href={backendUrl} target="_blank" rel="noopener noreferrer"
                                   style={{ textDecoration: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
                                   <FileText style={{ width: 28, color: '#059669' }} />
@@ -1497,6 +1740,8 @@ export default function CompanyRegistration() {
                                     VIEW ↗
                                   </span>
                                 </a>
+                              ) : uploaded && signedDocsLoading ? (
+                                <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>Loading…</span>
                               ) : uploaded ? (
                                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
                                   <FileText style={{ width: 28, color: '#059669' }} />

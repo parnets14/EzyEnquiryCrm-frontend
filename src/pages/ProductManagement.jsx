@@ -79,7 +79,7 @@ function downloadProduct(p) {
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>Product â€” ${p.name || 'Details'}</title>
+<title>Product — ${p.name || 'Details'}</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; color: #1a2540; background: #fff; padding: 32px 40px; }
@@ -219,7 +219,7 @@ ${(p.image_urls||[]).filter(Boolean).length > 0 ? `
 </div>` : ''}
 
 <div class="footer">
-  <span>Product Code: ${v(p.code) || 'â€”'} &nbsp;|&nbsp; Brand: ${v(p.brand_name) || 'â€”'} &nbsp;|&nbsp; Category: ${v(p.category_name) || 'â€”'}</span>
+  <span>Product Code: ${v(p.code) || '—'} &nbsp;|&nbsp; Brand: ${v(p.brand_name) || '—'} &nbsp;|&nbsp; Category: ${v(p.category_name) || '—'}</span>
   <span>${p.created_at ? 'Created: ' + new Date(p.created_at).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}) : ''}</span>
 </div>
 
@@ -297,7 +297,7 @@ function SearchableSelect({ label, required, placeholder, value, onChange, optio
               autoFocus
               className="form-control"
               style={{ fontSize:12, padding:'6px 9px' }}
-              placeholder="Type to searchâ€¦"
+              placeholder="Type to search..."
               value={q}
               onChange={e => setQ(e.target.value)}
               onClick={e => e.stopPropagation()}
@@ -307,7 +307,7 @@ function SearchableSelect({ label, required, placeholder, value, onChange, optio
             <div
               style={{ padding:'7px 14px', fontSize:13, color:'var(--text-muted)', cursor:'pointer' }}
               onMouseDown={() => pick('')}
-            >â€” None â€”</div>
+            >— None —</div>
             {filtered.length === 0 && (
               <div style={{ padding:'10px 14px', fontSize:12, color:'var(--text-muted)' }}>No results</div>
             )}
@@ -655,7 +655,7 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, onSa
     const e = validate()
     if (Object.keys(e).length) { setErrors(e); return }
 
-    // Build a plain object â€” productApi.create / productApi.update handle FormData internally
+    // Build a plain object -- productApi.create / productApi.update handle FormData internally
     // when imageFiles is present. Field name 'file' matches multer's uploadImages middleware.
     const payload = {
       name:            form.name.trim(),
@@ -706,7 +706,7 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, onSa
       dealer_visible:  form.dealer_visible,
       // For update: kept existing image URLs
       image_urls:      existingImages,
-      // imageFiles is the key productApi looks for â€” File[] array, field name 'file' for multer
+      // imageFiles is the key productApi looks for -- File[] array, field name 'file' for multer
       imageFiles:      imageFiles,
     }
 
@@ -760,7 +760,7 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, onSa
             <div>
               <SearchableSelect
                 label="Brand" required
-                placeholder="Search brandsâ€¦"
+                placeholder="Search brands..."
                 value={form.brand_id}
                 onChange={v => set('brand_id', v)}
                 options={brandOpts}
@@ -771,7 +771,7 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, onSa
             <div>
               <SearchableSelect
                 label="Category" required
-                placeholder="Search categoriesâ€¦"
+                placeholder="Search categories..."
                 value={form.category_id}
                 onChange={v => { set('category_id', v); set('sub_category_id', '') }}
                 options={catOpts}
@@ -781,7 +781,7 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, onSa
             {/* Subcategory */}
             <SearchableSelect
               label="Subcategory"
-              placeholder="Search subcategoriesâ€¦"
+              placeholder="Search subcategories..."
               value={form.sub_category_id}
               onChange={v => set('sub_category_id', v)}
               options={subCatOpts}
@@ -967,7 +967,7 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, onSa
           <button className="btn btn-secondary" type="button" onClick={onClose}>Cancel</button>
           <button className="btn btn-primary" type="button" disabled={saving} onClick={handleSave}
             style={{ minWidth:120 }}>
-            {saving ? 'Savingâ€¦' : 'Preview & Save'}
+            {saving ? 'Saving...' : 'Preview & Save'}
           </button>
         </div>
       </div>

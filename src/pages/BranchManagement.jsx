@@ -18,7 +18,7 @@ const STAT_STYLES = {
 export default function BranchManagement({ branches = [], addBranch, updateBranch, deleteBranch }) {
   const [search,   setSearch]   = useState('')
   const [filter,   setFilter]   = useState('All')   // 'All' | 'Active' | 'Inactive'
-  const [viewMode, setViewMode] = useState('cards')  // 'cards' | 'table'
+  const [viewMode, setViewMode] = useState('table')  // 'cards' | 'table'
   const [modal,    setModal]    = useState(null)
   const [form,     setForm]     = useState(EMPTY)
   const [editId,   setEditId]   = useState(null)
@@ -49,7 +49,8 @@ export default function BranchManagement({ branches = [], addBranch, updateBranc
     if (!form.state.trim())   e.state   = 'State is required'
     if (!form.address.trim()) e.address = 'Address is required'
     if (!form.manager.trim()) e.manager = 'Manager name is required'
-    if (!form.phone.trim())   e.phone   = 'Phone is required'
+    if (!form.phone.trim())        e.phone = 'Phone is required'
+    else if (!/^\d{10}$/.test(form.phone)) e.phone = 'Enter a valid 10-digit mobile number'
     if (!form.email.trim())   e.email   = 'Email is required'
     setErrors(e)
     return Object.keys(e).length === 0
@@ -98,25 +99,48 @@ export default function BranchManagement({ branches = [], addBranch, updateBranc
     { key: 'Warehouses', label: 'Warehouses',      value: totalWarehouses,                                      icon: Warehouse,  noFilter: true },
   ]
 
-  const F = (k, label, placeholder, type = 'text') => (
-    <div style={{ marginBottom: 14 }}>
-      <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 5 }}>{label}</label>
-      <input
-        type={type}
-        value={form[k]}
-        onChange={e => { setForm(p => ({ ...p, [k]: e.target.value })); setErrors(p => ({ ...p, [k]: '' })) }}
-        placeholder={placeholder}
-        style={{
-          width: '100%', boxSizing: 'border-box', padding: '9px 11px',
-          border: `1.5px solid ${errors[k] ? '#EF4444' : '#E2E8F0'}`,
-          borderRadius: 8, fontSize: 13, color: '#01152D', background: '#FAFBFC', outline: 'none',
-        }}
-        onFocus={e => { e.target.style.borderColor = '#FD5C02'; e.target.style.boxShadow = '0 0 0 3px rgba(253,92,2,0.1)' }}
-        onBlur={e => { e.target.style.borderColor = errors[k] ? '#EF4444' : '#E2E8F0'; e.target.style.boxShadow = 'none' }}
-      />
-      {errors[k] && <div style={{ fontSize: 11, color: '#EF4444', marginTop: 3 }}>{errors[k]}</div>}
+  const F = (k, label, placeholder, type = 'text', opts = {}) => {
+    const { icon = null, hint = null, prefix = null } = opts
+    const hasErr = !!errors[k]
+    return (
+    <div style={{ marginBottom: 16 }}>
+      <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 6 }}>{label}</label>
+      <div style={{
+        display: 'flex', alignItems: 'center',
+        border: `1.5px solid ${hasErr ? '#EF4444' : '#E2E8F0'}`,
+        borderRadius: 9, background: '#FAFBFC', overflow: 'hidden',
+        transition: 'all 0.15s',
+      }}
+        onFocusCapture={e => { e.currentTarget.style.borderColor = '#FD5C02'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(253,92,2,0.1)'; e.currentTarget.style.background = '#fff' }}
+        onBlurCapture={e => { e.currentTarget.style.borderColor = hasErr ? '#EF4444' : '#E2E8F0'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.background = '#FAFBFC' }}
+      >
+        {icon && <span style={{ display: 'flex', paddingLeft: 11, color: '#94A3B8', flexShrink: 0 }}>{icon}</span>}
+        {prefix && <span style={{ paddingLeft: 10, fontSize: 13, fontWeight: 600, color: '#64748B', flexShrink: 0 }}>{prefix}</span>}
+        <input
+          type={type}
+          value={form[k]}
+          maxLength={k === 'phone' ? 10 : undefined}
+          inputMode={k === 'phone' ? 'numeric' : undefined}
+          onChange={e => {
+            // Phone: keep digits only and cap at 10.
+            const val = k === 'phone' ? e.target.value.replace(/\D/g, '').slice(0, 10) : e.target.value
+            setForm(p => ({ ...p, [k]: val })); setErrors(p => ({ ...p, [k]: '' }))
+          }}
+          placeholder={placeholder}
+          style={{
+            width: '100%', boxSizing: 'border-box', padding: '10px 12px',
+            border: 'none', borderRadius: 9, fontSize: 13, color: '#01152D',
+            background: 'transparent', outline: 'none',
+            paddingLeft: (icon || prefix) ? 8 : 12,
+          }}
+        />
+      </div>
+      {hasErr
+        ? <div style={{ fontSize: 11, color: '#EF4444', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}><XCircle size={11} />{errors[k]}</div>
+        : hint ? <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 4 }}>{hint}</div> : null}
     </div>
-  )
+    )
+  }
 
   return (
     <div>
@@ -337,7 +361,7 @@ export default function BranchManagement({ branches = [], addBranch, updateBranc
 
       {/* ── CARDS VIEW ── */}
       {viewMode === 'cards' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 360px))', gap: 16 }}>
           {filtered.length === 0 ? (
             <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: '60px 20px', color: '#94A3B8' }}>
               <GitBranch size={40} style={{ opacity: 0.3, marginBottom: 12 }} />
@@ -347,56 +371,53 @@ export default function BranchManagement({ branches = [], addBranch, updateBranc
           ) : filtered.map(b => (
             <div
               key={b._id || b.id}
-              style={{ background: '#fff', borderRadius: 14, border: '1px solid #E8EDF3', boxShadow: '0 1px 4px rgba(0,0,0,0.05)', overflow: 'hidden', transition: 'box-shadow 0.15s' }}
-              onMouseEnter={e => e.currentTarget.style.boxShadow = '0 4px 20px rgba(0,0,0,0.09)'}
-              onMouseLeave={e => e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.05)'}
+              style={{ background: '#fff', borderRadius: 14, border: '1px solid #E8EDF3', boxShadow: '0 1px 4px rgba(0,0,0,0.05)', overflow: 'hidden', transition: 'box-shadow 0.15s, transform 0.15s' }}
+              onMouseEnter={e => { e.currentTarget.style.boxShadow = '0 6px 22px rgba(1,21,45,0.10)'; e.currentTarget.style.transform = 'translateY(-2px)' }}
+              onMouseLeave={e => { e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.05)'; e.currentTarget.style.transform = 'none' }}
             >
               {/* Status accent bar */}
-              <div style={{ height: 4, background: b.status === 'Active' ? 'linear-gradient(90deg,#FD5C02,#FE8A3A)' : '#E2E8F0' }} />
-              <div style={{ padding: '18px 20px' }}>
+              <div style={{ height: 4, background: b.status === 'Active' ? 'linear-gradient(90deg,#FD5C02,#FE8A3A)' : '#CBD5E1' }} />
+              <div style={{ padding: '16px 18px' }}>
                 {/* Header row */}
-                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div style={{ width: 42, height: 42, borderRadius: 10, background: '#FFF3EC', border: '1px solid #FED7B8', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                      <Building2 size={18} color="#FD5C02" />
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, marginBottom: 14 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 11, minWidth: 0 }}>
+                    <div style={{ width: 44, height: 44, borderRadius: 11, background: 'linear-gradient(135deg,#FFF3EC,#FFE3D0)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <Building2 size={19} color="#FD5C02" />
                     </div>
-                    <div>
-                      <div style={{ fontSize: 14, fontWeight: 800, color: '#01152D', lineHeight: 1.2 }}>{b.name}</div>
-                      <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 2 }}>{b.code}</div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: '#01152D', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.name}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
+                        <span style={{ fontSize: 10.5, fontWeight: 700, color: '#FD5C02', background: '#FFF3EC', padding: '1px 7px', borderRadius: 5 }}>{b.code}</span>
+                        {b.type && <span style={{ fontSize: 11, color: '#94A3B8' }}>{b.type}</span>}
+                      </div>
                     </div>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
-                    <span style={{
-                      fontSize: 10, fontWeight: 700, padding: '3px 9px', borderRadius: 20,
-                      background: b.status === 'Active' ? '#ECFDF5' : '#FEF2F2',
-                      color:      b.status === 'Active' ? '#059669'  : '#DC2626',
-                      border:     `1px solid ${b.status === 'Active' ? '#A7F3D0' : '#FECACA'}`,
-                    }}>{b.status}</span>
-                    {b.type && (
-                      <span style={{
-                        fontSize: 10, fontWeight: 700, padding: '3px 9px', borderRadius: 20,
-                        background: b.type === 'Head Office' ? '#EFF6FF' : '#F8FAFC',
-                        color:      b.type === 'Head Office' ? '#2563EB'  : '#64748B',
-                        border:     `1px solid ${b.type === 'Head Office' ? '#BFDBFE' : '#E2E8F0'}`,
-                      }}>{b.type}</span>
-                    )}
-                  </div>
+                  <span style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                    fontSize: 10.5, fontWeight: 700, padding: '4px 10px', borderRadius: 20, flexShrink: 0,
+                    background: b.status === 'Active' ? '#ECFDF5' : '#FEF2F2',
+                    color:      b.status === 'Active' ? '#059669'  : '#DC2626',
+                    border:     `1px solid ${b.status === 'Active' ? '#A7F3D0' : '#FECACA'}`,
+                  }}>
+                    {b.status === 'Active' ? <CheckCircle size={10} /> : <XCircle size={10} />}
+                    {b.status}
+                  </span>
                 </div>
 
-                {/* Info rows */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginBottom: 14 }}>
-                  <InfoRow icon={<MapPin size={12} />}  text={b.address} />
-                  <InfoRow icon={<User size={12} />}    text={`Manager: ${b.manager}`} />
-                  <InfoRow icon={<Phone size={12} />}   text={b.phone} />
-                  <InfoRow icon={<Mail size={12} />}    text={b.email} />
+                {/* Info block */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 9, background: '#FAFBFC', border: '1px solid #F1F5F9', borderRadius: 10, padding: '12px 14px', marginBottom: 12 }}>
+                  <InfoRow icon={<MapPin size={13} color="#FD5C02" />} text={`${b.city}, ${b.state}`} />
+                  <InfoRow icon={<User size={13} color="#64748B" />}   text={<><span style={{ color: '#94A3B8' }}>Manager: </span>{b.manager}</>} />
+                  <InfoRow icon={<Phone size={13} color="#059669" />}  text={b.phone} />
+                  <InfoRow icon={<Mail size={13} color="#2563EB" />}   text={b.email} />
                 </div>
 
                 {/* Footer */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 12, borderTop: '1px solid #F1F5F9' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#F5F3FF', border: '1px solid #E9D5FF', padding: '4px 10px', borderRadius: 8 }}>
                     <Warehouse size={13} color="#7C3AED" />
-                    <span style={{ fontSize: 12, color: '#64748B' }}>
-                      <span style={{ fontWeight: 700, color: '#7C3AED' }}>{b.warehouses}</span> Warehouse{b.warehouses !== 1 ? 's' : ''}
+                    <span style={{ fontSize: 12, color: '#6D28D9', fontWeight: 600 }}>
+                      {b.warehouses} Warehouse{b.warehouses !== 1 ? 's' : ''}
                     </span>
                   </div>
                   <div style={{ display: 'flex', gap: 6 }}>
@@ -413,53 +434,58 @@ export default function BranchManagement({ branches = [], addBranch, updateBranc
       {/* ── Add / Edit Modal ── */}
       {(modal === 'add' || modal === 'edit') && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999, padding: 20, backdropFilter: 'blur(2px)' }}>
-          <div style={{ background: '#fff', borderRadius: 18, width: '100%', maxWidth: 560, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
-            <div style={{ padding: '22px 26px 16px', borderBottom: '1px solid #E8EDF3', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ fontSize: 16, fontWeight: 800, color: '#01152D' }}>{modal === 'add' ? 'Add New Branch' : 'Edit Branch'}</div>
-              <button onClick={closeModal} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8', borderRadius: 6, padding: 4, display: 'flex' }}><X size={18} /></button>
+          <div style={{ background: '#fff', borderRadius: 18, width: '100%', maxWidth: 580, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
+            {/* Header with icon */}
+            <div style={{ padding: '20px 26px', borderBottom: '1px solid #E8EDF3', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: 'linear-gradient(135deg,#FFF3EC,#FFE3D0)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <GitBranch size={20} color="#FD5C02" />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 16, fontWeight: 800, color: '#01152D' }}>{modal === 'add' ? 'Add New Branch' : 'Edit Branch'}</div>
+                <div style={{ fontSize: 12, color: '#94A3B8', marginTop: 1 }}>{modal === 'add' ? 'Create a new branch location for your company' : 'Update this branch\u2019s details'}</div>
+              </div>
+              <button onClick={closeModal} style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', cursor: 'pointer', color: '#94A3B8', borderRadius: 8, padding: 6, display: 'flex' }}><X size={18} /></button>
             </div>
-            <div style={{ padding: '22px 26px' }}>
+
+            <div style={{ padding: '20px 26px' }}>
               {errors._global && (
-                <div style={{ marginBottom: 14, padding: '10px 14px', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, fontSize: 13, color: '#DC2626' }}>
-                  {errors._global}
+                <div style={{ marginBottom: 16, padding: '10px 14px', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, fontSize: 13, color: '#DC2626', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <XCircle size={15} style={{ flexShrink: 0 }} />{errors._global}
                 </div>
               )}
-              {F('name', 'Branch Name *', 'e.g. Mysore Branch')}
+
+              {/* Section: Branch Info */}
+              <SectionLabel icon={<Building2 size={13} />} text="Branch Information" />
+              {F('name', 'Branch Name *', 'e.g. Mysore Branch', 'text', { icon: <GitBranch size={15} /> })}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                {F('city',  'City *',  'e.g. Mysore')}
-                {F('state', 'State *', 'e.g. Karnataka')}
-              </div>
-              {F('address', 'Full Address *', 'Street, Area, City – PIN')}
-              {F('manager', 'Branch Manager *', 'Manager name')}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                {F('phone', 'Phone *', '9XXXXXXXXX', 'tel')}
-                {F('email', 'Email *', 'branch@company.com', 'email')}
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                <div style={{ marginBottom: 14 }}>
-                  <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 5 }}>
-                    Branch Type <span style={{ color: '#94A3B8', fontWeight: 400 }}>(optional)</span>
-                  </label>
-                  <input
-                    value={form.type}
-                    onChange={e => setForm(p => ({ ...p, type: e.target.value }))}
-                    placeholder="e.g. Head Office, Branch, Showroom…"
-                    style={{ width: '100%', boxSizing: 'border-box', padding: '9px 11px', border: '1.5px solid #E2E8F0', borderRadius: 8, fontSize: 13, color: '#01152D', background: '#FAFBFC', outline: 'none' }}
-                    onFocus={e => { e.target.style.borderColor = '#FD5C02'; e.target.style.boxShadow = '0 0 0 3px rgba(253,92,2,0.1)' }}
-                    onBlur={e => { e.target.style.borderColor = '#E2E8F0'; e.target.style.boxShadow = 'none' }}
-                  />
-                </div>
-                <div style={{ marginBottom: 14 }}>
-                  <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 5 }}>Status</label>
+                {F('type', 'Branch Type', 'Head Office, Showroom…', 'text', { hint: 'Optional' })}
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 6 }}>Status</label>
                   <select
                     value={form.status}
                     onChange={e => setForm(p => ({ ...p, status: e.target.value }))}
-                    style={{ width: '100%', padding: '9px 11px', border: '1.5px solid #E2E8F0', borderRadius: 8, fontSize: 13, color: '#01152D', background: '#FAFBFC', outline: 'none' }}
+                    style={{ width: '100%', padding: '10px 12px', border: '1.5px solid #E2E8F0', borderRadius: 9, fontSize: 13, color: '#01152D', background: '#FAFBFC', outline: 'none', cursor: 'pointer' }}
                   >
                     <option>Active</option>
                     <option>Inactive</option>
                   </select>
                 </div>
+              </div>
+
+              {/* Section: Location */}
+              <SectionLabel icon={<MapPin size={13} />} text="Location" />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                {F('city',  'City *',  'e.g. Mysore', 'text', { icon: <MapPin size={15} /> })}
+                {F('state', 'State *', 'e.g. Karnataka')}
+              </div>
+              {F('address', 'Full Address *', 'Street, Area, City \u2013 PIN')}
+
+              {/* Section: Contact */}
+              <SectionLabel icon={<User size={13} />} text="Contact" />
+              {F('manager', 'Branch Manager *', 'Manager name', 'text', { icon: <User size={15} /> })}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                {F('phone', 'Mobile Number *', '9876543210', 'tel', { prefix: '+91', hint: '10-digit number' })}
+                {F('email', 'Email *', 'branch@company.com', 'email', { icon: <Mail size={15} /> })}
               </div>
             </div>
             <div style={{ padding: '14px 26px 22px', borderTop: '1px solid #E8EDF3', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
@@ -501,6 +527,18 @@ function InfoRow({ icon, text }) {
     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 7 }}>
       <span style={{ color: '#94A3B8', flexShrink: 0, marginTop: 1 }}>{icon}</span>
       <span style={{ fontSize: 12.5, color: '#475569', lineHeight: 1.4 }}>{text}</span>
+    </div>
+  )
+}
+
+function SectionLabel({ icon, text }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 6,
+      fontSize: 11, fontWeight: 800, letterSpacing: '0.6px', textTransform: 'uppercase',
+      color: '#FD5C02', margin: '4px 0 12px', paddingBottom: 7, borderBottom: '1px solid #F1F5F9',
+    }}>
+      <span style={{ display: 'flex' }}>{icon}</span>{text}
     </div>
   )
 }

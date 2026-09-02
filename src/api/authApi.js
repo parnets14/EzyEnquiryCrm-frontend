@@ -19,6 +19,26 @@ export const authApi = {
   verifyOtp: (target, otp, purpose = 'login') =>
     api.post('/auth/verify-otp', { target, otp, purpose }).then(r => r.data),
 
+  // ── Register a new company (public onboarding step 1) ──────
+  // Creates Company + Owner user. Returns { userId, companyId, companyCode }.
+  register: (data) =>
+    api.post('/auth/register', data).then(r => r.data),
+
+  // ── Upload KYC documents (public onboarding step 2) ────────
+  // `files` is an object like { gst: File, pan: File, trade: File, reg: File }.
+  // Identified by `mobile`. Sent as multipart/form-data.
+  uploadDocs: (mobile, files = {}) => {
+    const fd = new FormData()
+    fd.append('mobile', mobile)
+    Object.entries(files).forEach(([field, file]) => { if (file) fd.append(field, file) })
+    // IMPORTANT: do NOT hardcode 'multipart/form-data' — that omits the boundary
+    // and the server can't parse the files. Setting Content-Type to undefined
+    // lets axios/the browser generate the correct multipart boundary itself.
+    return api.post('/auth/upload-docs', fd, {
+      headers: { 'Content-Type': undefined },
+    }).then(r => r.data)
+  },
+
   // ── Get logged-in user profile ────────────────────────────
   me: () =>
     api.get('/auth/me').then(r => r.data),
