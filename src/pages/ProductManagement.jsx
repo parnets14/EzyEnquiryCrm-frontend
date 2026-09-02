@@ -1,5 +1,9 @@
 ﻿import { useState, useRef, useEffect, useCallback } from 'react'
 import { Plus, Search, Trash2, Package, Eye, Edit2, X, ChevronDown, RotateCcw, Layers, Box, DollarSign, Info, Image as ImageIcon, CheckCircle, XCircle, ChevronLeft, ChevronRight, Download } from 'lucide-react'
+import usePermissions from '../hooks/usePermissions'
+import { useAuth } from '../context/AuthContext'
+import { productApi } from '../api/productApi'
+import { MODULES } from '../config/permissions'
 
 // â”€â”€ Constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const SIZES = [
@@ -23,12 +27,12 @@ function calcSqftPerBox(size, pcsPerBox) {
 const FINISHES   = ['Glossy','Matte','Satin','Anti-Skid','Polished','Rustic','Textured','Natural']
 const SURFACES   = ['Polished','Unpolished','Matt','Glossy','Rough','Structured']
 const GRADES     = ['Grade A','Grade B','Grade C','First Quality','Second Quality','Commercial']
-const TILE_TYPES = ['Floor Tile','Wall Tile','Floor & Wall','Outdoor','Pool Tile','Mosaic','Subway']
-const AREAS      = ['Living Room','Bedroom','Bathroom','Kitchen','Outdoor','Commercial','Swimming Pool']
+const TILE_TYPES = ['All','Floor Tile','Wall Tile','Floor & Wall','Outdoor','Pool Tile','Mosaic','Subway']
+const AREAS      = ['All','Living Room','Bedroom','Bathroom','Kitchen','Outdoor','Commercial','Swimming Pool']
 const ANTI_SKIDS = ['R9','R10','R11','R12','Non Slip','Normal']
 const ORIGINS    = ['India','Italy','Spain','China','Portugal','Brazil','Turkey','UAE']
 const UNITS      = ['Sq Ft','Sq Mtr','Piece','Box','Nos']
-const GST_OPTS   = ['5','12','18','28']
+const GST_OPTS   = ['0','5','12','18','28']
 const SALE_MODES = ['Box Only','Sq.Ft Only','Piece Only','Box + Sq.Ft']
 const SALE_TYPES = ['Regular Sale','B2B Sale','Export Sale','Project Sale']
 const PROD_TYPES = ['Regular Product','Premium Product','Economy Product','Exclusive Product']
@@ -36,6 +40,30 @@ const PROD_TYPES = ['Regular Product','Premium Product','Economy Product','Exclu
 const IMG_BASE = import.meta.env.VITE_API_URL
   ? import.meta.env.VITE_API_URL.replace('/api', '')
   : 'http://localhost:5000'
+
+function creatorTypeOf(product = {}) {
+  if (product.created_by_type) return product.created_by_type
+
+  const creatorRole = String(product.created_by?.role || '').toLowerCase()
+  if (creatorRole.includes('retail')) return 'Retailer'
+  if (creatorRole.includes('whole')) return 'Wholesaler'
+  if (creatorRole.includes('admin')) return 'Admin'
+
+  const companyType = String(product.company_id?.biz_type || '').toLowerCase()
+  if (companyType.includes('retail')) return 'Retailer'
+  if (companyType.includes('whole')) return 'Wholesaler'
+
+  // RPD is a reliable RetailerApp legacy prefix. PRD is shared by Admin and
+  // Wholesaler creation flows, so it must never be used to infer Admin.
+  if (String(product.code || '').toUpperCase().startsWith('RPD-')) return 'Retailer'
+  return 'Unknown'
+}
+
+function creatorLabelOf(product = {}) {
+  const type = creatorTypeOf(product)
+  const name = String(product.created_by?.name || '').trim()
+  return name ? `${type} · ${name}` : type
+}
 
 const EMPTY_FORM = {
   code:'', name:'', alias:'', description:'', hsn_code:'',
@@ -49,8 +77,9 @@ const EMPTY_FORM = {
   // discount % fields (off MRP)
   retail_discount:'', dealer_discount:'', wholesale_discount:'', project_discount:'',
   min_stock_level:'', reorder_level:'',
+  opening_stock:'', warehouse_id:'',
   status:'Active', sales_type:'Regular Sale', product_type:'Regular Product',
-  new_arrival: false, featured: false, online_visible: true, dealer_visible: true,
+  new_arrival: false, featured: false,
 }
 
 function imgUrl(p) {
@@ -215,12 +244,10 @@ ${(v(p.design)||v(p.collection)||v(p.pcs_per_box)||v(p.sqft_per_box)||v(p.weight
 
 <!-- Flags -->
 <div class="section">
-  <div class="section-title">Visibility &amp; Flags</div>
+  <div class="section-title">Product Flags</div>
   <div class="flags">
     ${flag('New Arrival',    !!p.new_arrival)}
     ${flag('Featured',       !!p.featured)}
-    ${flag('Online Visible', p.online_visible !== false)}
-    ${flag('Dealer Visible', p.dealer_visible !== false)}
   </div>
 </div>
 
@@ -567,7 +594,7 @@ function PriceDiscountInput({ label, required, priceValue, onPriceChange, discou
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // PRODUCT FORM MODAL
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-function ProductFormModal({ editProduct, brands, categories, subCategories, onSave, onClose, saving }) {
+function ProductFormModal({ editProduct, brands, categories, subCategories, warehouses = [], onSave, onClose, saving }) {
   const [form, setForm]         = useState(EMPTY_FORM)
   const [errors, setErrors]     = useState({})
   const [imageFiles, setImageFiles]         = useState([])
@@ -630,8 +657,6 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, onSa
         product_type:      editProduct.product_type      || 'Regular Product',
         new_arrival:       !!editProduct.new_arrival,
         featured:          !!editProduct.featured,
-        online_visible:    editProduct.online_visible    !== false,
-        dealer_visible:    editProduct.dealer_visible    !== false,
       })
       setExistingImages(editProduct.image_urls || [])
     } else {
@@ -646,9 +671,9 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, onSa
   const set = useCallback((field, val) => setForm(f => {
     const next = { ...f, [field]: val }
     // Auto-calculate Sqft/Box when tile size or pcs/box changes.
+    // Always overwrite (including clearing) so a stale value is never left behind.
     if (field === 'size' || field === 'pcs_per_box') {
-      const sqft = calcSqftPerBox(next.size, next.pcs_per_box)
-      if (sqft) next.sqft_per_box = sqft
+      next.sqft_per_box = calcSqftPerBox(next.size, next.pcs_per_box)
     }
     // Auto-calculate rates from MRP + discount %.
     // rate = MRP * (1 - discount/100). Maps each rate to its discount field.
@@ -678,12 +703,27 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, onSa
     return next
   }), [])
 
+  const activeWarehouses = warehouses.filter(warehouse => warehouse.is_active !== false)
+  const warehouseOptions = activeWarehouses.map(warehouse => ({
+    value: warehouse._id || warehouse.id,
+    label: [warehouse.name, warehouse.warehouse_code, warehouse.city].filter(Boolean).join(' · '),
+  }))
+
   const validate = () => {
     const e = {}
     if (!form.name.trim()) e.name = 'Product name is required'
     if (!form.brand_id)    e.brand_id = 'Brand is required'
     if (!form.category_id) e.category_id = 'Category is required'
     if (!form.unit)        e.unit = 'Unit is required'
+
+    if (!editProduct) {
+      const openingStock = form.opening_stock === '' ? 0 : Number(form.opening_stock)
+      if (!Number.isFinite(openingStock) || openingStock < 0) {
+        e.opening_stock = 'Opening stock must be zero or more'
+      } else if (openingStock > 0 && !form.warehouse_id) {
+        e.warehouse_id = 'Select a warehouse for opening stock'
+      }
+    }
     return e
   }
 
@@ -695,6 +735,7 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, onSa
     // when imageFiles is present. Field name 'file' matches multer's uploadImages middleware.
     const payload = {
       name:            form.name.trim(),
+      alias:           form.alias.trim(),
       brand_id:        form.brand_id        || null,
       category_id:     form.category_id     || null,
       sub_category_id: form.sub_category_id || null,
@@ -738,16 +779,16 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, onSa
       product_type:    form.product_type,
       new_arrival:     form.new_arrival,
       featured:        form.featured,
-      online_visible:  form.online_visible,
-      dealer_visible:  form.dealer_visible,
       // For update: kept existing image URLs
       image_urls:      existingImages,
       // imageFiles is the key productApi looks for - File[] array, field name 'file' for multer
       imageFiles:      imageFiles,
     }
 
-    if (!editProduct && form.code.trim()) {
-      payload.code = form.code.trim()
+    if (!editProduct) {
+      if (form.code.trim()) payload.code = form.code.trim()
+      payload.opening_stock = form.opening_stock === '' ? 0 : Number(form.opening_stock)
+      payload.warehouse_id = form.warehouse_id || null
     }
 
     await onSave(payload)
@@ -762,9 +803,28 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, onSa
     return opts.some(o => o.value === cur) ? opts : [{ value: cur, label: cur }, ...opts]
   }
 
-  const brandOpts    = brands.map(b => ({ value: b._id || b.id, label: b.name }))
-  const catOpts      = categories.filter(c => !c.parent_id).map(c => ({ value: c._id || c.id, label: c.name }))
-  const subCatOpts   = filteredSubs.map(s => ({ value: s._id || s.id, label: s.name }))
+  const withCurrentReference = (opts, reference, current) => {
+    const value = String(current || reference?._id || reference?.id || '').trim()
+    if (!value || opts.some(option => String(option.value) === value)) return opts
+    const label = typeof reference === 'object' && reference?.name ? reference.name : value
+    return [{ value, label }, ...opts]
+  }
+
+  const brandOpts = withCurrentReference(
+    brands.map(b => ({ value: b._id || b.id, label: b.name })),
+    editProduct?.brand_id,
+    form.brand_id
+  )
+  const catOpts = withCurrentReference(
+    categories.filter(c => !c.parent_id).map(c => ({ value: c._id || c.id, label: c.name })),
+    editProduct?.category_id,
+    form.category_id
+  )
+  const subCatOpts = withCurrentReference(
+    filteredSubs.map(s => ({ value: s._id || s.id, label: s.name })),
+    editProduct?.sub_category_id,
+    form.sub_category_id
+  )
   const sizeOpts     = withCurrent(SIZES.map(s => ({ value: s, label: s + ' MM' })), form.size)
   const finishOpts   = withCurrent(FINISHES.map(s => ({ value: s, label: s })), form.finish)
   const surfaceOpts  = withCurrent(SURFACES.map(s => ({ value: s, label: s })), form.surface)
@@ -932,7 +992,7 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, onSa
             </div>
             <div>
               <label className="form-label">Pcs/Box</label>
-              <input className="form-control" type="number" min="0" placeholder="0" value={form.pcs_per_box} onChange={e=>set('pcs_per_box',e.target.value)} />
+              <input className="form-control" type="number" min="0" placeholder="0" value={form.pcs_per_box} onChange={e=>set('pcs_per_box',e.target.value.replace(/^0+(?=\d)/,''))} />
             </div>
             <div>
               <label className="form-label">Sqft/Box <span style={{ fontWeight: 400, color: 'var(--text-muted, #94a3b8)', fontSize: 11 }}>(auto)</span></label>
@@ -943,6 +1003,55 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, onSa
               <input className="form-control" type="number" min="0" step="0.01" placeholder="0.00" value={form.weight_per_box} onChange={e=>set('weight_per_box',e.target.value)} />
             </div>
           </div>
+
+          {!editProduct && (
+            <>
+              <FormSection title="Opening Stock (Optional)" />
+              <div style={{
+                background:'#F8FAFC', border:'1px solid var(--border)', borderRadius:10,
+                padding:14,
+              }}>
+                <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:12, lineHeight:1.5 }}>
+                  Enter the quantity physically available now. This creates stock in the selected warehouse.
+                  Min Stock Level and Reorder Level below are warning thresholds only; they are not available stock.
+                </div>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
+                  <div>
+                    <SelectField
+                      label="Warehouse"
+                      required={Number(form.opening_stock) > 0}
+                      value={form.warehouse_id}
+                      onChange={v => set('warehouse_id', v)}
+                      options={warehouseOptions}
+                      placeholder={activeWarehouses.length ? 'Select warehouse' : 'No active warehouses available'}
+                      disabled={!activeWarehouses.length}
+                    />
+                    {errors.warehouse_id && <span className="form-error">{errors.warehouse_id}</span>}
+                  </div>
+                  <div>
+                    <label className="form-label">Opening Stock</label>
+                    <input
+                      className={`form-control${errors.opening_stock ? ' error' : ''}`}
+                      type="number"
+                      min="0"
+                      step="any"
+                      placeholder="0"
+                      value={form.opening_stock}
+                      disabled={!activeWarehouses.length}
+                      onChange={e => set('opening_stock', e.target.value)}
+                    />
+                    {errors.opening_stock && <span className="form-error">{errors.opening_stock}</span>}
+                  </div>
+                </div>
+                {!activeWarehouses.length && (
+                  <div style={{ marginTop:10, fontSize:11.5, color:'#B45309' }}>
+                    No active warehouse is available. Create or activate a warehouse first to add opening stock.
+                    You can still create this product with zero stock.
+                  </div>
+                )}
+              </div>
+            </>
+          )}
 
           {/* â”€â”€ PRICING â”€â”€ */}
           <FormSection title="Pricing" />
@@ -995,11 +1104,9 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, onSa
               options={PROD_TYPES}
             />
           </div>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:20, marginTop:16 }}>
-            <Toggle label="New Arrival"    checked={form.new_arrival}    onChange={v=>set('new_arrival',v)} />
-            <Toggle label="Featured"       checked={form.featured}       onChange={v=>set('featured',v)} />
-            <Toggle label="Online Visible" checked={form.online_visible} onChange={v=>set('online_visible',v)} />
-            <Toggle label="Dealer Visible" checked={form.dealer_visible} onChange={v=>set('dealer_visible',v)} />
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:20, marginTop:16 }}>
+            <Toggle label="New Arrival" checked={form.new_arrival} onChange={v=>set('new_arrival',v)} />
+            <Toggle label="Featured"    checked={form.featured}    onChange={v=>set('featured',v)} />
           </div>
 
           {/* â”€â”€ IMAGES â”€â”€ */}
@@ -1031,7 +1138,7 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, onSa
 // ══════════════════════════════════════════════════════════════
 // PRODUCT DETAIL VIEW MODAL — clean full-detail layout
 // ══════════════════════════════════════════════════════════════
-function ProductViewModal({ product: p, loading, onClose, onEdit }) {
+function ProductViewModal({ product: p, loading, onClose, onEdit, canEdit, canExport }) {
   const [imgIdx, setImgIdx] = useState(0)
   if (!p) return null
 
@@ -1121,13 +1228,17 @@ function ProductViewModal({ product: p, loading, onClose, onEdit }) {
             </div>
           </div>
           <div style={{ display:'flex', gap:7, flexShrink:0 }}>
-            <button className="btn btn-sm" onClick={() => downloadProduct(p)}
-              style={{ background:'var(--info)', color:'#fff', gap:5 }}>
-              <Download size={13}/> Download
-            </button>
-            <button className="btn btn-sm btn-secondary" onClick={() => onEdit(p)} style={{ gap:5 }}>
-              <Edit2 size={13}/> Edit
-            </button>
+            {canExport && (
+              <button className="btn btn-sm" onClick={() => downloadProduct(p)}
+                style={{ background:'var(--info)', color:'#fff', gap:5 }}>
+                <Download size={13}/> Download
+              </button>
+            )}
+            {canEdit && (
+              <button className="btn btn-sm btn-secondary" onClick={() => onEdit(p)} style={{ gap:5 }}>
+                <Edit2 size={13}/> Edit
+              </button>
+            )}
             <button className="modal-close" onClick={onClose}><X size={16}/></button>
           </div>
         </div>
@@ -1205,6 +1316,9 @@ function ProductViewModal({ product: p, loading, onClose, onEdit }) {
                 <Field label="Product Code"  value={v(p.code)}                                       mono highlight showEmpty />
                 <Field label="Product Name"  value={v(p.name)}                                       highlight showEmpty />
                 <Field label="Alias"         value={v(p.alias)} showEmpty />
+                <Field label="Owner Company" value={v(p.company_id?.name)} />
+                <Field label="Company Type"  value={v(p.company_id?.biz_type)} />
+                <Field label="Added By"      value={creatorLabelOf(p)} highlight />
                 <Field label="Brand"         value={v(p.brand_name)    || v(p.brand_id?.name)} showEmpty />
                 <Field label="Category"      value={v(p.category_name) || v(p.category_id?.name)} showEmpty />
                 <Field label="Sub-Category"  value={v(p.sub_category_name) || v(p.sub_category_id?.name)} showEmpty />
@@ -1283,14 +1397,12 @@ function ProductViewModal({ product: p, loading, onClose, onEdit }) {
             </div>
           )}
 
-          {/* ── Visibility & Flags ── */}
+          {/* ── Product Flags ── */}
           <div>
-            <SectionTitle icon="🔖" title="Visibility & Flags" />
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10 }}>
-              <Flag label="New Arrival"    on={!!p.new_arrival} />
-              <Flag label="Featured"       on={!!p.featured} />
-              <Flag label="Online Visible" on={p.online_visible !== false} />
-              <Flag label="Dealer Visible" on={p.dealer_visible !== false} />
+            <SectionTitle icon="🔖" title="Product Flags" />
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:10 }}>
+              <Flag label="New Arrival" on={!!p.new_arrival} />
+              <Flag label="Featured"    on={!!p.featured} />
             </div>
           </div>
 
@@ -1306,20 +1418,24 @@ function ProductViewModal({ product: p, loading, onClose, onEdit }) {
         {/* ── Footer ── */}
         <div className="modal-footer" style={{ position:'sticky', bottom:0, background:'var(--surface)', zIndex:10 }}>
           <button className="btn btn-secondary" onClick={onClose}>Close</button>
-          <button className="btn btn-sm" onClick={() => downloadProduct(p)}
-            style={{ background:'var(--info)', color:'#fff', gap:5 }}>
-            <Download size={13}/> Download Sheet
-          </button>
-          <button className="btn btn-primary" onClick={() => onEdit(p)}>
-            <Edit2 size={13}/> Edit Product
-          </button>
+          {canExport && (
+            <button className="btn btn-sm" onClick={() => downloadProduct(p)}
+              style={{ background:'var(--info)', color:'#fff', gap:5 }}>
+              <Download size={13}/> Download Sheet
+            </button>
+          )}
+          {canEdit && (
+            <button className="btn btn-primary" onClick={() => onEdit(p)}>
+              <Edit2 size={13}/> Edit Product
+            </button>
+          )}
         </div>
       </div>
     </div>
   )
 }
 
-function RecycleBinModal({ onClose, onRestored, onPermanentDeleted }) {
+function RecycleBinModal({ onClose, onRestored, canRestore }) {
   const [items,   setItems]   = useState([])
   const [loading, setLoading] = useState(true)
   const [search,  setSearch]  = useState('')
@@ -1339,6 +1455,7 @@ function RecycleBinModal({ onClose, onRestored, onPermanentDeleted }) {
   useEffect(() => { load() }, [load])
 
   const handleRestore = async (id) => {
+    if (!canRestore) return
     setBusy(id)
     try {
       const { productApi } = await import('../api/productApi')
@@ -1346,18 +1463,6 @@ function RecycleBinModal({ onClose, onRestored, onPermanentDeleted }) {
       setItems(p => p.filter(x => (x._id || x.id) !== id))
       onRestored()
     } catch (e) { alert('Restore failed: ' + (e?.message || 'Error')) }
-    finally { setBusy(null) }
-  }
-
-  const handlePermanentDelete = async (id, name) => {
-    if (!window.confirm(`Permanently delete "${name}"? This CANNOT be undone.`)) return
-    setBusy(id)
-    try {
-      const { productApi } = await import('../api/productApi')
-      await productApi.delete(id)
-      setItems(p => p.filter(x => (x._id || x.id) !== id))
-      onPermanentDeleted()
-    } catch (e) { alert('Delete failed: ' + (e?.message || 'Error')) }
     finally { setBusy(null) }
   }
 
@@ -1438,24 +1543,18 @@ function RecycleBinModal({ onClose, onRestored, onPermanentDeleted }) {
                     </div>
 
                     {/* Actions */}
-                    <div style={{ display:'flex', gap:6, flexShrink:0 }}>
-                      <button
-                        className="btn btn-sm"
-                        disabled={isBusy}
-                        onClick={() => handleRestore(id)}
-                        style={{ background:'var(--success)', color:'#fff', fontSize:12, gap:5 }}
-                      >
-                        <RotateCcw size={12}/> {isBusy ? '…' : 'Restore'}
-                      </button>
-                      <button
-                        className="btn btn-sm btn-danger"
-                        disabled={isBusy}
-                        onClick={() => handlePermanentDelete(id, p.name)}
-                        style={{ fontSize:12, gap:5 }}
-                      >
-                        <Trash2 size={12}/> {isBusy ? '…' : 'Delete'}
-                      </button>
-                    </div>
+                    {canRestore && (
+                      <div style={{ display:'flex', gap:6, flexShrink:0 }}>
+                        <button
+                          className="btn btn-sm"
+                          disabled={isBusy}
+                          onClick={() => handleRestore(id)}
+                          style={{ background:'var(--success)', color:'#fff', fontSize:12, gap:5 }}
+                        >
+                          <RotateCcw size={12}/> {isBusy ? '…' : 'Restore'}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )
               })}
@@ -1465,7 +1564,7 @@ function RecycleBinModal({ onClose, onRestored, onPermanentDeleted }) {
 
         <div className="modal-footer" style={{ position:'sticky', bottom:0, background:'var(--surface)', zIndex:10 }}>
           <span style={{ fontSize:12, color:'var(--text-muted)', flex:1 }}>
-            Restore to bring back to products list · Permanent delete cannot be undone
+            Restore a deleted product to return it to the products list
           </span>
           <button className="btn btn-secondary" onClick={onClose}>Close</button>
         </div>
@@ -1478,9 +1577,19 @@ function RecycleBinModal({ onClose, onRestored, onPermanentDeleted }) {
 // MAIN PAGE
 // ══════════════════════════════════════════════════════════════
 export default function ProductManagement({
-  products = [], categories = [], subCategories = [], brands = [],
+  products = [], categories = [], subCategories = [], brands = [], warehouses = [],
   addProduct, updateProduct, deleteProduct, loadingData,
 }) {
+  const { canPerform } = usePermissions()
+  const { user } = useAuth()
+  const isSuperAdmin = user?.role === 'Super Admin'
+  const mayCreate = canPerform(MODULES.PRODUCTS, 'create')
+  const mayEdit = canPerform(MODULES.PRODUCTS, 'edit')
+  const mayDelete = canPerform(MODULES.PRODUCTS, 'delete')
+  const mayViewDeleted = canPerform(MODULES.PRODUCTS, 'view_deleted')
+  const mayRestore = canPerform(MODULES.PRODUCTS, 'restore')
+  const mayExport = canPerform(MODULES.PRODUCTS, 'export')
+
   const [search,       setSearch]       = useState('')
   const [filterBrand,  setFilterBrand]  = useState('')
   const [filterCat,    setFilterCat]    = useState('')
@@ -1498,6 +1607,53 @@ export default function ProductManagement({
   const [deleteTarget, setDeleteTarget] = useState(null)  // { id, name, step } step=1|2
   const [saving,       setSaving]       = useState(false)
   const [toast,        setToast]        = useState({ msg:'', type:'success' })
+  const [adminProducts, setAdminProducts] = useState(null)
+  const [adminLoading,  setAdminLoading]  = useState(false)
+  const [adminError,    setAdminError]    = useState('')
+  const [editTaxonomy,  setEditTaxonomy]  = useState(null)
+
+  const loadAdminProducts = useCallback(async () => {
+    if (!isSuperAdmin) {
+      setAdminProducts(null)
+      setAdminError('')
+      return
+    }
+    setAdminLoading(true)
+    setAdminError('')
+    try {
+      const allProducts = []
+      let page = 1
+      let hasNext = false
+      do {
+        const response = await productApi.listAll({ page, limit: 500 })
+        const payload = response?.data || response
+        allProducts.push(...(Array.isArray(payload?.products) ? payload.products : []))
+        hasNext = payload?.pagination?.hasNext === true
+        page += 1
+      } while (hasNext)
+      setAdminProducts(allProducts)
+    } catch (error) {
+      console.error('[Products] Failed to load Super Admin catalogue:', error)
+      const message = error?.response?.data?.message || error?.message || 'Could not load the Super Admin product catalogue.'
+      setAdminError(message)
+    } finally {
+      setAdminLoading(false)
+    }
+  }, [isSuperAdmin])
+
+  useEffect(() => { loadAdminProducts() }, [loadAdminProducts])
+
+  const catalogProducts = isSuperAdmin
+    ? (Array.isArray(adminProducts) ? adminProducts : [])
+    : products
+  const productTableLoading = isSuperAdmin ? adminLoading : loadingData
+  const currentCompanyId = user?.company_id?._id || user?.company_id || ''
+  const isOwnedProduct = (product) => {
+    if (!isSuperAdmin) return true
+    const ownerCompanyId = product?.company_id?._id || product?.company_id || ''
+    return Boolean(currentCompanyId) && String(ownerCompanyId) === String(currentCompanyId)
+  }
+  const canManageProduct = (product) => isSuperAdmin || isOwnedProduct(product)
 
   const fire = (msg, type = 'success') => {
     setToast({ msg, type })
@@ -1512,10 +1668,10 @@ export default function ProductManagement({
   })
 
   // unique values for dynamic filter dropdowns
-  const uniqueSizes  = [...new Set(products.map(p => p.size).filter(Boolean))].sort()
-  const uniqueFinish = [...new Set(products.map(p => p.finish).filter(Boolean))].sort()
-  const uniqueTypes  = [...new Set(products.map(p => p.tile_type).filter(Boolean))].sort()
-  const uniqueApps   = [...new Set(products.map(p => p.application).filter(Boolean))].sort()
+  const uniqueSizes  = [...new Set(catalogProducts.map(p => p.size).filter(Boolean))].sort()
+  const uniqueFinish = [...new Set(catalogProducts.map(p => p.finish).filter(Boolean))].sort()
+  const uniqueTypes  = [...new Set(catalogProducts.map(p => p.tile_type).filter(Boolean))].sort()
+  const uniqueApps   = [...new Set(catalogProducts.map(p => p.application).filter(Boolean))].sort()
 
   const activeFilters = [filterBrand, filterCat, filterSubCat, filterStatus,
     filterSize, filterFinish, filterType, filterApp].filter(Boolean).length
@@ -1526,12 +1682,17 @@ export default function ProductManagement({
     setFilterType(''); setFilterApp('')
   }
 
-  const filtered = products.filter(p => {
+  const filtered = catalogProducts.filter(p => {
     const q = search.toLowerCase()
+    const owner = p.company_id && typeof p.company_id === 'object' && (p.company_id.name || p.company_id.company_code)
+      ? p.company_id
+      : null
     if (q && !((p.name||'').toLowerCase().includes(q) ||
                (p.code||'').toLowerCase().includes(q) ||
-               (p.brand_name||'').toLowerCase().includes(q) ||
-               (p.category_name||'').toLowerCase().includes(q))) return false
+               (p.brand_name||p.brand_id?.name||'').toLowerCase().includes(q) ||
+               (p.category_name||p.category_id?.name||'').toLowerCase().includes(q) ||
+               (owner?.name||'').toLowerCase().includes(q) ||
+               (owner?.company_code||'').toLowerCase().includes(q))) return false
     const bid = p.brand_id?._id    || p.brand_id    || ''
     const cid = p.category_id?._id || p.category_id || ''
     const sid = p.sub_category_id?._id || p.sub_category_id || ''
@@ -1547,8 +1708,40 @@ export default function ProductManagement({
     return true
   })
 
-  const openAdd    = ()  => { setEditItem(null); setShowModal(true) }
-  const openEdit   = (p) => { setEditItem(p); setViewItem(null); setShowModal(true) }
+  const openAdd = () => {
+    if (!mayCreate) return fire('You have view-only access. Product creation is not allowed.', 'error')
+    setEditItem(null); setShowModal(true)
+  }
+  const openEdit = async (p) => {
+    if (!mayEdit) return fire('You do not have permission to edit products.', 'error')
+    if (!canManageProduct(p)) return fire('You cannot edit this product.', 'error')
+
+    setEditTaxonomy(null)
+    if (isSuperAdmin && !isOwnedProduct(p)) {
+      const ownerCompanyId = p?.company_id?._id || p?.company_id
+      const productId = p?._id || p?.id
+      try {
+        const response = ownerCompanyId
+          ? await productApi.getCompanyTaxonomy(ownerCompanyId)
+          : await productApi.getProductTaxonomy(productId)
+        const payload = response?.data || response
+        setEditTaxonomy({
+          brands: Array.isArray(payload?.brands) ? payload.brands : [],
+          categories: Array.isArray(payload?.categories) ? payload.categories : [],
+          subCategories: Array.isArray(payload?.subCategories) ? payload.subCategories : [],
+        })
+      } catch (error) {
+        const message = error?.response?.data?.message || error?.message || 'Could not load the owner company taxonomy.'
+        return fire(message, 'error')
+      }
+    }
+
+    setEditItem(p); setViewItem(null); setShowModal(true)
+  }
+  const openRecycleBin = () => {
+    if (!mayViewDeleted) return fire('You do not have permission to view deleted products.', 'error')
+    setShowBin(true)
+  }
   const openView   = async (p) => {
     // Show modal immediately with list data, then fetch full details
     setViewItem(p)
@@ -1562,16 +1755,20 @@ export default function ProductManagement({
     } catch { /* keep showing list data on error */ }
     finally { setViewLoading(false) }
   }
-  const closeModal = ()  => { setShowModal(false); setEditItem(null) }
+  const closeModal = ()  => { setShowModal(false); setEditItem(null); setEditTaxonomy(null) }
   const closeView  = ()  => { setViewItem(null); setViewLoading(false) }
 
   const handleSave = async (payload) => {
+    const requiredActionAllowed = editItem ? mayEdit : mayCreate
+    if (!requiredActionAllowed) return fire('You do not have permission for this product action.', 'error')
+    if (editItem && !canManageProduct(editItem)) return fire('You cannot edit this product.', 'error')
     setSaving(true)
     try {
       const res = editItem
         ? await updateProduct?.(editItem._id || editItem.id, payload)
         : await addProduct?.(payload)
       if (res?.success === false) { fire(`Error: ${res.message}`, 'error'); return }
+      if (isSuperAdmin) await loadAdminProducts()
       fire(editItem ? 'Product updated successfully' : 'Product created successfully')
       closeModal()
     } catch (err) {
@@ -1579,8 +1776,11 @@ export default function ProductManagement({
     } finally { setSaving(false) }
   }
 
-  const handleDelete = (id, name) => {
-    setDeleteTarget({ id, name, step: 1 })
+  const handleDelete = (product) => {
+    if (!mayDelete) return fire('You do not have permission to delete products.', 'error')
+    if (!canManageProduct(product)) return fire('You cannot delete this product.', 'error')
+    const id = product._id || product.id
+    setDeleteTarget({ id, name: product.name, step: 1 })
   }
 
   const handleDeleteStep2 = () => {
@@ -1588,12 +1788,16 @@ export default function ProductManagement({
   }
 
   const handleDeleteConfirm = async () => {
+    if (!mayDelete) return fire('You do not have permission to delete products.', 'error')
     if (!deleteTarget) return
     const { id } = deleteTarget
     setDeleteTarget(null)
     const res = await deleteProduct?.(id)
     if (res?.success === false) fire(`Error: ${res.message}`, 'error')
-    else fire('Product moved to Recycle Bin')
+    else {
+      if (isSuperAdmin) await loadAdminProducts()
+      fire('Product moved to Recycle Bin')
+    }
   }
 
   const fmtP = (v) => {
@@ -1671,14 +1875,34 @@ export default function ProductManagement({
           <div className="page-desc">Manage your complete product catalogue with pricing and specifications</div>
         </div>
         <div className="page-header-actions">
-          <button className="btn btn-secondary" onClick={() => setShowBin(true)} style={{ gap:6 }}>
-            <Trash2 size={14} style={{ color:'var(--danger)' }}/> Recycle Bin
-          </button>
-          <button className="btn btn-primary" onClick={openAdd}>
-            <Plus size={14}/> New Product
-          </button>
+          {mayViewDeleted && (
+            <button className="btn btn-secondary" onClick={openRecycleBin} style={{ gap:6 }}>
+              <Trash2 size={14} style={{ color:'var(--danger)' }}/> Recycle Bin
+            </button>
+          )}
+          {mayCreate && (
+            <button className="btn btn-primary" onClick={openAdd}>
+              <Plus size={14}/> New Product
+            </button>
+          )}
         </div>
       </div>
+
+      {isSuperAdmin && adminError ? (
+        <div style={{
+          display:'flex', alignItems:'center', justifyContent:'space-between', gap:12,
+          background:'#FEF2F2', color:'#991B1B', border:'1px solid #FECACA',
+          borderRadius:10, padding:'11px 14px', marginBottom:16,
+        }}>
+          <div>
+            <div style={{ fontSize:13, fontWeight:800 }}>Could not load all company products</div>
+            <div style={{ fontSize:12, marginTop:2 }}>{adminError}</div>
+          </div>
+          <button className="btn btn-secondary btn-sm" onClick={loadAdminProducts} disabled={adminLoading}>
+            {adminLoading ? 'Retrying…' : 'Retry'}
+          </button>
+        </div>
+      ) : null}
 
       {/* Stats */}
       {(() => {
@@ -1688,9 +1912,9 @@ export default function ProductManagement({
           inactive: { bg: '#FEF2F2', iconBg: '#FEE2E2', iconColor: '#DC2626', textColor: '#B91C1C', borderColor: '#FECACA' },
         }
         const stats = [
-          { label: 'Total Products', val: products.length,                                     type: 'all'      },
-          { label: 'Active',         val: products.filter(p => p.is_active !== false).length,  type: 'active'   },
-          { label: 'Inactive',       val: products.filter(p => p.is_active === false).length,  type: 'inactive' },
+          { label: 'Total Products', val: catalogProducts.length,                                            type: 'all'      },
+          { label: 'Active',         val: catalogProducts.filter(p => p.is_active !== false).length,  type: 'active'   },
+          { label: 'Inactive',       val: catalogProducts.filter(p => p.is_active === false).length,  type: 'inactive' },
         ]
         return (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 16 }}>
@@ -1817,7 +2041,7 @@ export default function ProductManagement({
           <span className="card-title">
             All Products
             <span style={{ fontSize:12, fontWeight:500, color:'var(--text-muted)', marginLeft:6 }}>
-              ({filtered.length}{filtered.length !== products.length ? ` of ${products.length}` : ''})
+              ({filtered.length}{filtered.length !== catalogProducts.length ? ` of ${catalogProducts.length}` : ''})
             </span>
           </span>
         </div>
@@ -1828,6 +2052,7 @@ export default function ProductManagement({
               <tr>
                 <th style={{ width:36 }}>#</th>
                 <th>Product</th>
+                <th>Owner / Added By</th>
                 <th>Brand / Category</th>
                 <th>Specifications</th>
                 <th style={{ textAlign:'center' }}>Packing</th>
@@ -1838,15 +2063,20 @@ export default function ProductManagement({
               </tr>
             </thead>
             <tbody>
-              {loadingData && (
-                <tr><td colSpan={9} style={{ textAlign:'center', padding:32 }}>
+              {productTableLoading && (
+                <tr><td colSpan={10} style={{ textAlign:'center', padding:32 }}>
                   <div className="spinner"/>
                 </td></tr>
               )}
 
-              {!loadingData && filtered.map((p, i) => {
-                const id    = p._id || p.id
-                const thumb = (p.image_urls || []).filter(Boolean)[0]
+              {!productTableLoading && filtered.map((p, i) => {
+                const id      = p._id || p.id
+                const thumb   = (p.image_urls || []).filter(Boolean)[0]
+                const owner     = p.company_id && typeof p.company_id === 'object' ? p.company_id : null
+                const isOwned   = isOwnedProduct(p)
+                const canManage = canManageProduct(p)
+                const addedBy   = creatorTypeOf(p)
+                const creatorName = String(p.created_by?.name || '').trim()
                 const specs = [
                   p.size ? `${p.size.toUpperCase()} MM` : null,
                   p.finish,
@@ -1873,6 +2103,31 @@ export default function ProductManagement({
                             {p.collection && <span style={{ fontSize:11, color:'var(--text-muted)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', maxWidth:120 }}>· {p.collection}</span>}
                           </div>
                         </div>
+                      </div>
+                    </td>
+
+                    {/* Owning company and immutable creator attribution */}
+                    <td style={{ whiteSpace:'nowrap' }}>
+                      <div>
+                        <div style={{ fontSize:12.5, fontWeight:700, color:'var(--text)' }}>
+                          {owner?.name || 'Own company'}
+                        </div>
+                        {owner && (
+                          <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:2 }}>
+                            {[owner.company_code, owner.biz_type ? `Owner: ${owner.biz_type}` : ''].filter(Boolean).join(' · ')}
+                          </div>
+                        )}
+                        <span style={{
+                          display:'inline-block', marginTop:4, fontSize:9, fontWeight:800,
+                          color: addedBy === 'Admin' ? '#1D4ED8' : addedBy === 'Retailer' ? '#047857' : addedBy === 'Wholesaler' ? '#7C3AED' : '#475569',
+                          background: addedBy === 'Admin' ? '#DBEAFE' : addedBy === 'Retailer' ? '#D1FAE5' : addedBy === 'Wholesaler' ? '#EDE9FE' : '#E2E8F0',
+                          borderRadius:4, padding:'2px 6px',
+                        }}>ADDED BY {addedBy.toUpperCase()}</span>
+                        {creatorName && (
+                          <div style={{ fontSize:10.5, color:'var(--text-muted)', marginTop:3 }} title={p.created_by?.role || ''}>
+                            {creatorName}
+                          </div>
+                        )}
                       </div>
                     </td>
 
@@ -1959,32 +2214,40 @@ export default function ProductManagement({
                         <button className="btn btn-ghost btn-xs" title="View Full Details" onClick={()=>openView(p)} style={{ color:'#059669' }}>
                           <Eye size={13}/>
                         </button>
-                        <button className="btn btn-ghost btn-xs" title="Edit" onClick={()=>openEdit(p)} style={{ color:'#3B82F6' }}>
-                          <Edit2 size={13}/>
-                        </button>
-                        <button className="btn btn-ghost btn-xs" title="Download Product Sheet"
-                          style={{ color:'var(--info)' }} onClick={()=>downloadProduct(p)}>
-                          <Download size={13}/>
-                        </button>
-                        <button className="btn btn-ghost btn-xs" title="Move to Recycle Bin"
-                          style={{ color:'var(--danger)' }} onClick={()=>handleDelete(id, p.name)}>
-                          <Trash2 size={13}/>
-                        </button>
+                        {mayEdit && canManage && (
+                          <button className="btn btn-ghost btn-xs" title="Edit" onClick={()=>openEdit(p)} style={{ color:'#3B82F6' }}>
+                            <Edit2 size={13}/>
+                          </button>
+                        )}
+                        {mayExport && (
+                          <button className="btn btn-ghost btn-xs" title="Download Product Sheet"
+                            style={{ color:'var(--info)' }} onClick={()=>downloadProduct(p)}>
+                            <Download size={13}/>
+                          </button>
+                        )}
+                        {mayDelete && canManage && (
+                          <button className="btn btn-ghost btn-xs" title="Move to Recycle Bin"
+                            style={{ color:'var(--danger)' }} onClick={()=>handleDelete(p)}>
+                            <Trash2 size={13}/>
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
                 )
               })}
 
-              {!loadingData && filtered.length === 0 && (
+              {!productTableLoading && filtered.length === 0 && (
                 <tr>
-                  <td colSpan={9}>
+                  <td colSpan={10}>
                     <div className="table-empty">
                       <div className="table-empty-icon"><Package style={{ width:20 }}/></div>
                       <div style={{ fontWeight:600, color:'var(--text)' }}>No products found</div>
                       <div style={{ marginTop:3 }}>{(search || activeFilters > 0)
                         ? 'Try adjusting your search or filters.'
-                        : 'Click "New Product" to add your first product.'
+                        : mayCreate
+                          ? 'Click "New Product" to add your first product.'
+                          : 'No products are available for you to view.'
                       }</div>
                       {activeFilters > 0 && (
                         <button className="btn btn-secondary btn-sm" onClick={clearAll} style={{ marginTop:10 }}>
@@ -2001,12 +2264,13 @@ export default function ProductManagement({
       </div>
 
       {/* ── MODALS ── */}
-      {showModal && (
+      {showModal && (editItem ? mayEdit : mayCreate) && (
         <ProductFormModal
           editProduct={editItem}
-          brands={brands}
-          categories={categories}
-          subCategories={subCategories}
+          brands={editTaxonomy?.brands || brands}
+          categories={editTaxonomy?.categories || categories}
+          subCategories={editTaxonomy?.subCategories || subCategories}
+          warehouses={warehouses}
           onSave={handleSave}
           onClose={closeModal}
           saving={saving}
@@ -2019,19 +2283,24 @@ export default function ProductManagement({
           loading={viewLoading}
           onClose={closeView}
           onEdit={(p) => { closeView(); openEdit(p) }}
+          canEdit={mayEdit && canManageProduct(viewItem)}
+          canExport={mayExport}
         />
       )}
 
-      {showBin && (
+      {showBin && mayViewDeleted && (
         <RecycleBinModal
           onClose={() => setShowBin(false)}
-          onRestored={() => fire('Product restored successfully')}
-          onPermanentDeleted={() => fire('Product permanently deleted', 'error')}
+          onRestored={() => {
+            fire('Product restored successfully')
+            if (isSuperAdmin) loadAdminProducts()
+          }}
+          canRestore={mayRestore}
         />
       )}
 
       {/* ── 2-STEP DELETE CONFIRMATION ── */}
-      {deleteTarget && deleteTarget.step === 1 && (
+      {deleteTarget && mayDelete && deleteTarget.step === 1 && (
         <div className="modal-overlay" onClick={() => setDeleteTarget(null)}>
           <div className="modal" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
@@ -2061,7 +2330,7 @@ export default function ProductManagement({
         </div>
       )}
 
-      {deleteTarget && deleteTarget.step === 2 && (
+      {deleteTarget && mayDelete && deleteTarget.step === 2 && (
         <div className="modal-overlay" onClick={() => setDeleteTarget(null)}>
           <div className="modal" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">

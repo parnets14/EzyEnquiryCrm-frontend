@@ -76,7 +76,7 @@ export default function StockTransfer({
       setShowModal(false)
       resetForm()
     } else {
-      alert(res?.error || 'Failed to create transfer.')
+      alert(res?.message || res?.error || 'Failed to create transfer.')
     }
   }
 
@@ -84,7 +84,7 @@ export default function StockTransfer({
     setBusyId(t._id)
     const res = await updateTransferStatus(t._id, status)
     setBusyId(null)
-    if (!res?.success) alert(res?.error || 'Failed to update status.')
+    if (!res?.success) alert(res?.message || res?.error || 'Failed to update status.')
   }
 
   const confirmDelete = async () => {
@@ -93,7 +93,7 @@ export default function StockTransfer({
     const res = await deleteTransfer(t._id)
     setBusyId(null)
     setDeleteItem(null)
-    if (!res?.success) alert(res?.error || 'Failed to delete transfer.')
+    if (!res?.success) alert(res?.message || res?.error || 'Failed to delete transfer.')
   }
 
   return (

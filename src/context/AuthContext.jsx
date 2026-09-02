@@ -4,6 +4,20 @@
  */
 import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import { authApi as authService } from '../api/authApi'
+import { rolePermissionApi } from '../api/rolePermissionApi'
+import { setLivePermissions, clearLivePermissions } from '../config/permissions'
+
+/** Fetch the current user's effective permissions and publish them to the RBAC layer. */
+async function loadLivePermissions() {
+  try {
+    const res = await rolePermissionApi.me()
+    const payload = res?.data || res
+    if (payload?.permissions) setLivePermissions(payload.permissions)
+  } catch {
+    // No/failed permissions → keep code defaults as fallback.
+    clearLivePermissions()
+  }
+}
 
 const AuthContext = createContext(null)
 
@@ -26,6 +40,7 @@ export function AuthProvider({ children }) {
         const u = res?.data || res
         setUser(u)
         localStorage.setItem('user', JSON.stringify(u))
+        loadLivePermissions()
       })
       .catch(() => {
         // Token invalid/expired/wrong-secret — clear and stay on login
@@ -52,6 +67,7 @@ export function AuthProvider({ children }) {
       localStorage.setItem('isLoggedIn', 'true')
       setToken(tok)
       setUser(u)
+      await loadLivePermissions()
       return { success: true }
     } catch (err) {
       const msg = err.response?.data?.message || err.message || 'Login failed. Please try again.'
@@ -75,6 +91,7 @@ export function AuthProvider({ children }) {
       localStorage.setItem('isLoggedIn', 'true')
       setToken(tok)
       setUser(u)
+      await loadLivePermissions()
       return { success: true }
     } catch (err) {
       const msg = err.response?.data?.message || err.message || 'OTP verification failed.'
@@ -89,6 +106,7 @@ export function AuthProvider({ children }) {
     await authService.logout()
     setToken(null)
     setUser(null)
+    clearLivePermissions()
   }, [])
 
   const isLoggedIn = Boolean(token && user)

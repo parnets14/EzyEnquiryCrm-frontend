@@ -58,6 +58,18 @@ export const productApi = {
   list: (params = {}) =>
     api.get('/products', { params }).then(r => r.data),
 
+  // Super Admin cross-company product catalogue.
+  listAll: (params = {}) =>
+    api.get('/products/admin/all', { params }).then(r => r.data),
+
+  // Active brands/categories belonging to a product owner company.
+  getCompanyTaxonomy: (companyId) =>
+    api.get(`/products/admin/company/${companyId}/taxonomy`).then(r => r.data),
+
+  // Taxonomy for legacy products whose owner company record no longer exists.
+  getProductTaxonomy: (productId) =>
+    api.get(`/products/admin/product/${productId}/taxonomy`).then(r => r.data),
+
   // Full-text marketplace search
   search: (params = {}) =>
     api.get('/products/search', { params }).then(r => r.data),

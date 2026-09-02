@@ -2,9 +2,19 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Plus, Search, Eye, Trash2, X, ChevronDown, FileText,
   CheckCircle, Send, XCircle, RefreshCw, Download,
-  ChevronLeft, ChevronRight, Printer, Edit2, Calendar
+  ChevronLeft, ChevronRight, Printer, Edit2, Calendar, Package
 } from 'lucide-react'
 import api from '../api/index'
+
+// ── Image URL helpers ─────────────────────────────────────────
+const IMG_BASE = import.meta.env.VITE_API_URL
+  ? import.meta.env.VITE_API_URL.replace('/api', '')
+  : 'http://localhost:5000'
+function imgUrl(p) {
+  if (!p) return null
+  if (p.startsWith('http')) return p
+  return `${IMG_BASE}${p}`
+}
 
 // ── API helpers ───────────────────────────────────────────────
 const quotationApi = {
@@ -47,6 +57,7 @@ const emptyRow = () => ({
   unit: 'Box', gst_percent: 18,
   mrp: '', retail_price: '', dealer_price: '', purchase_price: '',
   pcs_per_box: '', sqft_per_box: '',
+  product_image: '',
   qty: 1, rate: '', disc: 0, total: 0,
 })
 
@@ -162,6 +173,7 @@ function ItemsTable({ rows, onChange, products }) {
         purchase_price:    p.purchase_price || '',
         pcs_per_box:       p.pcs_per_box || '',
         sqft_per_box:      p.sqft_per_box || '',
+        product_image:     (p.image_urls || []).filter(Boolean)[0] || '',
         rate,
       }
       next.total = calcRow(next)
@@ -240,6 +252,23 @@ function ItemsTable({ rows, onChange, products }) {
                   color: row.product_id ? '#fff' : 'var(--text-muted)',
                   display:'flex', alignItems:'center', justifyContent:'center',
                   fontSize:11, fontWeight:800 }}>{idx+1}</span>
+
+                {/* Product image thumbnail */}
+                {row.product_id && (
+                  imgUrl(row.product_image) ? (
+                    <img src={imgUrl(row.product_image)} alt={row.product_name}
+                      style={{ width:44, height:44, borderRadius:8, objectFit:'cover',
+                        border:'1px solid var(--border)', flexShrink:0, background:'#fff' }}
+                      onError={(e) => { e.currentTarget.style.display = 'none' }} />
+                  ) : (
+                    <span style={{ width:44, height:44, borderRadius:8, flexShrink:0,
+                      border:'1px solid var(--border)', background:'var(--bg)',
+                      display:'flex', alignItems:'center', justifyContent:'center',
+                      color:'var(--text-muted)' }}>
+                      <Package size={18} />
+                    </span>
+                  )
+                )}
 
                 <div style={{ flex:1 }}>
                   <ProductSearch value={row.product_name} products={products}

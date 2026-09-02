@@ -12,92 +12,118 @@ import {
   Bell, FolderOpen, Settings, UserCircle, LogOut,
   ChevronDown, Menu, X, Layers,
 } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import logoImg from '/logo.png'
+import { useAuth } from '../context/AuthContext'
+import { MODULES, canAccess, onPermissionsChange } from '../config/permissions'
 
 const BRAND = { orange: '#F26522', blue: '#1E2D4A', navy: '#1E2D4A' }
 
 const NAV_CONFIG = [
-  { type: 'item', to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+  { type: 'item', to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', moduleKey: MODULES.DASHBOARD },
   {
     type: 'section', key: 'company', label: 'Company Management', icon: Building2,
     items: [
-      { to: '/company-management/company-registration', icon: Building2, label: 'Company Registration' },
-      { to: '/company-management/branch-management',    icon: GitBranch, label: 'Branch Management' },
-      { to: '/company-management/user-management',      icon: Users,     label: 'User & Role Management' },
+      { to: '/company-management/company-registration', icon: Building2, label: 'Company Registration', moduleKey: MODULES.COMPANY_REGISTRATION },
+      { to: '/company-management/branch-management',    icon: GitBranch, label: 'Branch Management',     moduleKey: MODULES.BRANCH_MANAGEMENT },
+      { to: '/company-management/user-management',      icon: Users,     label: 'User & Role Management', moduleKey: MODULES.USER_MANAGEMENT },
     ],
   },
   {
     type: 'section', key: 'product-setup', label: 'Product Management', icon: Package,
     items: [
-      { to: '/product-management/categories',  icon: Tag,     label: 'Categories' },
-      { to: '/product-management/brands',      icon: Tag,     label: 'Brands' },
-      { to: '/product-management/products',    icon: Package, label: 'Products Management' },
+      { to: '/product-management/categories',  icon: Tag,     label: 'Categories',          moduleKey: MODULES.CATEGORIES },
+      { to: '/product-management/brands',      icon: Tag,     label: 'Brands',              moduleKey: MODULES.BRANDS },
+      { to: '/product-management/products',    icon: Package, label: 'Products Management', moduleKey: MODULES.PRODUCTS },
     ],
   },
   {
     type: 'section', key: 'purchase-inventory', label: 'Purchase & Inventory Management', icon: ShoppingBag,
     items: [
-      { to: '/purchase-inventory/supplier-management',    icon: Building2,      label: 'Supplier Management' },
-      { to: '/purchase-inventory/purchase-management',    icon: PackagePlus,    label: 'Purchase Management' },
-      { to: '/purchase-inventory/warehouse-management',   icon: Warehouse,      label: 'Warehouse Management' },
-      { to: '/purchase-inventory/inventory-management',   icon: BarChart3,      label: 'Inventory Management' },
-      { to: '/purchase-inventory/stock-transfer',         icon: ArrowLeftRight, label: 'Stock Transfer Management' },
+      { to: '/purchase-inventory/supplier-management',    icon: Building2,      label: 'Supplier Management',       moduleKey: MODULES.SUPPLIERS },
+      { to: '/purchase-inventory/purchase-management',    icon: PackagePlus,    label: 'Purchase Management',       moduleKey: MODULES.PURCHASES },
+      { to: '/purchase-inventory/warehouse-management',   icon: Warehouse,      label: 'Warehouse Management',      moduleKey: MODULES.WAREHOUSES },
+      { to: '/purchase-inventory/inventory-management',   icon: BarChart3,      label: 'Inventory Management',      moduleKey: MODULES.INVENTORY },
+      { to: '/purchase-inventory/stock-transfer',         icon: ArrowLeftRight, label: 'Stock Transfer Management', moduleKey: MODULES.STOCK_TRANSFER },
     ],
   },
   {
     type: 'section', key: 'b2b', label: 'Marketplace Management', icon: ShoppingCart,
     items: [
-      { to: '/marketplace/product-search',    icon: Search,        label: 'Product Search' },
-      { to: '/marketplace/enquiry-management',icon: MessageSquare, label: 'Enquiry Management',  badgeKey: 'enquiries' },
-      { to: '/marketplace/order-management',  icon: ShoppingCart,  label: 'Order Management',    badgeKey: 'orders' },
-      { to: '/marketplace/dispatch-management',icon: Truck,        label: 'Dispatch Management', badgeKey: 'dispatch' },
+      { to: '/marketplace/product-search',    icon: Search,        label: 'Product Search',      moduleKey: MODULES.PRODUCT_SEARCH },
+      { to: '/marketplace/enquiry-management',icon: MessageSquare, label: 'Enquiry Management',  moduleKey: MODULES.ENQUIRIES, badgeKey: 'enquiries' },
+      { to: '/marketplace/order-management',  icon: ShoppingCart,  label: 'Order Management',    moduleKey: MODULES.ORDERS,    badgeKey: 'orders' },
+      { to: '/marketplace/dispatch-management',icon: Truck,        label: 'Dispatch Management', moduleKey: MODULES.DISPATCHES, badgeKey: 'dispatch' },
     ],
   },
   {
     type: 'section', key: 'finance', label: 'Finance Management', icon: TrendingUp,
     items: [
-      { to: '/finance/quotation-manager',  icon: FileEdit,   label: 'Quotation Manager' },
-      { to: '/finance/invoice-management', icon: Receipt,    label: 'Invoice Management' },
-      { to: '/finance/sales-management',   icon: TrendingUp, label: 'Sales Management' },
-      { to: '/finance/expense-management', icon: Receipt,    label: 'Expense Management' },
-      { to: '/finance/payment-management', icon: CreditCard, label: 'Payment Management', badgeKey: 'payments' },
-      { to: '/finance/accounts-management',icon: BookOpen,   label: 'Accounts Management' },
-      { to: '/finance/profit-loss',        icon: LineChart,  label: 'Profit & Loss Management' },
+      { to: '/finance/quotation-manager',  icon: FileEdit,   label: 'Quotation Manager',       moduleKey: MODULES.QUOTATIONS },
+      { to: '/finance/invoice-management', icon: Receipt,    label: 'Invoice Management',      moduleKey: MODULES.INVOICES },
+      { to: '/finance/sales-management',   icon: TrendingUp, label: 'Sales Management',        moduleKey: MODULES.SALES },
+      { to: '/finance/expense-management', icon: Receipt,    label: 'Expense Management',      moduleKey: MODULES.EXPENSES },
+      { to: '/finance/payment-management', icon: CreditCard, label: 'Payment Management',      moduleKey: MODULES.PAYMENTS, badgeKey: 'payments' },
+      { to: '/finance/accounts-management',icon: BookOpen,   label: 'Accounts Management',     moduleKey: MODULES.ACCOUNTS },
+      { to: '/finance/profit-loss',        icon: LineChart,  label: 'Profit & Loss Management', moduleKey: MODULES.PROFIT_LOSS },
     ],
   },
   {
     type: 'section', key: 'crm', label: 'CRM Management', icon: UserCheck,
     items: [
-      { to: '/crm/customer-management', icon: UserCheck,     label: 'Customer Management' },
-      { to: '/crm/lead-management',     icon: Target,        label: 'Lead Management' },
-      { to: '/crm/followup-management', icon: CalendarClock, label: 'Follow-up Management' },
+      { to: '/crm/customer-management', icon: UserCheck,     label: 'Customer Management', moduleKey: MODULES.CUSTOMERS },
+      { to: '/crm/lead-management',     icon: Target,        label: 'Lead Management',     moduleKey: MODULES.LEADS },
+      { to: '/crm/followup-management', icon: CalendarClock, label: 'Follow-up Management', moduleKey: MODULES.FOLLOWUPS },
     ],
   },
   {
     type: 'section', key: 'hr', label: 'HR Management', icon: UserCog,
     items: [
-      { to: '/hr/employee-master',     icon: Layers,   label: 'Employee Master Management' },
-      { to: '/hr/employee-management', icon: UserCog,  label: 'Employee Management' },
+      { to: '/hr/employee-master',     icon: Layers,   label: 'Employee Master Management', moduleKey: MODULES.EMPLOYEE_MASTER },
+      { to: '/hr/employee-management', icon: UserCog,  label: 'Employee Management',        moduleKey: MODULES.EMPLOYEE_MANAGEMENT },
     ],
   },
   {
     type: 'section', key: 'reports', label: 'Reports Management', icon: FileBarChart,
     items: [
-      { to: '/reports/dashboard-analytics', icon: PieChart,     label: 'Dashboard Analytics' },
-      { to: '/reports/report-center',       icon: FileBarChart, label: 'Report Center' },
+      { to: '/reports/dashboard-analytics', icon: PieChart,     label: 'Dashboard Analytics', moduleKey: MODULES.DASHBOARD_ANALYTICS },
+      { to: '/reports/report-center',       icon: FileBarChart, label: 'Report Center',       moduleKey: MODULES.REPORT_CENTER },
     ],
   },
   {
     type: 'section', key: 'system', label: 'System Management', icon: Settings,
     items: [
-      { to: '/system/notification-management', icon: Bell,       label: 'Notification Management', badgeKey: 'notifs' },
-      { to: '/system/document-management',     icon: FolderOpen, label: 'Document Management' },
-      { to: '/system/subscription',            icon: CreditCard, label: 'Subscription' },
-      { to: '/system/profile',                 icon: UserCircle, label: 'Profile' },
+      { to: '/system/notification-management', icon: Bell,       label: 'Notification Management', moduleKey: MODULES.NOTIFICATIONS, badgeKey: 'notifs' },
+      { to: '/system/document-management',     icon: FolderOpen, label: 'Document Management',     moduleKey: MODULES.DOCUMENTS },
+      { to: '/system/subscription',            icon: CreditCard, label: 'Subscription',            moduleKey: MODULES.SUBSCRIPTION },
+      { to: '/system/profile',                 icon: UserCircle, label: 'Profile',                 moduleKey: MODULES.PROFILE },
     ],
   },
 ]
+
+/**
+ * Filter NAV_CONFIG down to what the given role can access.
+ * Sections whose children are all hidden are dropped entirely.
+ */
+function navForRole(role) {
+  const out = []
+  for (const node of NAV_CONFIG) {
+    if (node.type === 'item') {
+      if (canAccess(role, node.moduleKey)) out.push(node)
+    } else if (node.type === 'section') {
+      const items = node.items.filter(i => canAccess(role, i.moduleKey))
+      if (items.length) out.push({ ...node, items })
+    }
+  }
+  return out
+}
+
+/** Initials from a display name, e.g. "Ramesh Kumar" -> "RK" */
+function initialsOf(name) {
+  if (!name) return 'U'
+  const parts = String(name).trim().split(/\s+/)
+  return ((parts[0]?.[0] || '') + (parts[1]?.[0] || '')).toUpperCase() || 'U'
+}
 
 const LIGHT = {
   sidebarBg: '#FFFFFF', sidebarBorder: 'rgba(30,45,74,0.10)',
@@ -151,6 +177,16 @@ export default function Layout({
 }) {
   const location = useLocation()
   const navigate = useNavigate()
+  const { user } = useAuth()
+
+  // Rebuild the filtered menu only when the role or live permissions change.
+  // Keeping navItems stable prevents the active-route effect from undoing
+  // accordion clicks after every open/close render.
+  const [permTick, forcePermTick] = useState(0)
+  useEffect(() => onPermissionsChange(() => forcePermTick(t => t + 1)), [])
+
+  const role = user?.role || ''
+  const navItems = useMemo(() => navForRole(role), [role, permTick])
 
   const [dark] = useState(() => localStorage.getItem('erp-theme') === 'dark')
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -169,12 +205,12 @@ export default function Layout({
 
   /* auto-open (accordion) the section that contains the active route */
   useEffect(() => {
-    const active = NAV_CONFIG.find(n =>
+    const active = navItems.find(n =>
       n.type === 'section' &&
       n.items.some(i => location.pathname === i.to || location.pathname.startsWith(i.to + '/'))
     )
     if (active) setOpenKey(active.key)
-  }, [location.pathname])
+  }, [location.pathname, navItems])
 
   /* badge counts from live ERP state */
   const unreadNotifs   = notifications.filter(n => !n.read).length
@@ -211,6 +247,8 @@ export default function Layout({
       BADGES={BADGES}
       onLogout={onLogout}
       onClose={() => setMobileOpen(false)}
+      navItems={navItems}
+      user={user}
     />
   )
 
@@ -321,10 +359,10 @@ export default function Layout({
                 background: `linear-gradient(135deg, ${BRAND.orange}, #FF8A4C)`,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontSize: 10, fontWeight: 800, color: '#fff',
-              }}>SA</div>
+              }}>{initialsOf(user?.name)}</div>
               <div style={{ lineHeight: 1.3 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: T.topbarText }}>Super Admin</div>
-                <div style={{ fontSize: 10, color: T.topbarMuted }}>Owner</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: T.topbarText }}>{user?.name || 'User'}</div>
+                <div style={{ fontSize: 10, color: T.topbarMuted }}>{user?.role || ''}</div>
               </div>
             </div>
           </div>
@@ -354,7 +392,7 @@ export default function Layout({
 /* ═══════════════════════════════════════════════════════
    SIDEBAR CONTENT
 ═══════════════════════════════════════════════════════ */
-function SidebarContent({ T, location, navigate, openKey, toggleSection, hasActive, BADGES, onLogout, onClose }) {
+function SidebarContent({ T, location, navigate, openKey, toggleSection, hasActive, BADGES, onLogout, onClose, navItems = [], user }) {
   return (
     <>
       {/* Logo strip */}
@@ -406,7 +444,7 @@ function SidebarContent({ T, location, navigate, openKey, toggleSection, hasActi
         flex: 1, overflowY: 'auto', padding: '6px 0 8px',
         scrollbarWidth: 'thin', scrollbarColor: 'rgba(255,255,255,0.06) transparent',
       }}>
-        {NAV_CONFIG.map(item => {
+        {navItems.map(item => {
           if (item.type === 'item') {
             const isActive = location.pathname === item.to
             return (
@@ -569,13 +607,13 @@ function SidebarContent({ T, location, navigate, openKey, toggleSection, hasActi
           background: `linear-gradient(135deg, ${BRAND.orange}, #FF8A4C)`,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: 11, fontWeight: 800, color: '#fff',
-        }}>SA</div>
+        }}>{initialsOf(user?.name)}</div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: T.sidebarSectionText, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            Super Admin
+            {user?.name || 'User'}
           </div>
           <div style={{ fontSize: 10, color: T.sidebarText, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            admin@ezyenquiry.com
+            {user?.email || user?.role || ''}
           </div>
         </div>
       </div>

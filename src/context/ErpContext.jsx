@@ -732,7 +732,21 @@ export function ErpProvider({ children }) {
   const addProduct = useCallback(async (data) => {
     try {
       const res = await productApi.create(data)
-      const newProd = res?.data || res
+      const createdData = res?.data || res
+      const openingInventory = createdData?.opening_inventory || null
+      const newProd = createdData && typeof createdData === 'object'
+        ? Object.fromEntries(Object.entries(createdData).filter(([key]) => key !== 'opening_inventory'))
+        : createdData
+
+      if (openingInventory) {
+        try {
+          const inventoryRes = await inventoryApi.list({ limit: 200 })
+          setInventory(arr(inventoryRes, 'inventory'))
+        } catch {
+          setInventory(prev => [openingInventory, ...prev])
+        }
+      }
+
       // Re-fetch the product so it has populated category_name / brand_name
       try {
         const id = newProd._id || newProd.id
@@ -921,10 +935,20 @@ export function ErpProvider({ children }) {
     try {
       const res = await inventoryApi.createTransfer(data)
       const newT = res?.data || res
-      setTransfers(prev => [newT, ...prev])
+      // The create response is a raw doc (unpopulated warehouse/product names).
+      // Refresh the transfer list from the server so the new row shows
+      // From / To / Product properly. Fall back to prepending the raw doc.
+      try {
+        const listRes = await inventoryApi.listTransfers({ limit: 100 })
+        setTransfers(arr(listRes, 'transfers'))
+      } catch {
+        setTransfers(prev => [newT, ...prev])
+      }
       // Refresh inventory since stock moved
-      const invRes = await inventoryApi.list({ limit: 200 })
-      setInventory(arr(invRes, 'inventory'))
+      try {
+        const invRes = await inventoryApi.list({ limit: 200 })
+        setInventory(arr(invRes, 'inventory'))
+      } catch { /* non-fatal — transfer already succeeded */ }
       return { success: true, data: newT }
     } catch (err) {
       return { success: false, message: err.response?.data?.message || 'Transfer failed' }
@@ -935,10 +959,14 @@ export function ErpProvider({ children }) {
     try {
       const res = await inventoryApi.updateTransferStatus(id, status)
       const updated = res?.data || res
+      // Merge the returned doc, preserving the populated display fields the
+      // list endpoint added (the status update response is unpopulated).
       setTransfers(prev => prev.map(t => (t._id === id || t.id === id) ? { ...t, ...updated } : t))
       if (status === 'Completed' || status === 'Cancelled') {
-        const invRes = await inventoryApi.list({ limit: 200 })
-        setInventory(arr(invRes, 'inventory'))
+        try {
+          const invRes = await inventoryApi.list({ limit: 200 })
+          setInventory(arr(invRes, 'inventory'))
+        } catch { /* non-fatal — status already updated */ }
       }
       return { success: true, data: updated }
     } catch (err) {
@@ -950,8 +978,10 @@ export function ErpProvider({ children }) {
     try {
       await inventoryApi.deleteTransfer(id)
       setTransfers(prev => prev.filter(t => t._id !== id && t.id !== id))
-      const invRes = await inventoryApi.list({ limit: 200 })
-      setInventory(arr(invRes, 'inventory'))
+      try {
+        const invRes = await inventoryApi.list({ limit: 200 })
+        setInventory(arr(invRes, 'inventory'))
+      } catch { /* non-fatal — transfer already deleted */ }
       return { success: true }
     } catch (err) {
       return { success: false, message: err.response?.data?.message || 'Failed' }

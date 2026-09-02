@@ -91,40 +91,63 @@ export default function CompanyRegistration() {
   const [previewDoc, setPreviewDoc] = useState(null)
 
   // Map backend company to frontend shape
-  const mapCompany = (c) => ({
-    id:         c.company_code || c._id,
-    _id:        c._id,
-    name:       c.name,
-    owner:      c.owner_name || c.owner_user?.name || '—',
-    bizType:    c.biz_type   || '—',
-    mobile:     c.mobile     || '—',
-    email:      c.email      || '—',
-    gst:        c.gst_number || '',
-    pan:        c.pan_number || '—',
-    city:       c.city       || '—',
-    state:      c.state      || '—',
-    pin:        c.pin_code   || '',
-    plan:       c.subscription_plan || 'Free',
-    status:     c.status,
-    registered: c.created_at
-      ? new Date(c.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
-      : '—',
-    reviewedBy: c.reviewed_by?.name || (c.reviewed_by ? 'Admin' : '—'),
-    rejectReason: c.reject_reason || '',
-    docs: {
-      gst:     c.docs_gst     || false,
-      pan:     c.docs_pan     || false,
-      address: c.docs_address || false,
-      biz:     c.docs_biz     || false,
-    },
-    // Document URLs from backend
-    docUrls: {
-      gst:     c.doc_gst_url   || null,
-      pan:     c.doc_pan_url   || null,
-      address: c.doc_reg_url   || null,
-      biz:     c.doc_trade_url || null,
-    },
-  })
+  const mapCompany = (c) => {
+    const docUrls = {
+      gst: c.doc_gst_url || null,
+      pan: c.doc_pan_url || null,
+      address: c.doc_reg_url || null,
+      biz: c.doc_trade_url || null,
+    }
+    const legacySubmitted = {
+      gst: !!c.docs_gst,
+      pan: !!c.docs_pan,
+      address: !!c.docs_address,
+      biz: !!c.docs_biz,
+    }
+    const uiKeyByType = { gst: 'gst', pan: 'pan', registration: 'address', trade: 'biz' }
+    const canonicalByKey = (c.kyc_documents || []).reduce((result, document) => {
+      const key = uiKeyByType[document.document_type]
+      if (key) result[key] = document
+      return result
+    }, {})
+    const documentDetails = Object.keys(legacySubmitted).reduce((result, key) => {
+      const document = canonicalByKey[key]
+      const submitted = !!document || legacySubmitted[key]
+      result[key] = {
+        submitted,
+        status: document?.status || (submitted ? 'Pending' : 'NotSubmitted'),
+        rejectReason: document?.status === 'Rejected' ? document.reject_reason || '' : '',
+        uploadedAt: document?.uploaded_at || null,
+        downloadAvailable: !!(document?.file_url || docUrls[key]),
+      }
+      return result
+    }, {})
+
+    return {
+      id: c.company_code || c._id,
+      _id: c._id,
+      name: c.name,
+      owner: c.owner_name || c.owner_user?.name || '—',
+      bizType: c.biz_type || '—',
+      mobile: c.mobile || '—',
+      email: c.email || '—',
+      gst: c.gst_number || '',
+      pan: c.pan_number || '—',
+      city: c.city || '—',
+      state: c.state || '—',
+      pin: c.pin_code || '',
+      plan: c.subscription_plan || 'Free',
+      status: c.status,
+      registered: c.created_at
+        ? new Date(c.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+        : '—',
+      reviewedBy: c.reviewed_by?.name || (c.reviewed_by ? 'Admin' : '—'),
+      rejectReason: c.reject_reason || '',
+      docs: Object.fromEntries(Object.entries(documentDetails).map(([key, detail]) => [key, detail.submitted])),
+      documentDetails,
+      docUrls,
+    }
+  }
 
   // Fetch companies from backend
   const fetchApprovalQueue = useCallback(async () => {
@@ -255,9 +278,7 @@ export default function CompanyRegistration() {
       // Update local mock too
       setCompanies(prev => prev.map(c => c.id === id ? { ...c, status: 'Approved', reviewedBy: 'Super Admin' } : c))
     } catch (err) {
-      // Fallback: update local state if API call fails
-      setCompanies(prev => prev.map(c => c.id === id ? { ...c, status: 'Approved', reviewedBy: 'Super Admin' } : c))
-      setApprovalList(prev => prev.map(c => c.id === id ? { ...c, status: 'Approved', reviewedBy: 'Super Admin' } : c))
+      setApiError(err?.response?.data?.message || 'Failed to approve the company. Please try again.')
     }
   }
 
@@ -269,11 +290,26 @@ export default function CompanyRegistration() {
       await fetchApprovalQueue()
       setCompanies(prev => prev.map(c => c.id === id ? { ...c, status: 'Rejected', rejectReason: reason, reviewedBy: 'Super Admin' } : c))
     } catch (err) {
-      setCompanies(prev => prev.map(c => c.id === id ? { ...c, status: 'Rejected', rejectReason: reason, reviewedBy: 'Super Admin' } : c))
-      setApprovalList(prev => prev.map(c => c.id === id ? { ...c, status: 'Rejected', rejectReason: reason, reviewedBy: 'Super Admin' } : c))
+      setApiError(err?.response?.data?.message || 'Failed to reject the company. Please try again.')
     }
     setShowRejectModal(null)
     setRejectReason('')
+  }
+
+  const approveDocuments = async (company) => {
+    if (!company?._id) return
+    try {
+      await companyApi.updateDocs(company._id, {
+        docs_gst: !!company.docs?.gst,
+        docs_pan: !!company.docs?.pan,
+        docs_address: !!company.docs?.address,
+        docs_biz: !!company.docs?.biz,
+      })
+      await fetchApprovalQueue()
+      setViewCompany(null)
+    } catch (err) {
+      setApiError(err?.response?.data?.message || 'Failed to approve the documents. Please try again.')
+    }
   }
 
   // ── Edit handlers ──
@@ -1441,10 +1477,9 @@ export default function CompanyRegistration() {
                           const keys = ['gst','pan','address','biz']
                           const cnt = keys.filter(k => c.docs?.[k]).length
                           const total = keys.length
-                          const backendBase = 'http://10.67.41.163:5000'
-                          const allUrls = keys
-                            .filter(k => c.docs?.[k] && c.docUrls?.[k])
-                            .map(k => `${backendBase}${c.docUrls[k]}`)
+                          const firstDocKey = keys.find(k => c.docs?.[k] && c.docUrls?.[k])
+                          const docLabels = { gst: 'GST Certificate', pan: 'PAN Card', address: 'Address Proof', biz: 'Business Registration' }
+                          const canViewDocument = !!(firstDocKey && c._id)
 
                           const badgeColor =
                             cnt === 0 ? '#DC2626' :
@@ -1459,7 +1494,7 @@ export default function CompanyRegistration() {
                           return (
                             <div style={{
                               display: 'flex', alignItems: 'center', gap: 8,
-                              cursor: allUrls.length > 0 ? 'pointer' : 'default',
+                              cursor: canViewDocument ? 'pointer' : 'default',
                             }} title={`${cnt}/${total} documents uploaded`}>
                               {/* Count badge */}
                               <span style={{
@@ -1476,32 +1511,36 @@ export default function CompanyRegistration() {
                               {/* 4 visual dots */}
                               <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                                 {keys.map(k => {
-                                  const uploaded = c.docs?.[k]
+                                  const detail = c.documentDetails?.[k]
+                                  const uploaded = !!detail?.submitted
+                                  const stateColor = detail?.status === 'Approved'
+                                    ? '#059669'
+                                    : detail?.status === 'Rejected'
+                                      ? '#DC2626'
+                                      : uploaded ? '#D97706' : '#E5E7EB'
                                   return (
                                     <div
                                       key={k}
-                                      title={uploaded ? 'Uploaded' : 'Not uploaded'}
+                                      title={`${docLabels[k]}: ${detail?.status || 'NotSubmitted'}`}
                                       style={{
                                         width: 10,
                                         height: 10,
                                         borderRadius: '50%',
-                                        background: uploaded ? badgeColor : '#E5E7EB',
-                                        boxShadow: uploaded
-                                          ? `0 0 0 2px ${badgeBg}`
-                                          : 'none',
+                                        background: stateColor,
+                                        boxShadow: uploaded ? `0 0 0 2px ${badgeBg}` : 'none',
                                         transition: 'all 0.15s',
                                       }}
                                     />
                                   )
                                 })}
                               </div>
-                              {/* Eye icon — opens first available doc in new tab (multi-open if multiple) */}
-                              {allUrls.length > 0 && (
+                              {/* Eye icon — securely opens the first uploaded document */}
+                              {canViewDocument && (
                                 <Eye
                                   style={{ width: 14, height: 14, color: '#6366F1', flexShrink: 0 }}
                                   onClick={(e) => {
                                     e.stopPropagation()
-                                    allUrls.forEach(u => window.open(u, '_blank', 'noopener'))
+                                    viewDocument({ companyId: c._id, docKey: firstDocKey, label: docLabels[firstDocKey] })
                                   }}
                                 />
                               )}
@@ -1715,12 +1754,24 @@ export default function CompanyRegistration() {
                         { key: 'address', label: 'Address Proof' },
                         { key: 'biz',     label: 'Business Registration' },
                       ].map(doc => {
-                        const uploaded = !!viewCompany.docs?.[doc.key]
-                        const fileObj  = viewCompany.docFiles?.[doc.key] || null
+                        const detail = viewCompany.documentDetails?.[doc.key] || {}
+                        const uploaded = !!detail.submitted
+                        const fileObj = viewCompany.docFiles?.[doc.key] || null
                         // A document exists on the backend for this company
                         const hasBackendDoc = !!viewCompany.docUrls?.[doc.key]
                         const companyDbId = viewCompany._id
                         const canOpen = uploaded && (fileObj || hasBackendDoc)
+                        const documentStatus = detail.status || (uploaded ? 'Pending' : 'NotSubmitted')
+                        const statusColor = documentStatus === 'Approved'
+                          ? '#059669'
+                          : documentStatus === 'Rejected'
+                            ? '#DC2626'
+                            : documentStatus === 'Pending' ? '#D97706' : '#6B7280'
+                        const statusBackground = documentStatus === 'Approved'
+                          ? '#ECFDF5'
+                          : documentStatus === 'Rejected'
+                            ? '#FEF2F2'
+                            : documentStatus === 'Pending' ? '#FFFBEB' : '#F3F4F6'
 
                         return (
                           <div key={doc.key} style={{
@@ -1764,9 +1815,27 @@ export default function CompanyRegistration() {
                             {/* Label + View / Download buttons */}
                             <div style={{ padding: '8px 10px', background: uploaded ? '#F0FDF4' : '#FFF5F5' }}>
                               <div style={{ fontSize: 11, fontWeight: 700, color: uploaded ? '#059669' : '#DC2626', marginBottom: 3 }}>{doc.label}</div>
-                              <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
-                                {uploaded ? '✓ Document available' : '✗ Not uploaded'}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                                <span style={{
+                                  display: 'inline-flex', alignItems: 'center',
+                                  padding: '2px 7px', borderRadius: 999,
+                                  background: statusBackground, color: statusColor,
+                                  border: `1px solid ${statusColor}33`,
+                                  fontSize: 9, fontWeight: 800,
+                                }}>
+                                  {documentStatus === 'NotSubmitted' ? 'NOT UPLOADED' : documentStatus.toUpperCase()}
+                                </span>
+                                {detail.uploadedAt && (
+                                  <span style={{ fontSize: 9, color: 'var(--text-light)' }}>
+                                    {new Date(detail.uploadedAt).toLocaleDateString('en-IN')}
+                                  </span>
+                                )}
                               </div>
+                              {documentStatus === 'Rejected' && detail.rejectReason && (
+                                <div style={{ marginTop: 4, fontSize: 9.5, lineHeight: 1.35, color: '#B91C1C' }}>
+                                  Reason: {detail.rejectReason}
+                                </div>
+                              )}
                               {canOpen && (
                                 <div style={{ display: 'flex', gap: 6, marginTop: 7 }}>
                                   {/* View — open in-app preview */}
@@ -1802,6 +1871,11 @@ export default function CompanyRegistration() {
                   </div>
                 </div>
                 <div className="modal-footer">
+                  {viewCompany.status === 'Approved' && Object.values(viewCompany.documentDetails || {}).some(doc => doc.status === 'Pending') && (
+                    <button className="btn btn-success btn-sm" onClick={() => approveDocuments(viewCompany)}>
+                      <CheckCircle style={{ width: 13 }} />Approve Updated Documents
+                    </button>
+                  )}
                   {viewCompany.status === 'Pending' && (
                     <>
                       <button className="btn btn-success btn-sm" onClick={() => { approveCompany(viewCompany.id); setViewCompany(null) }}>

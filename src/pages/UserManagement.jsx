@@ -1,5 +1,7 @@
-import { useState } from 'react'
-import { Plus, Search, Trash2, Shield, Check, X, Save, Users, UserCheck, UserX, Crown } from 'lucide-react'
+import { useState, useEffect, useMemo } from 'react'
+import { Plus, Search, Trash2, Shield, Check, X, Save, Users, UserCheck, UserX, Crown, Lock, ChevronDown } from 'lucide-react'
+import { rolePermissionApi } from '../api/rolePermissionApi'
+import { PERMISSION_CATALOG } from '../config/permissions'
 
 const ROLES = ['Super Admin', 'Company Owner', 'Manager', 'Accountant', 'Sales Executive', 'Warehouse Staff', 'Retailer', 'Wholesaler']
 
@@ -14,54 +16,56 @@ const roleColors = {
   'Wholesaler':     'badge-gray',
 }
 
-const MODULES = [
-  { module: 'Dashboard',           perms: ['View'] },
-  { module: 'Company Registration',perms: ['View', 'Edit'] },
-  { module: 'User Management',     perms: ['View', 'Add', 'Edit', 'Delete'] },
-  { module: 'Product Management',  perms: ['View', 'Add', 'Edit', 'Delete'] },
-  { module: 'Inventory Management',perms: ['View', 'Stock In', 'Stock Out', 'Transfer'] },
-  { module: 'Product Search',      perms: ['View', 'Enquire'] },
-  { module: 'Enquiry Management',  perms: ['View', 'Create', 'Reply', 'Close'] },
-  { module: 'Order Management',    perms: ['View', 'Create', 'Edit', 'Cancel'] },
-  { module: 'Dispatch Management', perms: ['View', 'Create', 'Update'] },
-  { module: 'Customer Management', perms: ['View', 'Add', 'Edit'] },
-  { module: 'Lead Management',     perms: ['View', 'Add', 'Edit', 'Delete'] },
-  { module: 'Follow-up Management',perms: ['View', 'Add', 'Mark Done'] },
-  { module: 'Sales Management',    perms: ['View', 'Add', 'Export'] },
-  { module: 'Purchase Management', perms: ['View', 'Add', 'Export'] },
-  { module: 'Expense Management',  perms: ['View', 'Add', 'Delete'] },
-  { module: 'Profit & Loss',       perms: ['View', 'Export'] },
-  { module: 'Payment Management',  perms: ['View', 'Record', 'Export'] },
-  { module: 'Employee Management', perms: ['View', 'Add', 'Edit', 'Salary'] },
-  { module: 'Notification System', perms: ['View', 'Configure'] },
-  { module: 'Report Center',       perms: ['View', 'Export'] },
-  { module: 'Warehouse Management',perms: ['View', 'Add', 'Edit'] },
-  { module: 'Document Management', perms: ['View', 'Upload', 'Delete'] },
-  { module: 'Subscription System', perms: ['View', 'Upgrade'] },
-]
-
-const defaultMatrix = () => {
-  const m = {}
-  ROLES.forEach((_role, ri) => {
-    m[ri] = {}
-    MODULES.forEach((mod, mi) => {
-      m[ri][mi] = {}
-      mod.perms.forEach((_perm, pi) => {
-        if      (ri === 0) m[ri][mi][pi] = true                                          // Super Admin – full access
-        else if (ri === 1) m[ri][mi][pi] = pi < 2 || (pi === 2 && mi < 18)              // Company Owner
-        else if (ri === 2) m[ri][mi][pi] = pi === 0 || (pi === 1 && mi >= 5 && mi <= 14)// Manager
-        else if (ri === 3) m[ri][mi][pi] = mi >= 12 && mi <= 18 && pi === 0             // Accountant
-        else if (ri === 4) m[ri][mi][pi] = (mi >= 6 && mi <= 14 && pi <= 1) || mi === 9 // Sales Executive
-        else if (ri === 5) m[ri][mi][pi] = mi === 4 && pi <= 2                          // Warehouse Staff
-        else if (ri === 6) m[ri][mi][pi] = mi === 5 && pi === 0                         // Retailer
-        else               m[ri][mi][pi] = mi === 5 && pi === 0                         // Wholesaler
-      })
-    })
-  })
-  return m
+// Solid accent color per role (used for the dot in the role selector).
+const ROLE_DOT = {
+  'Super Admin':     '#7C3AED',
+  'Company Owner':   '#2563EB',
+  'Manager':         '#0891B2',
+  'Accountant':      '#059669',
+  'Sales Executive': '#F26522',
+  'Warehouse Staff': '#CA8A04',
+  'Retailer':        '#DC2626',
+  'Wholesaler':      '#64748B',
 }
 
 const EMPTY_FORM = { name: '', mobile: '', email: '', password: '', role: 'Sales Executive' }
+
+function normalizeRolePermissions(role, rawPermissions, modules) {
+  const normalized = {}
+  const raw = rawPermissions || {}
+
+  modules.forEach(module => {
+    const storedModule = raw[module.key]
+    normalized[module.key] = {}
+    ;(module.actions || []).forEach(action => {
+      normalized[module.key][action.key] = role === 'Super Admin'
+        ? true
+        : typeof storedModule === 'boolean'
+          ? storedModule
+          : storedModule?.[action.key] === true
+    })
+  })
+
+  return normalized
+}
+
+function normalizePermissionPayload(payload = {}) {
+  const apiModules = Array.isArray(payload.modules) ? payload.modules : []
+  const modules = apiModules.some(module => Array.isArray(module.actions) && module.actions.length)
+    ? apiModules
+    : PERMISSION_CATALOG
+  const apiRoles = new Map((payload.roles || []).map(item => [item.role, item]))
+  const byRole = {}
+  const locked = {}
+
+  ROLES.forEach(role => {
+    const apiRole = apiRoles.get(role)
+    byRole[role] = normalizeRolePermissions(role, apiRole?.permissions, modules)
+    locked[role] = role === 'Super Admin' || apiRole?.locked === true
+  })
+
+  return { modules, byRole, locked }
+}
 
 export default function UserManagement({ users = [], addUser, deleteUser, resetUserPassword, loadingData }) {
   const [mainTab, setMainTab] = useState('users')
@@ -73,10 +77,90 @@ export default function UserManagement({ users = [], addUser, deleteUser, resetU
   const [successMsg, setSuccessMsg] = useState('')
   const [saving, setSaving]         = useState(false)
   const [selectedRole, setSelectedRole] = useState(0)
-  const [matrix, setMatrix]         = useState(defaultMatrix())
-  const [permSaved, setPermSaved]   = useState(false)
+  const [expandedModule, setExpandedModule] = useState(null)
+
+  // ── Roles & Permissions (live, DB-backed) ──────────────────
+  const [permModules, setPermModules] = useState([])   // [{ key, label, category, actions }]
+  const [permByRole, setPermByRole]   = useState({})    // { role: { module: { action: bool } } }
+  const [lockedRoles, setLockedRoles] = useState({})
+  const [draft, setDraft]             = useState(null)
+  const [permLoading, setPermLoading] = useState(false)
+  const [permSaving, setPermSaving]   = useState(false)
+  const [permSaved, setPermSaved]     = useState(false)
+
+  // Permission preview shown inside the Add User modal (for the chosen role).
+  const [modalPermsLoading, setModalPermsLoading] = useState(false)
 
   const toast = (msg) => { setSuccessMsg(msg); setTimeout(() => setSuccessMsg(''), 3500) }
+
+  const selectedRoleName = ROLES[selectedRole]
+
+  // Load the permission matrix when the Roles tab is opened.
+  useEffect(() => {
+    if (mainTab !== 'roles' || permModules.length) return
+    let cancelled = false
+    setPermLoading(true)
+    rolePermissionApi.list()
+      .then(res => {
+        const payload = res?.data || res
+        if (cancelled) return
+        const normalized = normalizePermissionPayload(payload)
+        setPermModules(normalized.modules)
+        setPermByRole(normalized.byRole)
+        setLockedRoles(normalized.locked)
+      })
+      .catch(() => { if (!cancelled) toast('Error: could not load permissions') })
+      .finally(() => { if (!cancelled) setPermLoading(false) })
+    return () => { cancelled = true }
+  }, [mainTab]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Ensure the permission catalog is loaded when the Add User modal opens,
+  // so we can preview the chosen role's module access as a checklist.
+  useEffect(() => {
+    if (!showModal || permModules.length) return
+    let cancelled = false
+    setModalPermsLoading(true)
+    rolePermissionApi.list()
+      .then(res => {
+        const payload = res?.data || res
+        if (cancelled) return
+        const normalized = normalizePermissionPayload(payload)
+        setPermModules(normalized.modules)
+        setPermByRole(normalized.byRole)
+        setLockedRoles(normalized.locked)
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setModalPermsLoading(false) })
+    return () => { cancelled = true }
+  }, [showModal]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Grouped catalog reused by both the Roles tab and the Add User preview.
+  // (defined below as groupedModules)
+
+  // Sync the editable draft whenever the selected role or loaded data changes.
+  useEffect(() => {
+    if (!permByRole[selectedRoleName]) { setDraft(null); return }
+    setDraft(structuredClone(permByRole[selectedRoleName]))
+    setPermSaved(false)
+  }, [selectedRoleName, permByRole])
+
+  // Modules grouped by category for a clean, scannable layout.
+  const groupedModules = useMemo(() => {
+    const groups = {}
+    permModules.forEach(m => { (groups[m.category] ||= []).push(m) })
+    return Object.entries(groups)  // [ [category, modules[]], ... ]
+  }, [permModules])
+
+  const isLocked = !!lockedRoles[selectedRoleName]
+  const dirty = draft && permByRole[selectedRoleName] &&
+    JSON.stringify(draft) !== JSON.stringify(permByRole[selectedRoleName])
+
+  const enabledCount = draft
+    ? Object.values(draft).reduce((total, actions) => total + Object.values(actions || {}).filter(Boolean).length, 0)
+    : 0
+  const totalActionCount = permModules.reduce((total, module) => total + (module.actions?.length || 0), 0)
+  const selectedRoleUserCount = users.filter(user => user.role === selectedRoleName).length
+  const enabledPercent = totalActionCount ? Math.round((enabledCount / totalActionCount) * 100) : 0
 
   const filtered = users.filter(u =>
     (roleFilter === 'All' || u.role === roleFilter) &&
@@ -111,11 +195,56 @@ export default function UserManagement({ users = [], addUser, deleteUser, resetU
     else toast('User removed')
   }
 
-  const togglePerm = (mi, pi) => {
-    setMatrix(prev => { const next = JSON.parse(JSON.stringify(prev)); next[selectedRole][mi][pi] = !next[selectedRole][mi][pi]; return next })
+  const togglePermission = (moduleKey, actionKey) => {
+    if (isLocked) return
+    setDraft(prev => ({
+      ...prev,
+      [moduleKey]: {
+        ...(prev?.[moduleKey] || {}),
+        [actionKey]: !prev?.[moduleKey]?.[actionKey],
+      },
+    }))
     setPermSaved(false)
   }
-  const handlePermSave = () => { setPermSaved(true); setTimeout(() => setPermSaved(false), 2500) }
+
+  const setModuleActions = (module, value) => {
+    if (isLocked) return
+    setDraft(prev => {
+      const next = structuredClone(prev || {})
+      next[module.key] ||= {}
+      module.actions.forEach(item => { next[module.key][item.key] = value })
+      return next
+    })
+    setPermSaved(false)
+  }
+
+  const handlePermReset = () => {
+    if (permByRole[selectedRoleName]) setDraft(structuredClone(permByRole[selectedRoleName]))
+    setPermSaved(false)
+  }
+
+  const handlePermSave = async () => {
+    if (isLocked || !draft) return
+    setPermSaving(true)
+    try {
+      const res = await rolePermissionApi.update(selectedRoleName, draft)
+      const payload = res?.data || res
+      const saved = normalizeRolePermissions(
+        selectedRoleName,
+        payload?.permissions || draft,
+        permModules,
+      )
+      setPermByRole(prev => ({ ...prev, [selectedRoleName]: saved }))
+      setDraft(structuredClone(saved))
+      setPermSaved(true)
+      toast(`Permissions saved for ${selectedRoleName}`)
+      setTimeout(() => setPermSaved(false), 2500)
+    } catch (err) {
+      toast(`Error: ${err.response?.data?.message || 'could not save permissions'}`)
+    } finally {
+      setPermSaving(false)
+    }
+  }
 
   return (
     <>
@@ -273,9 +402,18 @@ export default function UserManagement({ users = [], addUser, deleteUser, resetU
           </div>
 
           {/* Add User Modal */}
-          {showModal && (
+          {showModal && (() => {
+            const roleIsSuper = form.role === 'Super Admin'
+            const rolePerms = permByRole[form.role] || {}
+            const previewOn = (key) => {
+              if (roleIsSuper) return true
+              const modulePermission = rolePerms[key]
+              return typeof modulePermission === 'boolean' ? modulePermission : modulePermission?.view === true
+            }
+            const totalOn = roleIsSuper ? permModules.length : permModules.filter(m => previewOn(m.key)).length
+            return (
             <div className="modal-overlay" onClick={() => setShowModal(false)}>
-              <div className="modal" onClick={e => e.stopPropagation()}>
+              <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 720, width: '92%' }}>
                 <div className="modal-header">
                   <span className="modal-title">Add New User</span>
                   <button className="btn-ghost" onClick={() => setShowModal(false)}>✕</button>
@@ -311,6 +449,59 @@ export default function UserManagement({ users = [], addUser, deleteUser, resetU
                     <input type="password" className={`form-control${errors.password ? ' error' : ''}`} placeholder="Set initial password" value={form.password} onChange={e => setForm(p => ({ ...p, password: e.target.value }))} />
                     {errors.password && <div className="form-error">{errors.password}</div>}
                   </div>
+
+                  {/* ── Access preview for the selected role ── */}
+                  <div style={{ marginTop: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <label className="form-label" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 7 }}>
+                        <Shield style={{ width: 14, color: ROLE_DOT[form.role] || 'var(--text-muted)' }} />
+                        Modules this user can access
+                      </label>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)' }}>
+                        {modalPermsLoading ? 'Loading…' : `${totalOn} enabled`}
+                      </span>
+                    </div>
+
+                    <div style={{
+                      border: '1px solid var(--border)', borderRadius: 10, padding: 12,
+                      maxHeight: 220, overflowY: 'auto', background: '#FAFBFD',
+                    }}>
+                      {modalPermsLoading && (
+                        <div style={{ textAlign: 'center', padding: 20, color: 'var(--text-muted)', fontSize: 13 }}>Loading access…</div>
+                      )}
+                      {!modalPermsLoading && groupedModules.map(([category, mods]) => (
+                        <div key={category} style={{ marginBottom: 12 }}>
+                          <div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--text-muted)', marginBottom: 6 }}>
+                            {category}
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 6 }}>
+                            {mods.map(m => {
+                              const on = previewOn(m.key)
+                              return (
+                                <div key={m.key} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5 }}>
+                                  <span style={{
+                                    width: 17, height: 17, borderRadius: 5, flexShrink: 0,
+                                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                    background: on ? 'var(--success)' : '#fff',
+                                    border: `1.5px solid ${on ? 'var(--success)' : '#CBD5E1'}`,
+                                  }}>
+                                    {on && <Check style={{ width: 11, color: '#fff' }} />}
+                                  </span>
+                                  <span style={{ color: on ? 'var(--text)' : 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                    {m.label}
+                                  </span>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 7, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Shield style={{ width: 12, flexShrink: 0 }} />
+                      Access comes from the <strong style={{ margin: '0 3px' }}>{form.role}</strong> role. Change it anytime in the Roles &amp; Permissions tab.
+                    </div>
+                  </div>
                 </div>
                 <div className="modal-footer">
                   <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
@@ -318,7 +509,8 @@ export default function UserManagement({ users = [], addUser, deleteUser, resetU
                 </div>
               </div>
             </div>
-          )}
+            )
+          })()}
         </>
       )}
 
@@ -327,98 +519,220 @@ export default function UserManagement({ users = [], addUser, deleteUser, resetU
       ══════════════════════════════════════════ */}
       {mainTab === 'roles' && (
         <>
-          <div className="alert alert-info" style={{ marginBottom: 20 }}>
-            <Shield />
-            <span>Permission changes take effect on next login. Super Admin always has full access and cannot be restricted.</span>
+          <div className="permissions-note">
+            <div className="permissions-note-icon"><Shield size={17} /></div>
+            <div>
+              <strong>Role-based access control</strong>
+              <span>Changes apply automatically to every user assigned to the selected role.</span>
+            </div>
+            <span className="permissions-note-lock"><Lock size={12} /> Super Admin is protected</span>
           </div>
 
-          <div className="page-grid-2" style={{ gridTemplateColumns: '220px 1fr', gap: 16, alignItems: 'start' }}>
-            {/* Role selector */}
-            <div className="card">
-              <div className="card-header"><span className="card-title">Select Role</span></div>
-              <div style={{ padding: '8px 0' }}>
-                {ROLES.map((r, i) => (
-                  <button key={r} onClick={() => setSelectedRole(i)} style={{
-                    display: 'flex', alignItems: 'center', gap: 10,
-                    width: '100%', padding: '10px 16px', border: 'none',
-                    background: selectedRole === i ? 'var(--primary-light)' : 'transparent',
-                    color: selectedRole === i ? 'var(--primary)' : 'var(--text)',
-                    cursor: 'pointer', fontSize: 13, fontWeight: selectedRole === i ? 700 : 500,
-                    borderLeft: selectedRole === i ? '3px solid var(--primary)' : '3px solid transparent',
-                    transition: 'all .15s', textAlign: 'left',
-                  }}>
-                    <Shield style={{ width: 14, flexShrink: 0 }} />
-                    <span style={{ flex: 1 }}>{r}</span>
-                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                      {users.filter(u => u.role === r).length} users
-                    </span>
-                  </button>
-                ))}
+          <div className="permissions-layout">
+            <aside className="card permissions-role-panel">
+              <div className="permissions-role-heading">
+                <div>
+                  <div className="card-title">System Roles</div>
+                  <div className="permissions-subtitle">Choose a role to configure</div>
+                </div>
+                <span className="permissions-count-badge">{ROLES.length}</span>
               </div>
-              {/* Quick link back to users of this role */}
-              <div style={{ padding: '10px 14px', borderTop: '1px solid var(--border)' }}>
-                <button className="btn btn-secondary btn-sm" style={{ width: '100%' }}
-                  onClick={() => { setRoleFilter(ROLES[selectedRole]); setMainTab('users') }}>
-                  View {ROLES[selectedRole]} Users →
+
+              <div className="permissions-role-list">
+                {ROLES.map((role, index) => {
+                  const selected = selectedRole === index
+                  const count = users.filter(user => user.role === role).length
+                  const accent = ROLE_DOT[role] || '#94A3B8'
+                  return (
+                    <button
+                      key={role}
+                      type="button"
+                      className={`permissions-role-option${selected ? ' active' : ''}`}
+                      style={{ '--role-accent': accent }}
+                      onClick={() => { setSelectedRole(index); setExpandedModule(null) }}
+                    >
+                      <span className="permissions-role-icon" style={{ background: `${accent}14`, color: accent }}>
+                        {role === 'Super Admin' ? <Crown size={15} /> : <Shield size={15} />}
+                      </span>
+                      <span className="permissions-role-copy">
+                        <strong>{role}</strong>
+                        <small>{count} user{count === 1 ? '' : 's'}</small>
+                      </span>
+                      {role === 'Super Admin'
+                        ? <Lock size={13} className="permissions-role-lock" />
+                        : <span className="permissions-role-arrow">›</span>}
+                    </button>
+                  )
+                })}
+              </div>
+
+              <div className="permissions-role-footer">
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => { setRoleFilter(selectedRoleName); setMainTab('users') }}
+                >
+                  <Users size={13} /> View users in this role
                 </button>
               </div>
-            </div>
+            </aside>
 
-            {/* Permissions matrix */}
-            <div className="card">
-              <div className="card-header">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span className="card-title">Permissions for</span>
-                  <span className={`badge ${roleColors[ROLES[selectedRole]]}`}>{ROLES[selectedRole]}</span>
+            <section className="card permissions-editor">
+              <div className="permissions-editor-header">
+                <div className="permissions-role-summary">
+                  <span
+                    className="permissions-summary-icon"
+                    style={{ background: `${ROLE_DOT[selectedRoleName] || '#94A3B8'}14`, color: ROLE_DOT[selectedRoleName] || '#64748B' }}
+                  >
+                    {isLocked ? <Crown size={19} /> : <Shield size={19} />}
+                  </span>
+                  <div>
+                    <div className="permissions-editor-title">Permissions for <strong>{selectedRoleName}</strong></div>
+                    <div className="permissions-editor-meta">
+                      <span><Users size={12} /> {selectedRoleUserCount} user{selectedRoleUserCount === 1 ? '' : 's'}</span>
+                      <span className={isLocked ? 'permissions-status locked' : 'permissions-status editable'}>
+                        {isLocked ? <><Lock size={11} /> Protected role</> : 'Editable role'}
+                      </span>
+                    </div>
+                  </div>
                 </div>
-                <div className="header-actions">
-                  {permSaved && <span className="badge badge-green"><Check style={{ width: 11 }} /> Saved</span>}
-                  <button className="btn btn-primary btn-sm" onClick={handlePermSave}>
-                    <Save style={{ width: 13 }} />Save Changes
-                  </button>
+
+                <div className="permissions-progress-block">
+                  <div className="permissions-progress-copy">
+                    <span>{enabledCount} of {totalActionCount} actions enabled</span>
+                    <strong>{enabledPercent}%</strong>
+                  </div>
+                  <div className="progress-bar"><div className="progress-fill" style={{ width: `${enabledPercent}%` }} /></div>
+                </div>
+
+                <div className="permissions-save-actions">
+                  {permSaved && <span className="badge badge-green"><Check size={11} /> Saved</span>}
+                  {dirty && !permSaved && <span className="permissions-dirty-dot">Unsaved</span>}
+                  {!isLocked && (
+                    <>
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={handlePermReset} disabled={!dirty || permSaving}>Reset</button>
+                      <button type="button" className="btn btn-primary btn-sm" onClick={handlePermSave} disabled={!dirty || permSaving}>
+                        <Save size={13} /> {permSaving ? 'Saving…' : 'Save Changes'}
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
-              <div className="table-wrap" style={{ maxHeight: 'calc(100vh - 320px)', overflowY: 'auto' }}>
-                <table>
-                  <thead>
-                    <tr>
-                      <th style={{ minWidth: 180 }}>Module</th>
-                      <th style={{ width: 120, textAlign: 'center' }}>Action</th>
-                      <th style={{ width: 80, textAlign: 'center' }}>Access</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {MODULES.map((mod, mi) =>
-                      mod.perms.map((perm, pi) => (
-                        <tr key={`${mi}-${pi}`}>
-                          {pi === 0 && (
-                            <td rowSpan={mod.perms.length} style={{ fontWeight: 600, fontSize: 13, verticalAlign: 'top', paddingTop: 13, borderRight: '1px solid var(--border)' }}>
-                              {mod.module}
-                            </td>
-                          )}
-                          <td style={{ fontSize: 12, color: 'var(--text-muted)', textAlign: 'center' }}>{perm}</td>
-                          <td style={{ textAlign: 'center' }}>
-                            {selectedRole === 0 ? (
-                              <Check style={{ width: 16, color: 'var(--success)' }} />
-                            ) : (
-                              <button onClick={() => togglePerm(mi, pi)} style={{
-                                width: 28, height: 28, borderRadius: 6, border: 'none', cursor: 'pointer',
-                                background: matrix[selectedRole][mi][pi] ? '#ECFDF5' : '#FEF2F2',
-                                color: matrix[selectedRole][mi][pi] ? 'var(--success)' : 'var(--danger)',
-                                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                                transition: 'all .15s',
-                              }}>
-                                {matrix[selectedRole][mi][pi] ? <Check style={{ width: 14 }} /> : <X style={{ width: 14 }} />}
+
+              {isLocked && !permLoading && (
+                <div className="permissions-locked-banner">
+                  <Lock size={15} />
+                  <span><strong>Full access is always enabled.</strong> This protected role cannot be restricted.</span>
+                </div>
+              )}
+
+              <div className="permissions-editor-body">
+                {permLoading && (
+                  <div className="loading-state"><div className="spinner" /><span>Loading role permissions…</span></div>
+                )}
+
+                {!permLoading && draft && groupedModules.map(([category, modules]) => (
+                  <section className="permissions-category" key={category}>
+                    <div className="permissions-category-heading">
+                      <div>
+                        <span>{category}</span>
+                        <small>{modules.length} module{modules.length === 1 ? '' : 's'}</small>
+                      </div>
+                      <div className="permissions-category-line" />
+                    </div>
+
+                    <div className="permissions-module-list">
+                      {modules.map(module => {
+                        const moduleActions = module.actions || []
+                        const moduleEnabledCount = moduleActions.filter(action => draft[module.key]?.[action.key] === true).length
+                        const allEnabled = moduleActions.length > 0 && moduleEnabledCount === moduleActions.length
+                        const partlyEnabled = moduleEnabledCount > 0 && !allEnabled
+                        const isExpanded = expandedModule === module.key
+
+                        return (
+                          <article className={`permissions-module-row${isExpanded ? ' expanded' : ''}`} key={module.key}>
+                            <div className="permissions-module-main">
+                              <label
+                                className="permissions-module-check"
+                                title={isLocked ? 'Always enabled for this protected role' : `${allEnabled ? 'Clear' : 'Grant'} all ${module.label} actions`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  className={`permissions-checkbox${partlyEnabled ? ' partial' : ''}`}
+                                  checked={allEnabled}
+                                  disabled={isLocked || moduleActions.length === 0}
+                                  onChange={() => setModuleActions(module, !allEnabled)}
+                                  aria-label={`${allEnabled ? 'Clear' : 'Grant'} all actions for ${module.label}`}
+                                />
+                              </label>
+
+                              <button
+                                type="button"
+                                className="permissions-module-expand"
+                                onClick={() => setExpandedModule(current => current === module.key ? null : module.key)}
+                                aria-expanded={isExpanded}
+                                aria-controls={`permission-actions-${module.key}`}
+                              >
+                                <span className="permissions-module-copy">
+                                  <strong>{module.label}</strong>
+                                  <small>{moduleActions.length} permission{moduleActions.length === 1 ? '' : 's'} available</small>
+                                </span>
+                                <span className={`permissions-module-total${allEnabled ? ' complete' : partlyEnabled ? ' partial' : ''}`}>
+                                  {moduleEnabledCount}/{moduleActions.length}
+                                </span>
+                                <ChevronDown size={16} className="permissions-module-chevron" />
                               </button>
+                            </div>
+
+                            {isExpanded && (
+                              <div className="permissions-action-panel" id={`permission-actions-${module.key}`}>
+                                <div className="permissions-action-panel-heading">
+                                  <span>Select the actions allowed for this role</span>
+                                  {!isLocked && moduleActions.length > 0 && (
+                                    <button
+                                      type="button"
+                                      className={`permissions-bulk-button${allEnabled ? ' clear' : ''}`}
+                                      onClick={() => setModuleActions(module, !allEnabled)}
+                                    >
+                                      {allEnabled ? 'Clear all' : 'Select all'}
+                                    </button>
+                                  )}
+                                </div>
+
+                                {moduleActions.length === 0 ? (
+                                  <div className="permissions-no-actions">No configurable actions</div>
+                                ) : (
+                                  <div className="permissions-action-checkboxes">
+                                    {moduleActions.map(action => {
+                                      const enabled = draft[module.key]?.[action.key] === true
+                                      return (
+                                        <label className={`permissions-action-checkbox${enabled ? ' selected' : ''}`} key={`${module.key}-${action.key}`}>
+                                          <input
+                                            type="checkbox"
+                                            className="permissions-checkbox"
+                                            checked={enabled}
+                                            disabled={isLocked}
+                                            onChange={() => togglePermission(module.key, action.key)}
+                                          />
+                                          <span className="permissions-action-copy">
+                                            <strong>{action.label}</strong>
+                                            <small>{enabled ? 'Access granted' : 'No access'}</small>
+                                          </span>
+                                        </label>
+                                      )
+                                    })}
+                                  </div>
+                                )}
+                              </div>
                             )}
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+                          </article>
+                        )
+                      })}
+                    </div>
+                  </section>
+                ))}
               </div>
-            </div>
+            </section>
           </div>
         </>
       )}
