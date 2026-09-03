@@ -13,6 +13,9 @@ import BranchManagement from './pages/BranchManagement'
 import Categories from './pages/Categories'
 import Brands from './pages/Brands'
 import ProductManagement from './pages/ProductManagement'
+import WholesalerProducts from './pages/WholesalerProducts'
+import WholesalerPurchaseOrders from './pages/WholesalerPurchaseOrders'
+import WholesalerProductRequests from './pages/WholesalerProductRequests'
 import InventoryManagement from './pages/InventoryManagement'
 import StockTransfer from './pages/StockTransfer'
 import ProductSearch from './pages/ProductSearch'
@@ -108,6 +111,13 @@ function AppRoutes() {
           element={<RequireAccess module={MODULES.BRANDS}><Brands brands={brands} {...erpCtx} /></RequireAccess>} />
         <Route path="product-management/products"
           element={<RequireAccess module={MODULES.PRODUCTS}><ProductManagement products={products} categories={categories} subCategories={subCategories} brands={brands} {...erpCtx} /></RequireAccess>} />
+
+        {/* ── Wholesaler ───────────────────────────────── */}
+        <Route path="wholesaler/products"        element={<WholesalerProducts />} />
+        <Route path="wholesaler/purchase-orders" element={<WholesalerPurchaseOrders />} />
+        <Route path="wholesaler/product-requests" element={<WholesalerProductRequests />} />
+        {/* Back-compat: old single page → redirect to products */}
+        <Route path="wholesaler-items" element={<Navigate to="/wholesaler/products" replace />} />
 
         {/* ── Purchase & Inventory ─────────────────────── */}
         <Route path="purchase-inventory/supplier-management"

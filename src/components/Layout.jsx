@@ -57,6 +57,14 @@ const NAV_CONFIG = [
     ],
   },
   {
+    type: 'section', key: 'wholesaler', label: 'Wholesaler Management', icon: Warehouse,
+    items: [
+      { to: '/wholesaler/products',         icon: Package,      label: 'Wholesaler Products' },
+      { to: '/wholesaler/purchase-orders',  icon: ShoppingCart, label: 'Purchase Orders' },
+      { to: '/wholesaler/product-requests', icon: FileEdit,     label: 'Product Requests' },
+    ],
+  },
+  {
     type: 'section', key: 'finance', label: 'Finance Management', icon: TrendingUp,
     items: [
       { to: '/finance/quotation-manager',  icon: FileEdit,   label: 'Quotation Manager',       moduleKey: MODULES.QUOTATIONS },
