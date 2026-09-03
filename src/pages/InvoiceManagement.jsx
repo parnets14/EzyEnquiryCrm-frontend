@@ -730,13 +730,25 @@ function ViewModal({ invoice, onClose, onEdit, onPayment, onStatusChange }) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
             <div style={{ background: 'var(--bg)', borderRadius: 10, padding: '14px 16px', border: '1px solid var(--border)' }}>
               <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase',
-                letterSpacing: '.06em', color: '#FD5C02', marginBottom: 8 }}>Bill To</div>
+                letterSpacing: '.06em', color: '#FD5C02', marginBottom: 8 }}>Customer</div>
               <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text)', marginBottom: 4 }}>
                 {invoice.customer_name || '—'}</div>
               {invoice.customer_phone && <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>📱 {invoice.customer_phone}</div>}
               {invoice.customer_email && <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>✉️ {invoice.customer_email}</div>}
               {invoice.gstin          && <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>🏢 GSTIN: {invoice.gstin}</div>}
               {invoice.billing_address && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>{invoice.billing_address}</div>}
+              {/* Who generated the invoice — name, company, phone, email. */}
+              {(invoice.created_by_name || invoice.created_by_company || invoice.created_by_mobile) && (
+                <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--border)' }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--text-muted)', marginBottom: 4 }}>
+                    Created By{invoice.created_by_type ? ` (${invoice.created_by_type})` : ''}
+                  </div>
+                  {(invoice.created_by_person || invoice.created_by_name) && <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>{invoice.created_by_person || invoice.created_by_name}</div>}
+                  {invoice.created_by_company && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>🏢 {invoice.created_by_company}</div>}
+                  {invoice.created_by_mobile && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>📱 {invoice.created_by_mobile}</div>}
+                  {invoice.created_by_email && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>✉️ {invoice.created_by_email}</div>}
+                </div>
+              )}
             </div>
             <div style={{ background: 'var(--bg)', borderRadius: 10, padding: '14px 16px', border: '1px solid var(--border)' }}>
               <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase',

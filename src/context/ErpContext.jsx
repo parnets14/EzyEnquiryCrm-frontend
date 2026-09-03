@@ -388,6 +388,25 @@ export function ErpProvider({ children }) {
     }
   }, [fetchAll, addNotification])
 
+  // Partial packing: packs a qty of an order → creates invoice + dispatch.
+  const packOrder = useCallback(async (orderId, data) => {
+    try {
+      const res = await orderApi.pack(orderId, data)
+      const payload = res?.data || res
+      const updatedOrder = payload?.order || payload
+      if (updatedOrder) {
+        setOrders(prev => prev.map(o =>
+          (o._id === orderId || o.id === orderId) ? { ...o, ...updatedOrder } : o
+        ))
+      }
+      await fetchAll()
+      addNotification(res?.message || 'Pack dispatched.', 'dispatch')
+      return { success: true, data: payload }
+    } catch (err) {
+      return { success: false, message: err.response?.data?.message || 'Packing failed' }
+    }
+  }, [fetchAll, addNotification])
+
   // ─────────────────────────────────────────────────────────
   // PURCHASE ACTIONS
   // ─────────────────────────────────────────────────────────
@@ -1130,7 +1149,7 @@ export function ErpProvider({ children }) {
     addEnquiry, updateEnquiry, deleteEnquiry, convertEnquiryToOrder,
 
     // ── Order actions ─────────────────────────────────────
-    addOrder, updateOrderStatus, startPacking, markReadyForDispatch, deleteOrder,
+    addOrder, updateOrderStatus, startPacking, markReadyForDispatch, deleteOrder, packOrder,
 
     // ── Dispatch actions ──────────────────────────────────
     createDispatch, markInTransit, markDelivered,

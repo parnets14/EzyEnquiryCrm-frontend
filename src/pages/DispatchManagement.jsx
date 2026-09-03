@@ -35,7 +35,7 @@ const statusColor = {
   Returned:    'badge-red',
 }
 
-export default function DispatchManagement({ branches = [], dispatches = [], orders = [], markDelivered }) {
+export default function DispatchManagement({ branches = [], dispatches = [], orders = [], markDelivered, markInTransit }) {
   const branchNames = branches.map(b => b.name || b).filter(Boolean)
   const [search,       setSearch]     = useState('')
   const [branchFilter, setBranchFilter] = useState('All')
@@ -49,6 +49,11 @@ export default function DispatchManagement({ branches = [], dispatches = [], ord
     disCode(d).includes(search) ||
     disLR(d).includes(search))
   )
+
+  const handleOutForDelivery = (dispatchId) => {
+    markInTransit?.(dispatchId)
+    toast('Marked Out for Delivery.')
+  }
 
   const handleDelivered = (dispatchId) => {
     markDelivered?.(dispatchId)
@@ -154,7 +159,16 @@ export default function DispatchManagement({ branches = [], dispatches = [], ord
                   </td>
                   <td><span className={`badge ${statusColor[d.status] || 'badge-blue'}`}>{d.status}</span></td>
                   <td>
-                    {(d.status === 'Dispatched' || d.status === 'In Transit') && (
+                    {d.status === 'Dispatched' && (
+                      <button
+                        className="btn btn-primary btn-xs"
+                        style={{ fontSize: 11 }}
+                        onClick={() => handleOutForDelivery(disId(d))}
+                      >
+                        <Truck style={{ width: 12 }} />Out for Delivery
+                      </button>
+                    )}
+                    {d.status === 'In Transit' && (
                       <button
                         className="btn btn-primary btn-xs"
                         style={{ background: 'var(--success)', fontSize: 11 }}
@@ -165,6 +179,9 @@ export default function DispatchManagement({ branches = [], dispatches = [], ord
                     )}
                     {d.status === 'Delivered' && (
                       <span className="badge badge-green" style={{ fontSize: 10 }}>✓ Done</span>
+                    )}
+                    {d.status === 'Returned' && (
+                      <span className="badge badge-red" style={{ fontSize: 10 }}>Returned</span>
                     )}
                   </td>
                 </tr>
@@ -177,43 +194,6 @@ export default function DispatchManagement({ branches = [], dispatches = [], ord
         </div>
       </div>
 
-      {/* Retailer tracking view */}
-      <div className="card" style={{ marginTop: 16 }}>
-        <div className="card-header">
-          <span className="card-title">Retailer Tracking View</span>
-          <span className="badge badge-blue">What Retailer Sees</span>
-        </div>
-        <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {enriched.map(d => (
-            <div key={disId(d)} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>{disProduct(d) || d._orderObj?.product_name || 'Tile Order'}</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>
-                    Order: {disOrderCode(d) || disId(d)} | Qty: {disQty(d) || d._orderObj?.qty || '—'} Pcs
-                    {disBranch(d) && <> | Branch: <strong style={{ color: 'var(--primary)' }}>{disBranch(d)}</strong></>}
-                  </div>
-                </div>
-                <span className={`badge ${statusColor[d.status] || 'badge-blue'}`} style={{ fontSize: 12 }}>
-                  {d.status === 'Dispatched' || d.status === 'In Transit' ? '🚚 Your Order is on the way' : d.status === 'Delivered' ? '✓ Delivered' : d.status}
-                </span>
-              </div>
-              <div style={{ display: 'flex', gap: 20, fontSize: 12, color: 'var(--text-muted)', flexWrap: 'wrap' }}>
-                <span>Vehicle: <strong>{disVehicle(d)}</strong></span>
-                <span>Driver: <strong>{disDriver(d)}</strong> ({disDriverMob(d)})</span>
-                <span>Transport: <strong>{disTransport(d)}</strong></span>
-                <span>LR: <strong style={{ fontFamily: 'monospace' }}>{disLR(d)}</strong></span>
-                {disExpDays(d) && <span style={{ color: 'var(--warning)', fontWeight: 600 }}>⏱ Delivery in {disExpDays(d)} days</span>}
-                {disExpDate(d) !== '—' && <span style={{ color: 'var(--warning)', fontWeight: 600 }}>Expected: {disExpDate(d)}</span>}
-                {disDelDate(d) && <span style={{ color: 'var(--success)', fontWeight: 600 }}>Delivered: {disDelDate(d)}</span>}
-              </div>
-            </div>
-          ))}
-          {dispatches.length === 0 && (
-            <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 24 }}>No dispatches yet</div>
-          )}
-        </div>
-      </div>
     </>
   )
 }

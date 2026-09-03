@@ -1008,6 +1008,22 @@ function ViewModal({ q, onClose, onPrint }) {
             <InfoCard label="Email"   value={q.customer_email}/>
           </div>
 
+          {/* ── Section: Created By ── */}
+          <div style={{ fontSize:11, fontWeight:800, textTransform:'uppercase', letterSpacing:'.07em',
+            color:'#FD5C02', marginBottom:12, paddingBottom:6, borderBottom:'2px solid #FFF3EC' }}>
+            Created By{(q.created_by_type || q.source) ? ` (${q.created_by_type || q.source})` : ''}
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:12 }}>
+            <InfoCard label="Name" value={q.created_by_person || q.created_by_name || '—'}/>
+            <InfoCard label="Company" value={q.created_by_company || '—'}/>
+            <InfoCard label="Source" value={q.source || (q.buyer_company_id ? 'Retailer App' : 'Admin')}/>
+          </div>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:20 }}>
+            <InfoCard label="Phone" value={q.created_by_mobile || '—'}/>
+            <InfoCard label="Email" value={q.created_by_email || '—'}/>
+            <InfoCard label="Requested On" value={fmtDate(q.created_at)}/>
+          </div>
+
           {/* ── Section: Products ── */}
           <div style={{ fontSize:11, fontWeight:800, textTransform:'uppercase', letterSpacing:'.07em',
             color:'#FD5C02', marginBottom:12, paddingBottom:6, borderBottom:'2px solid #FFF3EC' }}>
@@ -1602,10 +1618,15 @@ export default function QuotationManager({ products = [], customers = [], enquir
     try {
       const res = await quotationApi.updateStatus(q._id || q.id, status)
       const updated = res?.data || res
+      const finalStatus = updated?.status || status
       setQuotations(prev => prev.map(x =>
-        (x._id === (q._id||q.id) || x.id === (q._id||q.id)) ? { ...x, ...updated, status } : x
+        (x._id === (q._id||q.id) || x.id === (q._id||q.id)) ? { ...x, ...updated, status: finalStatus } : x
       ))
-      showToast(`Status changed to ${STATUS_META[status]?.label || status}`)
+      showToast(
+        status === 'accepted'
+          ? 'Quotation accepted — order, purchase & sale created'
+          : `Status changed to ${STATUS_META[finalStatus]?.label || finalStatus}`
+      )
     } catch {
       showToast('Status update failed', 'error')
     }
@@ -1757,13 +1778,11 @@ export default function QuotationManager({ products = [], customers = [], enquir
               <thead>
                 <tr>
                   <th style={{ whiteSpace:'nowrap' }}>Quotation #</th>
-                  <th style={{ whiteSpace:'nowrap' }}>Enquiry Name</th>
                   <th style={{ whiteSpace:'nowrap' }}>Enquiry No</th>
                   <th style={{ whiteSpace:'nowrap' }}>Quotation Date</th>
-                  <th style={{ whiteSpace:'nowrap' }}>Valid Until</th>
-                  <th style={{ whiteSpace:'nowrap' }}>Customer / Retailer</th>
-                  <th style={{ whiteSpace:'nowrap' }}>Mobile</th>
-                  <th style={{ whiteSpace:'nowrap' }}>Email</th>
+                  <th style={{ whiteSpace:'nowrap' }}>Customer</th>
+                  <th style={{ whiteSpace:'nowrap' }}>Retailer</th>
+                  <th style={{ whiteSpace:'nowrap' }}>Created By</th>
                   <th style={{ whiteSpace:'nowrap' }}>Products</th>
                   <th style={{ whiteSpace:'nowrap', textAlign:'right' }}>Subtotal</th>
                   <th style={{ whiteSpace:'nowrap', textAlign:'right' }}>GST</th>
@@ -1796,13 +1815,6 @@ export default function QuotationManager({ products = [], customers = [], enquir
                         </span>
                       </td>
 
-                      {/* Enquiry Name */}
-                      <td>
-                        {q.customer_name
-                          ? <span style={{ fontWeight:600 }}>{q.customer_name}</span>
-                          : <span style={{ color:'var(--text-muted)' }}>—</span>}
-                      </td>
-
                       {/* Enquiry No */}
                       <td>
                         {q.enquiry_no
@@ -1816,25 +1828,42 @@ export default function QuotationManager({ products = [], customers = [], enquir
                       {/* Quotation Date */}
                       <td style={{ whiteSpace:'nowrap' }}>{fmtDate(q.quotation_date)}</td>
 
-                      {/* Valid Until */}
-                      <td style={{ whiteSpace:'nowrap' }}>{fmtDate(q.valid_until)}</td>
-
-                      {/* Customer / Retailer */}
+                      {/* Customer (whom the quotation is for) */}
                       <td>
                         <div style={{ fontWeight:600 }}>{q.customer_name || '—'}</div>
-                        {q.customer_email && (
-                          <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:1 }}>{q.customer_email}</div>
+                        {q.customer_phone && (
+                          <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:1 }}>{q.customer_phone}</div>
                         )}
                       </td>
 
-                      {/* Mobile */}
-                      <td style={{ whiteSpace:'nowrap' }}>
-                        {q.customer_phone || <span style={{ color:'var(--text-muted)' }}>—</span>}
+                      {/* Retailer (which retailer submitted it) */}
+                      <td>
+                        {q.created_by_name ? (
+                          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                            <div style={{ width:26, height:26, borderRadius:13, background:'#EFF6FF',
+                              color:'#2563EB', display:'flex', alignItems:'center', justifyContent:'center',
+                              fontWeight:800, fontSize:12, flexShrink:0 }}>
+                              {String(q.created_by_name).trim().charAt(0).toUpperCase()}
+                            </div>
+                            <span style={{ fontWeight:600, fontSize:12 }}>{q.created_by_name}</span>
+                          </div>
+                        ) : <span style={{ color:'var(--text-muted)' }}>—</span>}
                       </td>
 
-                      {/* Email */}
-                      <td>
-                        <span style={{ fontSize:11 }}>{q.customer_email || <span style={{ color:'var(--text-muted)' }}>—</span>}</span>
+                      {/* Created By (source) */}
+                      <td style={{ whiteSpace:'nowrap' }}>
+                        {(() => {
+                          const src = q.source || (q.buyer_company_id ? 'Retailer App' : 'Admin')
+                          const c = src === 'Retailer App'
+                            ? { bg:'#EFF6FF', color:'#2563EB' }
+                            : src === 'Staff App'
+                              ? { bg:'#F5F3FF', color:'#7C3AED' }
+                              : { bg:'#F1F5F9', color:'#64748B' }
+                          return (
+                            <span style={{ display:'inline-block', padding:'3px 9px', borderRadius:12,
+                              fontSize:11, fontWeight:700, background:c.bg, color:c.color }}>{src}</span>
+                          )
+                        })()}
                       </td>
 
                       {/* Products */}
@@ -1879,83 +1908,92 @@ export default function QuotationManager({ products = [], customers = [], enquir
 
                       {/* Actions */}
                       <td>
-                        <div style={{ display:'flex', gap:3, justifyContent:'center', alignItems:'center', flexWrap:'nowrap' }}>
+                        {(() => {
+                          const isRetailerQuote = q.source === 'Retailer App' || !!q.buyer_company_id
+                          const canDecide = q.status === 'sent' || q.status === 'draft'
+                          const btn = { display:'flex', alignItems:'center', justifyContent:'center', width:28, height:28, borderRadius:6, cursor:'pointer' }
+                          return (
+                            <div style={{ display:'flex', gap:4, justifyContent:'center', alignItems:'center', flexWrap:'nowrap' }}>
+                              {/* View — always */}
+                              <button title="View" onClick={() => setViewData(q)}
+                                style={{ ...btn, border:'1px solid #BFDBFE', background:'#EFF6FF', color:'#2563EB' }}>
+                                <Eye size={13}/>
+                              </button>
 
-                          {/* View */}
-                          <button title="View" onClick={() => setViewData(q)}
-                            style={{ display:'flex', alignItems:'center', justifyContent:'center',
-                              width:28, height:28, borderRadius:6, border:'1px solid #BFDBFE',
-                              background:'#EFF6FF', color:'#2563EB', cursor:'pointer' }}>
-                            <Eye size={13}/>
-                          </button>
-
-                          {/* Edit */}
-                          <button title="Edit" onClick={() => openEdit(q)}
-                            style={{ display:'flex', alignItems:'center', justifyContent:'center',
-                              width:28, height:28, borderRadius:6, border:'1px solid #FED7AA',
-                              background:'#FFF7ED', color:'#EA580C', cursor:'pointer' }}>
-                            <Edit2 size={12}/>
-                          </button>
-
-                          {/* Status transition buttons — workflow: draft → sent → accepted → converted */}
-                          {q.status === 'draft' && (
-                            <button title="Mark as Sent" onClick={() => handleStatusChange(q,'sent')}
-                              style={{ display:'flex', alignItems:'center', justifyContent:'center',
-                                width:28, height:28, borderRadius:6, border:'1px solid #BFDBFE',
-                                background:'#DBEAFE', color:'#1D4ED8', cursor:'pointer' }}>
-                              <Send size={12}/>
-                            </button>
-                          )}
-                          {q.status === 'sent' && (
-                            <button title="Mark as Accepted" onClick={() => handleStatusChange(q,'accepted')}
-                              style={{ display:'flex', alignItems:'center', justifyContent:'center',
-                                width:28, height:28, borderRadius:6, border:'1px solid #A7F3D0',
-                                background:'#D1FAE5', color:'#059669', cursor:'pointer' }}>
-                              <CheckCircle size={12}/>
-                            </button>
-                          )}
-                          {q.status === 'accepted' && (
-                            <button title="Mark as Converted" onClick={() => handleStatusChange(q,'converted')}
-                              style={{ display:'flex', alignItems:'center', justifyContent:'center',
-                                width:28, height:28, borderRadius:6, border:'1px solid #BAE6FD',
-                                background:'#E0F2FE', color:'#0284C7', cursor:'pointer' }}>
-                              <RefreshCw size={12}/>
-                            </button>
-                          )}
-                          {(q.status === 'draft' || q.status === 'sent') && (
-                            <button title="Mark as Expired" onClick={() => handleStatusChange(q,'expired')}
-                              style={{ display:'flex', alignItems:'center', justifyContent:'center',
-                                width:28, height:28, borderRadius:6, border:'1px solid #FDE68A',
-                                background:'#FFFBEB', color:'#D97706', cursor:'pointer' }}>
-                              <Calendar size={12}/>
-                            </button>
-                          )}
-                          {q.status !== 'cancelled' && q.status !== 'converted' && (
-                            <button title="Cancel Quotation" onClick={() => handleStatusChange(q,'cancelled')}
-                              style={{ display:'flex', alignItems:'center', justifyContent:'center',
-                                width:28, height:28, borderRadius:6, border:'1px solid #FECACA',
-                                background:'#FEF2F2', color:'#DC2626', cursor:'pointer' }}>
-                              <XCircle size={12}/>
-                            </button>
-                          )}
-
-                          {/* Print */}
-                          <button title="Print / Download" onClick={() => printQuotation(q)}
-                            style={{ display:'flex', alignItems:'center', justifyContent:'center',
-                              width:28, height:28, borderRadius:6, border:'1px solid var(--border)',
-                              background:'var(--bg)', color:'var(--text-muted)', cursor:'pointer' }}>
-                            <Printer size={12}/>
-                          </button>
-
-                          {/* Delete */}
-                          <button title="Delete" onClick={() => handleDelete(q)}
-                            style={{ display:'flex', alignItems:'center', justifyContent:'center',
-                              width:28, height:28, borderRadius:6, border:'1px solid #FECACA',
-                              background:'#FEF2F2', color:'#DC2626', cursor:'pointer' }}>
-                            <Trash2 size={12}/>
-                          </button>
-
-                        </div>
+                              {isRetailerQuote ? (
+                                /* Retailer-app quotation: only View / Accept / Reject / Print */
+                                <>
+                                  {canDecide && (
+                                    <>
+                                      <button title="Accept — creates order, purchase & sale" onClick={() => handleStatusChange(q,'accepted')}
+                                        style={{ display:'flex', alignItems:'center', gap:4, justifyContent:'center', height:28, padding:'0 12px', borderRadius:6, border:'1px solid #A7F3D0', background:'#059669', color:'#FFF', fontSize:11, fontWeight:700, cursor:'pointer' }}>
+                                        <CheckCircle size={12}/> Accept
+                                      </button>
+                                      <button title="Reject" onClick={() => handleStatusChange(q,'cancelled')}
+                                        style={{ display:'flex', alignItems:'center', gap:4, justifyContent:'center', height:28, padding:'0 12px', borderRadius:6, border:'1px solid #FECACA', background:'#FEF2F2', color:'#DC2626', fontSize:11, fontWeight:700, cursor:'pointer' }}>
+                                        <XCircle size={12}/> Reject
+                                      </button>
+                                    </>
+                                  )}
+                                  <button title="Print / Download" onClick={() => printQuotation(q)}
+                                    style={{ ...btn, border:'1px solid var(--border)', background:'var(--bg)', color:'var(--text-muted)' }}>
+                                    <Printer size={12}/>
+                                  </button>
+                                  <button title="Delete — also removes the linked enquiry" onClick={() => handleDelete(q)}
+                                    style={{ ...btn, border:'1px solid #FECACA', background:'#FEF2F2', color:'#DC2626' }}>
+                                    <Trash2 size={12}/>
+                                  </button>
+                                </>
+                              ) : (
+                                /* Admin/manual quotation: full workflow controls */
+                                <>
+                                  <button title="Edit" onClick={() => openEdit(q)}
+                                    style={{ ...btn, border:'1px solid #FED7AA', background:'#FFF7ED', color:'#EA580C' }}>
+                                    <Edit2 size={12}/>
+                                  </button>
+                                  {q.status === 'draft' && (
+                                    <button title="Mark as Sent" onClick={() => handleStatusChange(q,'sent')}
+                                      style={{ ...btn, border:'1px solid #BFDBFE', background:'#DBEAFE', color:'#1D4ED8' }}>
+                                      <Send size={12}/>
+                                    </button>
+                                  )}
+                                  {q.status === 'sent' && (
+                                    <button title="Mark as Accepted" onClick={() => handleStatusChange(q,'accepted')}
+                                      style={{ ...btn, border:'1px solid #A7F3D0', background:'#D1FAE5', color:'#059669' }}>
+                                      <CheckCircle size={12}/>
+                                    </button>
+                                  )}
+                                  {q.status === 'accepted' && (
+                                    <button title="Mark as Converted" onClick={() => handleStatusChange(q,'converted')}
+                                      style={{ ...btn, border:'1px solid #BAE6FD', background:'#E0F2FE', color:'#0284C7' }}>
+                                      <RefreshCw size={12}/>
+                                    </button>
+                                  )}
+                                  {(q.status === 'draft' || q.status === 'sent') && (
+                                    <button title="Mark as Expired" onClick={() => handleStatusChange(q,'expired')}
+                                      style={{ ...btn, border:'1px solid #FDE68A', background:'#FFFBEB', color:'#D97706' }}>
+                                      <Calendar size={12}/>
+                                    </button>
+                                  )}
+                                  {q.status !== 'cancelled' && q.status !== 'converted' && (
+                                    <button title="Cancel Quotation" onClick={() => handleStatusChange(q,'cancelled')}
+                                      style={{ ...btn, border:'1px solid #FECACA', background:'#FEF2F2', color:'#DC2626' }}>
+                                      <XCircle size={12}/>
+                                    </button>
+                                  )}
+                                  <button title="Print / Download" onClick={() => printQuotation(q)}
+                                    style={{ ...btn, border:'1px solid var(--border)', background:'var(--bg)', color:'var(--text-muted)' }}>
+                                    <Printer size={12}/>
+                                  </button>
+                                  <button title="Delete" onClick={() => handleDelete(q)}
+                                    style={{ ...btn, border:'1px solid #FECACA', background:'#FEF2F2', color:'#DC2626' }}>
+                                    <Trash2 size={12}/>
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          )
+                        })()}
                       </td>
                     </tr>
                   )

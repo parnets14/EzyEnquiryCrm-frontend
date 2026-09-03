@@ -4,12 +4,15 @@ import { useNavigate } from 'react-router-dom'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 
 /* ── API field helpers ── */
-const purCode     = p => p.purchase_code  || p.id       || ''
+const purCode     = p => p.purchase_code  || (p._id ? `PUR-${String(p._id).slice(-6).toUpperCase()}` : (p.id || ''))
 const purSupplier = p => p.supplier_name  || p.supplier || ''
 const purProduct  = p => p.product_name   || p.product  || ''
-const purDate     = p => p.purchase_date
-  ? new Date(p.purchase_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
-  : (p.date || '')
+const purDate     = p => {
+  const raw = p.purchase_date || p.created_at || p.date
+  return raw
+    ? new Date(raw).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+    : '—'
+}
 const purTotal    = p => p.total_amount   || p.total    || 0
 const purAmount   = p => p.amount         || 0
 const purGst      = p => p.gst_amount     || p.gst      || 0
@@ -180,6 +183,7 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
         product_id:      row.product_id,
         product_name:    prod?.name || editItem.product_name || '',
         qty:             Number(row.qty),
+        unit:            row.unit || 'Sq Ft',
         rate:            Number(row.rate),
         gst_percent:     Number(row.gstPct),
         invoice_number:  editInvoice,
@@ -261,6 +265,7 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
           product_code:     prod?.code || '',
           product_name:     prod?.name || '',
           qty, rate, amount,
+          unit:             row.unit || 'Sq Ft',
           gst_percent:      row.gstPct,
           gst_amount:       gst,
           total_amount:     amount + gst,
@@ -889,7 +894,6 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
                 <th style={{ padding: '10px 14px' }}>Total</th>
                 <th style={{ padding: '10px 14px' }}>Invoice No.</th>
                 <th style={{ padding: '10px 14px' }}>Delivery No.</th>
-                <th style={{ padding: '10px 14px' }}>Status</th>
                 <th style={{ padding: '10px 14px', textAlign: 'center' }}>Actions</th>
               </tr>
             </thead>
@@ -919,7 +923,7 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
                     })()}
                   </td>
                   <td style={{ padding: '11px 14px', fontSize: 12 }}>{purProduct(p)}</td>
-                  <td style={{ padding: '11px 14px', fontWeight: 700 }}>{(p.qty || 0).toLocaleString()} Sq Ft</td>
+                  <td style={{ padding: '11px 14px', fontWeight: 700 }}>{(p.qty || 0).toLocaleString()} {p.unit || ''}</td>
                   <td style={{ padding: '11px 14px' }}>₹{(p.rate || 0).toLocaleString('en-IN')}</td>
                   <td style={{ padding: '11px 14px' }}>₹{purAmount(p).toLocaleString('en-IN')}</td>
                   <td style={{ padding: '11px 14px', color: 'var(--text-muted)' }}>₹{purGst(p).toLocaleString('en-IN')}</td>
@@ -933,61 +937,6 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
                     {purDelivery(p) !== '—'
                       ? <span style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 4, padding: '2px 7px', fontWeight: 600, fontSize: 11, color: '#1d4ed8' }}>{purDelivery(p)}</span>
                       : <span style={{ color: 'var(--text-muted)' }}>—</span>}
-                  </td>
-                  <td style={{ padding: '8px 14px' }}>
-                    {(() => {
-                      const st = getStatus(p)
-                      const pid = p._id || p.id
-                      const isUpdating = !!statusUpdating[pid]
-
-                      // Valid next transitions per current status
-                      const NEXT = {
-                        'Pending':   ['Approved', 'Cancelled'],
-                        'Approved':  ['Received', 'Cancelled'],
-                        'Received':  ['Completed'],
-                        'Completed': [],
-                        'Cancelled': [],
-                      }
-                      const allowed = NEXT[st] || []
-                      const isTerminal = allowed.length === 0
-
-                      const STATUS_COLORS = {
-                        Pending:   { bg: '#FFFBEB', color: '#D97706', border: '#FDE68A' },
-                        Approved:  { bg: '#EFF6FF', color: '#2563EB', border: '#BFDBFE' },
-                        Received:  { bg: '#ECFDF5', color: '#059669', border: '#A7F3D0' },
-                        Completed: { bg: '#F5F3FF', color: '#7C3AED', border: '#DDD6FE' },
-                        Cancelled: { bg: '#FEF2F2', color: '#DC2626', border: '#FECACA' },
-                      }
-                      const sc = STATUS_COLORS[st] || { bg: '#F1F5F9', color: '#64748B', border: '#E2E8F0' }
-
-                      if (isTerminal) {
-                        // Show read-only badge for terminal states
-                        return (
-                          <span style={{
-                            display: 'inline-block', padding: '3px 10px',
-                            borderRadius: 20, fontSize: 11, fontWeight: 700,
-                            background: sc.bg, color: sc.color, border: `1px solid ${sc.border}`,
-                          }}>{st}</span>
-                        )
-                      }
-
-                      return (
-                        <select
-                          value={st}
-                          disabled={isUpdating}
-                          onChange={e => updateStatus(p, e.target.value)}
-                          style={{
-                            fontSize: 12, fontWeight: 600, borderRadius: 6, padding: '4px 10px',
-                            border: `1px solid ${sc.border}`, cursor: isUpdating ? 'wait' : 'pointer',
-                            background: sc.bg, color: sc.color,
-                            opacity: isUpdating ? 0.6 : 1,
-                          }}
-                        >
-                          <option value={st}>{isUpdating ? `${st}…` : st}</option>
-                          {allowed.map(s => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                      )
-                    })()}
                   </td>
                   <td style={{ padding: '11px 14px', textAlign: 'center' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
@@ -1035,7 +984,7 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
                 </tr>
               ))}
               {filtered.length === 0 && (
-                <tr><td colSpan={14} style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
+                <tr><td colSpan={13} style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
                   <ShoppingBag size={32} style={{ opacity: .25, marginBottom: 8, display: 'block', margin: '0 auto 8px' }} />
                   No purchase entries yet
                 </td></tr>
@@ -1187,11 +1136,14 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
                 </select>
               </div>
 
-              {/* ── Row 2: Date + Invoice + Delivery + Status ── */}
-              <div className="form-row" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 14, marginBottom: 18 }}>
+              {/* ── Row 2: Date + Invoice + Delivery (Purchase ID auto-generated) ── */}
+              <div className="form-row" style={{ gridTemplateColumns: '1fr 1fr 1fr', gap: 14, marginBottom: 18 }}>
                 <div className="form-group" style={{ marginBottom: 0 }}>
                   <label className="form-label">Purchase Date</label>
                   <input className="form-control" type="date" value={date} onChange={e => setDate(e.target.value)} />
+                  <div style={{ marginTop: 4, fontSize: 11, color: 'var(--text-muted)' }}>
+                    Defaults to today if left blank
+                  </div>
                 </div>
                 <div className="form-group" style={{ marginBottom: 0 }}>
                   <label className="form-label">Invoice / Bill Number</label>
@@ -1210,19 +1162,6 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
                     value={deliveryNo}
                     onChange={e => setDeliveryNo(e.target.value)}
                   />
-                </div>
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Status</label>
-                  <div style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 6,
-                    background: '#FFFBEB', border: '1px solid #FDE68A',
-                    borderRadius: 6, padding: '6px 12px', fontSize: 12, fontWeight: 700, color: '#D97706',
-                  }}>
-                    ⏳ Pending
-                  </div>
-                  <div style={{ marginTop: 4, fontSize: 11, color: 'var(--text-muted)' }}>
-                    New purchases always start as Pending
-                  </div>
                 </div>
               </div>
 
@@ -1701,8 +1640,8 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
                 </select>
               </div>
 
-              {/* ── Row 2: Date + Invoice + Delivery + Status ── */}
-              <div className="form-row" style={{ gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 14, marginBottom: 18 }}>
+              {/* ── Row 2: Date + Invoice + Delivery (Purchase ID auto-generated) ── */}
+              <div className="form-row" style={{ gridTemplateColumns: '1fr 1fr 1fr', gap: 14, marginBottom: 18 }}>
                 <div className="form-group" style={{ marginBottom: 0 }}>
                   <label className="form-label">Purchase Date</label>
                   <input
@@ -1729,35 +1668,6 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
                     value={editDelivery}
                     onChange={e => setEditDelivery(e.target.value)}
                   />
-                </div>
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Status</label>
-                  {(() => {
-                    const st = editItem?.status || 'Pending'
-                    const STATUS_COLORS = {
-                      Pending:   { bg: '#FFFBEB', color: '#D97706', border: '#FDE68A' },
-                      Approved:  { bg: '#EFF6FF', color: '#2563EB', border: '#BFDBFE' },
-                      Received:  { bg: '#ECFDF5', color: '#059669', border: '#A7F3D0' },
-                      Completed: { bg: '#F5F3FF', color: '#7C3AED', border: '#DDD6FE' },
-                      Cancelled: { bg: '#FEF2F2', color: '#DC2626', border: '#FECACA' },
-                    }
-                    const sc = STATUS_COLORS[st] || { bg: '#F1F5F9', color: '#64748B', border: '#E2E8F0' }
-                    return (
-                      <div>
-                        <div style={{
-                          display: 'inline-flex', alignItems: 'center', gap: 6,
-                          background: sc.bg, border: `1px solid ${sc.border}`,
-                          borderRadius: 6, padding: '6px 12px',
-                          fontSize: 12, fontWeight: 700, color: sc.color,
-                        }}>
-                          {st}
-                        </div>
-                        <div style={{ marginTop: 4, fontSize: 11, color: 'var(--text-muted)' }}>
-                          Use the Status dropdown in the table to change status
-                        </div>
-                      </div>
-                    )
-                  })()}
                 </div>
               </div>
 

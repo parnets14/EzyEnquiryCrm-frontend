@@ -1,18 +1,27 @@
 import { useState } from 'react'
-import { Plus, Search, Eye, MapPin, Users, FileText, IndianRupee, CheckCircle } from 'lucide-react'
+import { Plus, Search, Eye, Pencil, Trash2, MapPin, Users, FileText, IndianRupee, CheckCircle } from 'lucide-react'
 import { customerApi } from '../api/crmApi'
 
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—')
 const fmtMoney = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`
 
+// Colour the "Added By" badge by source: Admin, Retailer App, Staff App.
+const sourceBadgeClass = (source) => {
+  if (source === 'Retailer App') return 'badge-blue'
+  if (source === 'Staff App') return 'badge-purple'
+  return 'badge-gray'
+}
+
 const EMPTY_FORM = { name: '', mobile: '', email: '', gst_number: '', address: '', city: '', state: '', pincode: '', biz_type: 'Retailer' }
 
-export default function CustomerManagement({ customers = [], addCustomer, loadingData }) {
+export default function CustomerManagement({ customers = [], addCustomer, updateCustomer, deleteCustomer, loadingData }) {
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState(null)
   const [detail, setDetail] = useState(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [showAddModal, setShowAddModal] = useState(false)
+  const [editId, setEditId] = useState(null)   // when set, the modal is in edit mode
+  const [deleting, setDeleting] = useState(null) // customer pending delete confirmation
   const [form, setForm] = useState(EMPTY_FORM)
   const [errors, setErrors] = useState({})
   const [successMsg, setSuccessMsg] = useState('')
@@ -37,22 +46,51 @@ export default function CustomerManagement({ customers = [], addCustomer, loadin
     return e
   }
 
+  const openAdd = () => { setEditId(null); setForm(EMPTY_FORM); setErrors({}); setShowAddModal(true) }
+
+  const openEdit = (c) => {
+    setEditId(c._id || c.id)
+    setForm({
+      name: c.name || '', mobile: c.mobile || '', email: c.email || '',
+      gst_number: c.gst_number || '', address: c.address || '',
+      city: c.city || '', state: c.state || '', pincode: c.pincode || '',
+      biz_type: c.biz_type || 'Retailer',
+    })
+    setErrors({})
+    setShowAddModal(true)
+  }
+
   const handleSave = async () => {
     const e = validate()
     if (Object.keys(e).length) { setErrors(e); return }
     setSaving(true)
-    const result = await addCustomer?.({
+    const payload = {
       name: form.name, mobile: form.mobile, email: form.email,
       gst_number: form.gst_number, address: form.address,
       city: form.city, state: form.state, pincode: form.pincode,
       biz_type: form.biz_type,
-    })
+    }
+    const result = editId
+      ? await updateCustomer?.(editId, payload)
+      : await addCustomer?.(payload)
     setSaving(false)
     if (result?.success === false) { toast(`Error: ${result.message}`); return }
     setForm(EMPTY_FORM)
     setErrors({})
     setShowAddModal(false)
-    toast(`Customer added successfully`)
+    toast(editId ? 'Customer updated successfully' : 'Customer added successfully')
+    setEditId(null)
+  }
+
+  const handleDelete = async () => {
+    if (!deleting) return
+    const id = deleting._id || deleting.id
+    setSaving(true)
+    const result = await deleteCustomer?.(id)
+    setSaving(false)
+    setDeleting(null)
+    if (result?.success === false) { toast(`Error: ${result.message}`); return }
+    toast('Customer deleted')
   }
 
   // Open the detail modal and fetch full profile + history (orders, enquiries, outstanding).
@@ -101,14 +139,14 @@ export default function CustomerManagement({ customers = [], addCustomer, loadin
           <span className="card-title">Customer List ({filtered.length})</span>
           <div className="header-actions">
             <div className="search-bar"><Search /><input placeholder="Search customers…" value={search} onChange={e => setSearch(e.target.value)} /></div>
-            <button className="btn btn-primary" onClick={() => { setForm(EMPTY_FORM); setErrors({}); setShowAddModal(true) }}><Plus />Add Customer</button>
+            <button className="btn btn-primary" onClick={openAdd}><Plus />Add Customer</button>
           </div>
         </div>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Customer</th><th>Mobile</th><th>City</th><th>GST</th><th>Status</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Customer</th><th>Mobile</th><th>City</th><th>GST</th><th>Added By</th><th>Status</th><th>Actions</th></tr></thead>
             <tbody>
-              {loadingData && <tr><td colSpan={6} style={{ textAlign: 'center', padding: 24 }}>Loading…</td></tr>}
+              {loadingData && <tr><td colSpan={7} style={{ textAlign: 'center', padding: 24 }}>Loading…</td></tr>}
               {!loadingData && filtered.map(c => {
                 const id = c._id || c.id
                 return (
@@ -126,15 +164,20 @@ export default function CustomerManagement({ customers = [], addCustomer, loadin
                       </span>
                     </td>
                     <td style={{ fontSize: 12, fontFamily: 'monospace' }}>{c.gst_number || '—'}</td>
+                    <td><span className={`badge ${sourceBadgeClass(c.created_by_type)}`}>{c.created_by_type || 'Admin'}</span></td>
                     <td><span className={`badge ${c.is_active !== false ? 'badge-green' : 'badge-gray'}`}>{c.is_active !== false ? 'Active' : 'Inactive'}</span></td>
                     <td>
-                      <button className="btn btn-ghost btn-xs" onClick={() => openDetail(c)}><Eye style={{ width: 13 }} /></button>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        <button className="btn btn-ghost btn-xs" title="View" onClick={() => openDetail(c)}><Eye style={{ width: 13 }} /></button>
+                        <button className="btn btn-ghost btn-xs" title="Edit" onClick={() => openEdit(c)}><Pencil style={{ width: 13 }} /></button>
+                        <button className="btn btn-ghost btn-xs" title="Delete" style={{ color: 'var(--danger, #dc2626)' }} onClick={() => setDeleting(c)}><Trash2 style={{ width: 13 }} /></button>
+                      </div>
                     </td>
                   </tr>
                 )
               })}
               {!loadingData && filtered.length === 0 && (
-                <tr><td colSpan={6} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>No customers found</td></tr>
+                <tr><td colSpan={7} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>No customers found</td></tr>
               )}
             </tbody>
           </table>
@@ -170,9 +213,19 @@ export default function CustomerManagement({ customers = [], addCustomer, loadin
                   {[c.address, c.city, c.state, c.pincode].filter(Boolean).join(', ') || '—'}
                 </p>
               </div>
-              <div className="form-row" style={{ marginBottom: 0 }}>
+              <div className="form-row" style={{ marginBottom: 8 }}>
                 <div><div className="form-label">Status</div><p><span className={`badge ${c.is_active !== false ? 'badge-green' : 'badge-gray'}`}>{c.is_active !== false ? 'Active' : 'Inactive'}</span></p></div>
                 <div><div className="form-label">Outstanding Amount</div><p style={{ fontWeight: 700, color: outstanding > 0 ? 'var(--danger, #dc2626)' : 'inherit' }}>{fmtMoney(outstanding)}</p></div>
+              </div>
+              <div className="form-row" style={{ marginBottom: 0 }}>
+                <div>
+                  <div className="form-label">Added By</div>
+                  <p style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span className={`badge ${sourceBadgeClass(c.created_by_type)}`}>{c.created_by_type || 'Admin'}</span>
+                    {c.created_by_name ? <span style={{ fontSize: 13 }}>{c.created_by_name}</span> : null}
+                  </p>
+                </div>
+                <div><div className="form-label">Added On</div><p style={{ fontSize: 13 }}>{fmtDate(c.created_at)}</p></div>
               </div>
 
               {/* ── Customer History ── */}
@@ -202,7 +255,7 @@ export default function CustomerManagement({ customers = [], addCustomer, loadin
       {showAddModal && (
         <div className="modal-overlay" onClick={() => setShowAddModal(false)}>
           <div className="modal" style={{ maxWidth: 580 }} onClick={e => e.stopPropagation()}>
-            <div className="modal-header"><span className="modal-title">Add New Customer</span><button className="btn-ghost" onClick={() => setShowAddModal(false)}>✕</button></div>
+            <div className="modal-header"><span className="modal-title">{editId ? 'Edit Customer' : 'Add New Customer'}</span><button className="btn-ghost" onClick={() => { setShowAddModal(false); setEditId(null) }}>✕</button></div>
             <div className="modal-body">
               <div className="form-section-label">Basic Details</div>
               <div className="form-group">
@@ -251,8 +304,26 @@ export default function CustomerManagement({ customers = [], addCustomer, loadin
               </div>
             </div>
             <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setShowAddModal(false)}>Cancel</button>
-              <button className="btn btn-primary" disabled={saving} onClick={handleSave}>{saving ? 'Saving…' : 'Save Customer'}</button>
+              <button className="btn btn-secondary" onClick={() => { setShowAddModal(false); setEditId(null) }}>Cancel</button>
+              <button className="btn btn-primary" disabled={saving} onClick={handleSave}>{saving ? 'Saving…' : (editId ? 'Update Customer' : 'Save Customer')}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleting && (
+        <div className="modal-overlay" onClick={() => setDeleting(null)}>
+          <div className="modal" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header"><span className="modal-title">Delete Customer</span><button className="btn-ghost" onClick={() => setDeleting(null)}>✕</button></div>
+            <div className="modal-body">
+              <p style={{ fontSize: 14 }}>
+                Are you sure you want to delete <strong>{deleting.name}</strong>? This action cannot be undone.
+              </p>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setDeleting(null)}>Cancel</button>
+              <button className="btn btn-primary" style={{ background: 'var(--danger, #dc2626)', borderColor: 'var(--danger, #dc2626)' }} disabled={saving} onClick={handleDelete}>{saving ? 'Deleting…' : 'Delete'}</button>
             </div>
           </div>
         </div>
