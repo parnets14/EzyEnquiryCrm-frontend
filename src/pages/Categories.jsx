@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Search, Edit2, Trash2, Tag, ToggleLeft, ToggleRight, CheckCircle, XCircle, FolderOpen } from 'lucide-react'
+import { Plus, Search, Edit2, Trash2, Tag, ToggleLeft, ToggleRight, CheckCircle, XCircle, FolderOpen, ChevronDown, X } from 'lucide-react'
 
 export default function Categories({
   categories = [],
@@ -19,6 +19,9 @@ export default function Categories({
   const [catSearch, setCatSearch] = useState('')
   const [subSearch, setSubSearch] = useState('')
   const [subCatFilter, setSubCatFilter] = useState('All')
+  // Searchable category picker (Sub-Categories tab)
+  const [catPickerOpen, setCatPickerOpen] = useState(false)
+  const [catPickerSearch, setCatPickerSearch] = useState('')
   const [catStatusFilter, setCatStatusFilter] = useState('All') // 'All' | 'Active' | 'Inactive'
   const [subStatusFilter, setSubStatusFilter] = useState('All') // 'All' | 'Active' | 'Inactive'
 
@@ -352,16 +355,71 @@ export default function Categories({
       {tab === 'sub' && (
         <div className="card">
           <div className="card-header">
-            <span className="card-title">All Sub-Categories ({filteredSubs.length})</span>
+            <span className="card-title">
+              {subCatFilter === 'All'
+                ? `All Sub-Categories (${filteredSubs.length})`
+                : `${categories.find(c => (c._id||c.id) === subCatFilter)?.name || 'Category'} — Sub-Categories (${filteredSubs.length})`}
+            </span>
             <div className="header-actions">
-              <div className="search-bar">
-                <Search size={14} />
-                <input placeholder="Search by name or code…" value={subSearch} onChange={e => setSubSearch(e.target.value)} />
-              </div>
-              <select className="form-control" style={{width:170}} value={subCatFilter} onChange={e => setSubCatFilter(e.target.value)}>
-                <option value="All">All Categories</option>
-                {categories.map(c => <option key={c._id||c.id} value={c._id||c.id}>{c.name}</option>)}
-              </select>
+              {/* Searchable category selector */}
+              {(() => {
+                const q = catPickerSearch.trim().toLowerCase()
+                const matches = categories.filter(c => !q || (c.name||'').toLowerCase().includes(q) || (c.code||'').toLowerCase().includes(q))
+                const selName = subCatFilter === 'All' ? '' : (categories.find(c => (c._id||c.id) === subCatFilter)?.name || '')
+                return (
+                  <div style={{ position: 'relative', width: 260 }}>
+                    <div className="search-bar" style={{ width: '100%', cursor: 'pointer' }} onClick={() => setCatPickerOpen(o => !o)}>
+                      <Search size={14} />
+                      <input
+                        placeholder={selName || 'Select or search category…'}
+                        value={catPickerSearch}
+                        onChange={e => { setCatPickerSearch(e.target.value); setCatPickerOpen(true) }}
+                        onFocus={() => setCatPickerOpen(true)}
+                        style={{ cursor: 'text' }}
+                      />
+                      {subCatFilter !== 'All'
+                        ? <X size={14} style={{ color: 'var(--text-light)', cursor: 'pointer' }}
+                            onClick={(e) => { e.stopPropagation(); setSubCatFilter('All'); setCatPickerSearch('') }} />
+                        : <ChevronDown size={14} style={{ color: 'var(--text-light)' }} />}
+                    </div>
+                    {catPickerOpen && (
+                      <>
+                        <div style={{ position: 'fixed', inset: 0, zIndex: 20 }} onClick={() => setCatPickerOpen(false)} />
+                        <div style={{
+                          position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 21,
+                          background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8,
+                          boxShadow: 'var(--shadow-lg)', maxHeight: 260, overflowY: 'auto',
+                        }}>
+                          {/* All categories option */}
+                          <button type="button"
+                            onClick={() => { setSubCatFilter('All'); setCatPickerSearch(''); setCatPickerOpen(false) }}
+                            style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '9px 14px', border: 'none', borderBottom: '1px solid var(--border)', background: subCatFilter === 'All' ? 'var(--bg)' : 'none', textAlign: 'left', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+                            <FolderOpen size={14} color="var(--text-muted)" /> All Categories
+                          </button>
+                          {matches.length === 0 ? (
+                            <div style={{ padding: '12px 14px', fontSize: 13, color: 'var(--text-muted)' }}>No categories match.</div>
+                          ) : matches.map(c => {
+                            const cid = c._id || c.id
+                            const count = subCategories.filter(s => s.parent_id?.toString() === cid).length
+                            const active = subCatFilter === cid
+                            return (
+                              <button key={cid} type="button"
+                                onClick={() => { setSubCatFilter(cid); setCatPickerSearch(''); setCatPickerOpen(false) }}
+                                style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '9px 14px', border: 'none', borderBottom: '1px solid var(--border)', background: active ? 'var(--bg)' : 'none', textAlign: 'left', cursor: 'pointer' }}
+                                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
+                                onMouseLeave={e => e.currentTarget.style.background = active ? 'var(--bg)' : 'none'}>
+                                <Tag size={13} color="var(--primary)" />
+                                <span style={{ flex: 1, fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name}</span>
+                                <span className="badge badge-gray" style={{ fontSize: 10 }}>{count}</span>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )
+              })()}
             </div>
           </div>
           <div className="table-wrap">
