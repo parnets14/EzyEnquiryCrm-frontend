@@ -101,6 +101,23 @@ export function AuthProvider({ children }) {
     }
   }, [])
 
+  const updateCurrentUser = useCallback((updates) => {
+    setUser(current => {
+      const nextUser = { ...(current || {}), ...(updates || {}) }
+      localStorage.setItem('user', JSON.stringify(nextUser))
+      return nextUser
+    })
+  }, [])
+
+  const refreshUser = useCallback(async () => {
+    const res = await authService.me()
+    const nextUser = res?.data || res
+    setUser(nextUser)
+    localStorage.setItem('user', JSON.stringify(nextUser))
+    await loadLivePermissions()
+    return nextUser
+  }, [])
+
   /** Logout */
   const logout = useCallback(async () => {
     await authService.logout()
@@ -112,7 +129,7 @@ export function AuthProvider({ children }) {
   const isLoggedIn = Boolean(token && user)
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, isLoggedIn, login, loginWithOtp, logout }}>
+    <AuthContext.Provider value={{ user, token, loading, isLoggedIn, login, loginWithOtp, logout, refreshUser, updateCurrentUser }}>
       {children}
     </AuthContext.Provider>
   )

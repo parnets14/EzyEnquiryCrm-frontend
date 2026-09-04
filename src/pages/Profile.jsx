@@ -1,605 +1,416 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
-  Edit2, Save, Key, Camera, X,
-  Eye, EyeOff, Shield, CheckCircle, AlertCircle,
-  Mail, Phone, MapPin, Briefcase, Calendar, Users,
-  Lock, Smartphone, Clock, LogIn, ShoppingCart,
-  MessageSquare, CreditCard, Truck, User, ChevronRight,
-  Activity, UserCheck, Database, Globe, Settings,
+  Activity, AlertCircle, Building2, Calendar, CheckCircle, ChevronRight,
+  Clock, CreditCard, Edit2, FileCheck2, Globe2, Key, Loader2, Lock,
+  Mail, MapPin, Phone, RefreshCw, Save, Shield, Smartphone, User,
+  UserCheck, X,
 } from 'lucide-react'
-
-/* ─── Activity data ─────────────────────────── */
-const ACTIVITY_LOG = [
-  { id: 1, action: 'Login',            detail: 'Logged in from Chrome on Windows',          time: '06 Aug 2026 09:12 AM', type: 'auth'     },
-  { id: 2, action: 'Order Created',    detail: 'Order ORD-0001 — Ganesh Electronics',       time: '06 Aug 2026 09:30 AM', type: 'order'    },
-  { id: 3, action: 'Enquiry Updated',  detail: 'ENQ-0001 status changed to Confirmed',      time: '06 Aug 2026 10:05 AM', type: 'enquiry'  },
-  { id: 4, action: 'Payment Recorded', detail: '₹92,040 received from Ramesh Tiles Store',  time: '06 Aug 2026 11:20 AM', type: 'payment'  },
-  { id: 5, action: 'Dispatch Created', detail: 'DIS-0001 dispatched via Shreeji Transport', time: '06 Aug 2026 12:00 PM', type: 'dispatch' },
-  { id: 6, action: 'Profile Updated',  detail: 'Phone number and location updated',         time: '05 Aug 2026 03:15 PM', type: 'profile'  },
-  { id: 7, action: 'Login',            detail: 'Logged in from Firefox on Android',         time: '05 Aug 2026 08:44 AM', type: 'auth'     },
-  { id: 8, action: 'Logout',           detail: 'Session ended normally',                    time: '04 Aug 2026 06:55 PM', type: 'auth'     },
-]
-
-const TYPE_META = {
-  auth:     { icon: LogIn,         color: '#8B5CF6', bg: '#F5F3FF', label: 'Auth'     },
-  order:    { icon: ShoppingCart,  color: '#3B82F6', bg: '#EFF6FF', label: 'Order'    },
-  enquiry:  { icon: MessageSquare, color: '#F59E0B', bg: '#FFFBEB', label: 'Enquiry'  },
-  payment:  { icon: CreditCard,    color: '#10B981', bg: '#ECFDF5', label: 'Payment'  },
-  dispatch: { icon: Truck,         color: '#06B6D4', bg: '#ECFEFF', label: 'Dispatch' },
-  profile:  { icon: User,          color: '#FD5C02', bg: '#FFF3EC', label: 'Profile'  },
-}
-
-/* ─── Toggle helper ─────────────────────────── */
-function Toggle({ value, onChange }) {
-  return (
-    <button onClick={onChange} style={{ width: 44, height: 24, borderRadius: 12, flexShrink: 0, background: value ? '#10B981' : '#CBD5E1', border: 'none', cursor: 'pointer', position: 'relative', transition: 'background 0.2s' }}>
-      <div style={{ position: 'absolute', top: 3, left: value ? 22 : 3, width: 18, height: 18, borderRadius: '50%', background: '#fff', boxShadow: '0 1px 4px rgba(0,0,0,0.2)', transition: 'left 0.2s' }} />
-    </button>
-  )
-}
-
-/* ═══════════════ EDIT PROFILE MODAL ═══════════════ */
-function EditProfileModal({ profile, onSave, onClose }) {
-  const [form, setForm] = useState({ ...profile })
-  const set = (k, v) => setForm(p => ({ ...p, [k]: v }))
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" style={{ maxWidth: 600 }} onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 9, background: '#FFF3EC', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Edit2 size={16} color="#FD5C02" />
-            </div>
-            <div>
-              <div className="modal-title">Edit Profile</div>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Update your personal information</div>
-            </div>
-          </div>
-          <button className="modal-close" onClick={onClose}><X size={18} /></button>
-        </div>
-        <div className="modal-body">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20, padding: '14px 16px', background: 'var(--bg)', borderRadius: 10, border: '1px solid var(--border)' }}>
-            <div style={{ position: 'relative' }}>
-              <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'linear-gradient(135deg,#FD5C02,#FE8A3A)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, fontWeight: 800, color: '#fff', border: '3px solid #fff', boxShadow: '0 4px 12px rgba(253,92,2,0.3)' }}>SA</div>
-              <button style={{ position: 'absolute', bottom: 0, right: 0, width: 22, height: 22, borderRadius: '50%', background: '#FD5C02', border: '2px solid #fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
-                <Camera size={10} color="#fff" />
-              </button>
-            </div>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 700 }}>Profile Photo</div>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>JPG, PNG or GIF — max 2MB</div>
-              <button className="btn btn-secondary btn-sm"><Camera size={12} /> Upload Photo</button>
-            </div>
-          </div>
-          <div className="form-row">
-            <div className="form-group">
-              <label className="form-label">Full Name *</label>
-              <input className="form-control" value={form.name} onChange={e => set('name', e.target.value)} />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Email Address *</label>
-              <input className="form-control" type="email" value={form.email} onChange={e => set('email', e.target.value)} />
-            </div>
-          </div>
-          <div className="form-row">
-            <div className="form-group">
-              <label className="form-label">Phone Number</label>
-              <input className="form-control" value={form.phone} onChange={e => set('phone', e.target.value)} />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Department</label>
-              <input className="form-control" value={form.department} onChange={e => set('department', e.target.value)} />
-            </div>
-          </div>
-          <div className="form-row">
-            <div className="form-group">
-              <label className="form-label">Reporting To</label>
-              <input className="form-control" value={form.reportingTo} onChange={e => set('reportingTo', e.target.value)} />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Location</label>
-              <input className="form-control" value={form.location} onChange={e => set('location', e.target.value)} />
-            </div>
-          </div>
-          <div className="form-group">
-            <label className="form-label">Bio</label>
-            <textarea className="form-control" rows={3} value={form.bio} onChange={e => set('bio', e.target.value)} />
-          </div>
-        </div>
-        <div className="modal-footer">
-          <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" onClick={() => onSave(form)}><Save size={14} /> Save Changes</button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/* ═══════════════ CHANGE PASSWORD MODAL ═══════════════ */
-function ChangePasswordModal({ onClose }) {
-  const [form, setForm]       = useState({ current: '', newPwd: '', confirm: '' })
-  const [show, setShow]       = useState({ current: false, newPwd: false, confirm: false })
-  const [error, setError]     = useState('')
-  const [success, setSuccess] = useState(false)
-  const set    = (k, v) => setForm(p => ({ ...p, [k]: v }))
-  const toggle = (k)    => setShow(p => ({ ...p, [k]: !p[k] }))
-
-  const calcStr = (pwd) => {
-    let s = 0
-    if (pwd.length >= 8) s++
-    if (/[A-Z]/.test(pwd)) s++
-    if (/[0-9]/.test(pwd)) s++
-    if (/[^A-Za-z0-9]/.test(pwd)) s++
-    return s
-  }
-  const STR_LABEL = ['', 'Weak', 'Fair', 'Good', 'Strong']
-  const STR_COLOR = ['', '#EF4444', '#F59E0B', '#3B82F6', '#10B981']
-  const str = calcStr(form.newPwd)
-
-  const handleSubmit = () => {
-    if (!form.current)                return setError('Please enter your current password.')
-    if (form.newPwd.length < 8)       return setError('New password must be at least 8 characters.')
-    if (form.newPwd !== form.confirm)  return setError('Passwords do not match.')
-    setError('')
-    setSuccess(true)
-    setTimeout(onClose, 1800)
-  }
-
-  const FIELDS = [
-    { key: 'current', label: 'Current Password',      ph: 'Enter current password'  },
-    { key: 'newPwd',  label: 'New Password',           ph: 'Min 8 characters'        },
-    { key: 'confirm', label: 'Confirm New Password',   ph: 'Repeat new password'     },
-  ]
-  const REQS = [
-    ['At least 8 characters',    form.newPwd.length >= 8],
-    ['One uppercase letter',     /[A-Z]/.test(form.newPwd)],
-    ['One number',               /[0-9]/.test(form.newPwd)],
-    ['One special character',    /[^A-Za-z0-9]/.test(form.newPwd)],
-  ]
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" style={{ maxWidth: 460 }} onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 9, background: '#FFF3EC', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Key size={16} color="#FD5C02" />
-            </div>
-            <div>
-              <div className="modal-title">Change Password</div>
-              <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Update your account password</div>
-            </div>
-          </div>
-          <button className="modal-close" onClick={onClose}><X size={18} /></button>
-        </div>
-        <div className="modal-body">
-          {success ? (
-            <div style={{ textAlign: 'center', padding: '32px 0' }}>
-              <div style={{ width: 64, height: 64, borderRadius: '50%', background: '#ECFDF5', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
-                <CheckCircle size={32} color="#10B981" />
-              </div>
-              <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>Password Updated!</div>
-              <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Your password has been changed successfully.</div>
-            </div>
-          ) : (
-            <div>
-              {error && (
-                <div className="alert alert-danger" style={{ marginBottom: 14 }}>
-                  <AlertCircle size={14} /> {error}
-                </div>
-              )}
-              {FIELDS.map(({ key, label, ph }) => (
-                <div key={key} className="form-group">
-                  <label className="form-label">{label}</label>
-                  <div style={{ position: 'relative' }}>
-                    <input className="form-control" type={show[key] ? 'text' : 'password'} placeholder={ph} value={form[key]} onChange={e => set(key, e.target.value)} style={{ paddingRight: 40 }} />
-                    <button type="button" onClick={() => toggle(key)} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center' }}>
-                      {show[key] ? <EyeOff size={15} /> : <Eye size={15} />}
-                    </button>
-                  </div>
-                  {key === 'newPwd' && form.newPwd && (
-                    <div style={{ marginTop: 8 }}>
-                      <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
-                        {[1,2,3,4].map(i => (
-                          <div key={i} style={{ flex: 1, height: 4, borderRadius: 2, background: i <= str ? STR_COLOR[str] : 'var(--border)', transition: 'background 0.2s' }} />
-                        ))}
-                      </div>
-                      <div style={{ fontSize: 11, color: STR_COLOR[str], fontWeight: 600 }}>{STR_LABEL[str]}</div>
-                    </div>
-                  )}
-                </div>
-              ))}
-              <div style={{ background: 'var(--bg)', borderRadius: 8, padding: '10px 14px', fontSize: 12 }}>
-                <div style={{ fontWeight: 700, marginBottom: 8, color: 'var(--text)' }}>Password requirements</div>
-                {REQS.map(([txt, met]) => (
-                  <div key={txt} style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5 }}>
-                    <CheckCircle size={13} color={met ? '#10B981' : '#CBD5E1'} />
-                    <span style={{ color: met ? '#10B981' : 'var(--text-muted)' }}>{txt}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-        {!success && (
-          <div className="modal-footer">
-            <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
-            <button className="btn btn-primary" onClick={handleSubmit}><Key size={14} /> Update Password</button>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-/* ═══════════════ MAIN EXPORT ═══════════════ */
 import { useAuth } from '../context/AuthContext'
 import { authApi } from '../api/authApi'
+import { profileApi } from '../api/profileApi'
+import { canPerform, MODULES } from '../config/permissions'
+
+const TABS = [
+  { key: 'overview', label: 'Overview', icon: User },
+  { key: 'company', label: 'Company & Verification', icon: Building2 },
+  { key: 'security', label: 'Security', icon: Lock },
+  { key: 'activity', label: 'Activity', icon: Activity },
+]
+
+const STATUS_COLORS = {
+  Approved: ['#ECFDF5', '#047857'],
+  Active: ['#ECFDF5', '#047857'],
+  Verified: ['#ECFDF5', '#047857'],
+  Pending: ['#FFFBEB', '#B45309'],
+  Rejected: ['#FEF2F2', '#B91C1C'],
+  Inactive: ['#FEF2F2', '#B91C1C'],
+  'Not Verified': ['#FFF7ED', '#C2410C'],
+  'Not Configured': ['#FFF7ED', '#C2410C'],
+  'Not Uploaded': ['#F8FAFC', '#64748B'],
+}
+
+const ACTIVITY_META = {
+  profile: { icon: User, color: '#FD5C02', bg: '#FFF3EC' },
+  companies: { icon: Building2, color: '#2563EB', bg: '#EFF6FF' },
+  orders: { icon: FileCheck2, color: '#7C3AED', bg: '#F5F3FF' },
+  subscriptions: { icon: CreditCard, color: '#047857', bg: '#ECFDF5' },
+}
+
+const panelStyle = {
+  background: '#fff', borderRadius: 12, border: '1px solid var(--border)',
+  boxShadow: '0 1px 4px rgba(1,21,45,0.05)', overflow: 'hidden',
+}
+
+const gridStyle = {
+  display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(310px, 1fr))',
+  gap: 16, marginTop: 20, alignItems: 'start',
+}
+
+function formatDate(value, includeTime = false) {
+  if (!value) return 'Not available'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Not available'
+  return new Intl.DateTimeFormat('en-IN', {
+    day: '2-digit', month: 'short', year: 'numeric',
+    ...(includeTime ? { hour: '2-digit', minute: '2-digit' } : {}),
+  }).format(date)
+}
+
+function errorMessage(error, fallback) {
+  return error?.response?.data?.message || error?.message || fallback
+}
+
+function initials(name) {
+  return String(name || 'User').split(/\s+/).filter(Boolean).slice(0, 2)
+    .map(part => part[0]?.toUpperCase()).join('') || 'U'
+}
+
+function StatusBadge({ status }) {
+  const [background, color] = STATUS_COLORS[status] || ['#F1F5F9', '#475569']
+  return (
+    <span style={{ padding: '4px 10px', borderRadius: 20, background, color, fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>
+      {status}
+    </span>
+  )
+}
+
+function Panel({ icon: Icon, title, action, children }) {
+  return (
+    <section style={panelStyle}>
+      <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+          <Icon size={16} color="#FD5C02" />
+          <span style={{ fontSize: 14, fontWeight: 700 }}>{title}</span>
+        </div>
+        {action}
+      </div>
+      {children}
+    </section>
+  )
+}
+
+function InfoRow({ icon: Icon, label, value, badge }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 20px', borderBottom: '1px solid var(--border)' }}>
+      <div style={{ width: 32, height: 32, borderRadius: 8, background: '#FFF3EC', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        <Icon size={14} color="#FD5C02" />
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 }}>{label}</div>
+        <div style={{ fontSize: 13, fontWeight: 700, marginTop: 2, overflowWrap: 'anywhere' }}>{value || 'Not provided'}</div>
+      </div>
+      {badge}
+    </div>
+  )
+}
+
+function Modal({ title, subtitle, icon: Icon, onClose, children, footer }) {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 620 }} onClick={event => event.stopPropagation()}>
+        <div className="modal-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 36, height: 36, borderRadius: 9, background: '#FFF3EC', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Icon size={16} color="#FD5C02" />
+            </div>
+            <div><div className="modal-title">{title}</div><div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{subtitle}</div></div>
+          </div>
+          <button type="button" className="modal-close" onClick={onClose}><X size={18} /></button>
+        </div>
+        <div className="modal-body">{children}</div>
+        {footer && <div className="modal-footer">{footer}</div>}
+      </div>
+    </div>
+  )
+}
+
+function FormError({ message }) {
+  if (!message) return null
+  return <div className="alert alert-danger" style={{ marginBottom: 14 }}><AlertCircle size={14} /> {message}</div>
+}
+
+function EditProfileModal({ user, onSave, onClose }) {
+  const [form, setForm] = useState({ name: user.name || '', email: user.email || '', mobile: user.mobile || '' })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const set = (key, value) => setForm(current => ({ ...current, [key]: value }))
+  const submit = async event => {
+    event.preventDefault()
+    if (!form.name.trim() || !form.email.trim()) return setError('Full name and email are required.')
+    setSaving(true); setError('')
+    try { await onSave(form); onClose() } catch (requestError) { setError(errorMessage(requestError, 'Unable to update profile.')) } finally { setSaving(false) }
+  }
+  return (
+    <Modal title="Edit Account" subtitle="Update your personal and login contact details" icon={Edit2} onClose={onClose}
+      footer={<><button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button><button form="profile-edit-form" className="btn btn-primary" disabled={saving}>{saving ? <Loader2 className="spin" size={14} /> : <Save size={14} />} Save Changes</button></>}>
+      <form id="profile-edit-form" onSubmit={submit}>
+        <FormError message={error} />
+        <div className="form-group"><label className="form-label">Full Name *</label><input className="form-control" value={form.name} onChange={event => set('name', event.target.value)} /></div>
+        <div className="form-row">
+          <div className="form-group"><label className="form-label">Email Address *</label><input type="email" className="form-control" value={form.email} onChange={event => set('email', event.target.value)} /></div>
+          <div className="form-group"><label className="form-label">Mobile Number</label><input className="form-control" value={form.mobile} onChange={event => set('mobile', event.target.value)} placeholder="+919876543210" /></div>
+        </div>
+        <div className="alert alert-warning"><AlertCircle size={14} /><span>Changing email or mobile resets that contact’s verification status. Verify it again from Security.</span></div>
+      </form>
+    </Modal>
+  )
+}
+
+function EditCompanyModal({ company, onSave, onClose }) {
+  const fields = ['name', 'owner_name', 'biz_type', 'mobile', 'email', 'gst_number', 'pan_number', 'address', 'city', 'state', 'pin_code']
+  const [form, setForm] = useState(Object.fromEntries(fields.map(field => [field, company[field] || ''])))
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const set = (key, value) => setForm(current => ({ ...current, [key]: value }))
+  const submit = async event => {
+    event.preventDefault(); setSaving(true); setError('')
+    try { await onSave(form); onClose() } catch (requestError) { setError(errorMessage(requestError, 'Unable to update company details.')) } finally { setSaving(false) }
+  }
+  return (
+    <Modal title="Edit Company Details" subtitle="These details apply only to your own company" icon={Building2} onClose={onClose}
+      footer={<><button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button><button form="company-edit-form" className="btn btn-primary" disabled={saving}>{saving ? <Loader2 className="spin" size={14} /> : <Save size={14} />} Save Company</button></>}>
+      <form id="company-edit-form" onSubmit={submit}>
+        <FormError message={error} />
+        <div className="form-row"><div className="form-group"><label className="form-label">Company Name *</label><input className="form-control" value={form.name} onChange={event => set('name', event.target.value)} required /></div><div className="form-group"><label className="form-label">Owner Name *</label><input className="form-control" value={form.owner_name} onChange={event => set('owner_name', event.target.value)} required /></div></div>
+        <div className="form-row"><div className="form-group"><label className="form-label">Business Type</label><input className="form-control" value={form.biz_type} onChange={event => set('biz_type', event.target.value)} /></div><div className="form-group"><label className="form-label">Company Email *</label><input type="email" className="form-control" value={form.email} onChange={event => set('email', event.target.value)} required /></div></div>
+        <div className="form-row"><div className="form-group"><label className="form-label">Mobile *</label><input className="form-control" value={form.mobile} onChange={event => set('mobile', event.target.value)} required /></div><div className="form-group"><label className="form-label">GST Number</label><input className="form-control" value={form.gst_number} onChange={event => set('gst_number', event.target.value)} /></div></div>
+        <div className="form-row"><div className="form-group"><label className="form-label">PAN Number *</label><input className="form-control" value={form.pan_number} onChange={event => set('pan_number', event.target.value)} required /></div><div className="form-group"><label className="form-label">Pincode</label><input className="form-control" value={form.pin_code} onChange={event => set('pin_code', event.target.value)} /></div></div>
+        <div className="form-group"><label className="form-label">Address</label><textarea rows={2} className="form-control" value={form.address} onChange={event => set('address', event.target.value)} /></div>
+        <div className="form-row"><div className="form-group"><label className="form-label">City</label><input className="form-control" value={form.city} onChange={event => set('city', event.target.value)} /></div><div className="form-group"><label className="form-label">State</label><input className="form-control" value={form.state} onChange={event => set('state', event.target.value)} /></div></div>
+      </form>
+    </Modal>
+  )
+}
+
+function ChangePasswordModal({ onSave, onClose }) {
+  const [form, setForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const requirements = [
+    ['8 or more characters', form.newPassword.length >= 8],
+    ['Uppercase and lowercase letters', /[A-Z]/.test(form.newPassword) && /[a-z]/.test(form.newPassword)],
+    ['At least one number', /\d/.test(form.newPassword)],
+    ['At least one special character', /[^A-Za-z0-9]/.test(form.newPassword)],
+  ]
+  const submit = async event => {
+    event.preventDefault()
+    if (!requirements.every(([, met]) => met)) return setError('New password does not meet all security requirements.')
+    if (form.newPassword !== form.confirmPassword) return setError('New password and confirmation do not match.')
+    setSaving(true); setError('')
+    try { await onSave(form.currentPassword, form.newPassword); onClose() } catch (requestError) { setError(errorMessage(requestError, 'Unable to change password.')) } finally { setSaving(false) }
+  }
+  return (
+    <Modal title="Change Password" subtitle="Confirm your current password before setting a new one" icon={Key} onClose={onClose}
+      footer={<><button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button><button form="password-form" className="btn btn-primary" disabled={saving}>{saving ? <Loader2 className="spin" size={14} /> : <Key size={14} />} Update Password</button></>}>
+      <form id="password-form" onSubmit={submit}>
+        <FormError message={error} />
+        <div className="form-group"><label className="form-label">Current Password</label><input type="password" autoComplete="current-password" className="form-control" value={form.currentPassword} onChange={event => setForm(current => ({ ...current, currentPassword: event.target.value }))} required /></div>
+        <div className="form-row"><div className="form-group"><label className="form-label">New Password</label><input type="password" autoComplete="new-password" className="form-control" value={form.newPassword} onChange={event => setForm(current => ({ ...current, newPassword: event.target.value }))} required /></div><div className="form-group"><label className="form-label">Confirm Password</label><input type="password" autoComplete="new-password" className="form-control" value={form.confirmPassword} onChange={event => setForm(current => ({ ...current, confirmPassword: event.target.value }))} required /></div></div>
+        <div style={{ padding: 12, borderRadius: 8, background: 'var(--bg)', border: '1px solid var(--border)' }}>{requirements.map(([label, met]) => <div key={label} style={{ display: 'flex', gap: 7, alignItems: 'center', color: met ? '#047857' : 'var(--text-muted)', fontSize: 12, marginBottom: 5 }}><CheckCircle size={13} /> {label}</div>)}</div>
+      </form>
+    </Modal>
+  )
+}
+
+function VerifyContactModal({ type, target, onVerified, onClose }) {
+  const [otp, setOtp] = useState('')
+  const [sent, setSent] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [devOtp, setDevOtp] = useState('')
+  const label = type === 'email' ? 'Email Address' : 'Mobile Number'
+  const send = async () => {
+    setBusy(true); setError('')
+    try {
+      const response = await authApi.sendOtp(target, type, `verify_${type}`)
+      const payload = response?.data || response
+      setDevOtp(payload?.otp || ''); setSent(true)
+    } catch (requestError) { setError(errorMessage(requestError, 'Unable to send OTP.')) } finally { setBusy(false) }
+  }
+  const verify = async event => {
+    event.preventDefault(); setBusy(true); setError('')
+    try { await authApi.verifyOtp(target, otp, `verify_${type}`); await onVerified(); onClose() } catch (requestError) { setError(errorMessage(requestError, 'OTP verification failed.')) } finally { setBusy(false) }
+  }
+  return (
+    <Modal title={`Verify ${label}`} subtitle={target} icon={type === 'email' ? Mail : Smartphone} onClose={onClose}
+      footer={<><button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>{!sent ? <button type="button" className="btn btn-primary" onClick={send} disabled={busy}>{busy ? <Loader2 className="spin" size={14} /> : <Mail size={14} />} Send OTP</button> : <button form="otp-form" className="btn btn-primary" disabled={busy || otp.length < 4}>{busy ? <Loader2 className="spin" size={14} /> : <CheckCircle size={14} />} Verify OTP</button>}</>}>
+      <FormError message={error} />
+      {!sent ? <div className="alert alert-warning"><AlertCircle size={14} /><span>An OTP will be sent to the contact shown above. Continue only if you can access it.</span></div> : <form id="otp-form" onSubmit={verify}><div className="alert alert-success"><CheckCircle size={14} /><span>OTP sent successfully.{devOtp ? ` Development OTP: ${devOtp}` : ''}</span></div><div className="form-group"><label className="form-label">Enter OTP</label><input className="form-control" inputMode="numeric" maxLength={6} value={otp} onChange={event => setOtp(event.target.value.replace(/\D/g, ''))} autoFocus /></div></form>}
+    </Modal>
+  )
+}
+
+function EmptyCompany({ role, onOpenCompanies }) {
+  return (
+    <Panel icon={Globe2} title="Platform Scope">
+      <div style={{ padding: 28, textAlign: 'center' }}>
+        <div style={{ width: 58, height: 58, margin: '0 auto 14px', borderRadius: 16, background: '#FFF3EC', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Globe2 size={26} color="#FD5C02" /></div>
+        <div style={{ fontWeight: 800, marginBottom: 6 }}>{role === 'Super Admin' ? 'Global Platform Administrator' : 'No company linked'}</div>
+        <p style={{ margin: '0 auto 18px', color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.6, maxWidth: 480 }}>{role === 'Super Admin' ? 'This platform-owner account operates across all companies. Company KYC and subscriptions belong to each tenant and are managed separately.' : 'Ask an administrator to link this account to the correct company.'}</p>
+        {role === 'Super Admin' && <button className="btn btn-secondary" onClick={onOpenCompanies}>Open Company Management <ChevronRight size={14} /></button>}
+      </div>
+    </Panel>
+  )
+}
 
 export default function Profile() {
-  const { user: authUser } = useAuth()
-  const [activeTab,     setActiveTab]     = useState('Profile')
-  const [showEditModal, setShowEditModal] = useState(false)
-  const [showPwdModal,  setShowPwdModal]  = useState(false)
-  const [saved,         setSaved]         = useState(false)
-  const [twoFA,         setTwoFA]         = useState(false)
-  const [emailNotif,    setEmailNotif]    = useState(true)
-  const [smsNotif,      setSmsNotif]      = useState(false)
+  const navigate = useNavigate()
+  const { user: authUser, updateCurrentUser } = useAuth()
+  const [activeTab, setActiveTab] = useState('overview')
+  const [account, setAccount] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [modal, setModal] = useState(null)
 
-  const [profile, setProfile] = useState({
-    name: 'Super Admin', role: 'System Administrator',
-    email: 'admin@ezyenquiry.com', phone: '+91 98765 43210',
-    department: 'Management', reportingTo: 'Owner',
-    joinDate: '01 Jan 2024', location: 'India',
-    bio: 'System administrator responsible for managing ERP operations, user access, and overall business workflows across all modules.',
-  })
+  const loadAccount = useCallback(async () => {
+    setLoading(true); setError('')
+    try {
+      const response = await profileApi.get()
+      setAccount(response?.data || response)
+    } catch (requestError) { setError(errorMessage(requestError, 'Unable to load account information.')) } finally { setLoading(false) }
+  }, [])
 
-  const handleSave = (updated) => {
-    setProfile(updated)
-    setShowEditModal(false)
-    setSaved(true)
-    setTimeout(() => setSaved(false), 3000)
+  useEffect(() => {
+    let active = true
+    profileApi.get()
+      .then(response => {
+        if (active) setAccount(response?.data || response)
+      })
+      .catch(requestError => {
+        if (active) setError(errorMessage(requestError, 'Unable to load account information.'))
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => { active = false }
+  }, [])
+
+  const user = account?.user || authUser || {}
+  const company = account?.company
+  const access = account?.access
+  const verification = account?.verification
+  const canEditProfile = canPerform(authUser?.role, MODULES.PROFILE, 'edit')
+  const canChangePassword = canPerform(authUser?.role, MODULES.PROFILE, 'change_password')
+  const canEditCompany = Boolean(company && ['Company Owner', 'Super Admin'].includes(user.role))
+
+  const accessCategories = useMemo(() => {
+    const groups = {}
+    for (const module of access?.modules || []) (groups[module.category] ||= []).push(module)
+    return groups
+  }, [access])
+
+  const showNotice = message => {
+    setNotice(message)
+    window.setTimeout(() => setNotice(''), 3500)
   }
 
-  const TABS = [
-    { key: 'Profile',  icon: User,      label: 'Profile'  },
-    { key: 'Security', icon: Lock,      label: 'Security' },
-    { key: 'Activity', icon: Activity,  label: 'Activity' },
-  ]
+  const saveProfile = async form => {
+    const response = await profileApi.update(form)
+    const updatedUser = response?.data || response
+    setAccount(current => ({ ...current, user: updatedUser, verification: { ...current.verification, email: { verified: Boolean(updatedUser.email_verified_at), verified_at: updatedUser.email_verified_at }, mobile: { verified: Boolean(updatedUser.mobile_verified_at), verified_at: updatedUser.mobile_verified_at } } }))
+    updateCurrentUser(updatedUser)
+    showNotice('Account details updated successfully.')
+  }
+
+  const saveCompany = async form => {
+    const response = await profileApi.updateCompany(form)
+    const updatedCompany = response?.data || response
+    setAccount(current => ({ ...current, company: updatedCompany }))
+    showNotice('Company details updated successfully.')
+  }
+
+  const savePassword = async (currentPassword, newPassword) => {
+    const response = await profileApi.changePassword(currentPassword, newPassword)
+    const result = response?.data || response
+    setAccount(current => ({ ...current, user: { ...current.user, password_changed_at: result?.password_changed_at } }))
+    showNotice('Password changed successfully.')
+  }
+
+  if (loading && !account) return <div style={{ minHeight: 360, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, color: 'var(--text-muted)' }}><Loader2 className="spin" size={20} /> Loading your account…</div>
+
+  if (error && !account) return (
+    <div style={{ ...panelStyle, padding: 30, textAlign: 'center' }}><AlertCircle size={34} color="#EF4444" /><h3>Account could not be loaded</h3><p style={{ color: 'var(--text-muted)' }}>{error}</p><button className="btn btn-primary" onClick={loadAccount}><RefreshCw size={14} /> Try Again</button></div>
+  )
 
   return (
     <div>
-      {showEditModal && <EditProfileModal profile={profile} onSave={handleSave} onClose={() => setShowEditModal(false)} />}
-      {showPwdModal  && <ChangePasswordModal onClose={() => setShowPwdModal(false)} />}
+      {modal === 'profile' && <EditProfileModal user={user} onSave={saveProfile} onClose={() => setModal(null)} />}
+      {modal === 'company' && <EditCompanyModal company={company} onSave={saveCompany} onClose={() => setModal(null)} />}
+      {modal === 'password' && <ChangePasswordModal onSave={savePassword} onClose={() => setModal(null)} />}
+      {modal === 'verify-email' && <VerifyContactModal type="email" target={user.email} onVerified={loadAccount} onClose={() => setModal(null)} />}
+      {modal === 'verify-mobile' && <VerifyContactModal type="mobile" target={user.mobile} onVerified={loadAccount} onClose={() => setModal(null)} />}
 
-      {/* ── Page Header ── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div style={{ width: 44, height: 44, borderRadius: 12, background: '#FFF3EC', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <User size={20} color="#FD5C02" />
-          </div>
-          <div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.3px' }}>My Profile</div>
-            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 1 }}>View and manage your personal account information</div>
-          </div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {saved && (
-            <span className="badge badge-green" style={{ padding: '6px 12px', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <CheckCircle size={13} /> Saved
-            </span>
-          )}
-          <button className="btn btn-secondary" onClick={() => setShowEditModal(true)} style={{ gap: 7 }}>
-            <Edit2 size={14} /> Edit Profile
-          </button>
-        </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 18 }}>
+        <div><div style={{ fontSize: 20, fontWeight: 800 }}>My Account</div><div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }}>Identity, company verification, access, security and activity</div></div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>{notice && <span className="badge badge-green"><CheckCircle size={13} /> {notice}</span>}<button className="btn btn-secondary" onClick={loadAccount} disabled={loading}><RefreshCw size={14} className={loading ? 'spin' : ''} /> Refresh</button>{canEditProfile && <button className="btn btn-primary" onClick={() => setModal('profile')}><Edit2 size={14} /> Edit Account</button>}</div>
       </div>
 
-      {/* ── Hero Banner ── */}
-      <div style={{ borderRadius: 14, overflow: 'hidden', marginBottom: 6, background: '#fff', border: '1px solid var(--border)', boxShadow: '0 2px 12px rgba(1,21,45,0.08)' }}>
-        {/* Gradient banner */}
-        <div style={{ background: 'linear-gradient(120deg, #01152D 0%, #1a2d4a 35%, #7a2800 70%, #FD5C02 100%)', padding: '28px 32px 28px 32px', position: 'relative', overflow: 'hidden' }}>
-          {/* Decorative circles */}
-          <div style={{ position: 'absolute', top: -40, right: -40, width: 180, height: 180, borderRadius: '50%', background: 'rgba(253,92,2,0.12)', pointerEvents: 'none' }} />
-          <div style={{ position: 'absolute', bottom: -30, right: 100, width: 120, height: 120, borderRadius: '50%', background: 'rgba(255,255,255,0.04)', pointerEvents: 'none' }} />
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
-            {/* Avatar */}
-            <div style={{ position: 'relative', flexShrink: 0 }}>
-              <div style={{ width: 90, height: 90, borderRadius: '50%', background: 'linear-gradient(135deg,#FD5C02,#FE8A3A)', border: '4px solid rgba(255,255,255,0.9)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28, fontWeight: 800, color: '#fff', boxShadow: '0 6px 24px rgba(0,0,0,0.3)', cursor: 'pointer' }}
-                onClick={() => setShowEditModal(true)}
-              >SA</div>
-              <div onClick={() => setShowEditModal(true)} style={{ position: 'absolute', bottom: 2, right: 2, width: 28, height: 28, borderRadius: '50%', background: '#FD5C02', border: '3px solid #fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.25)' }}>
-                <Camera size={12} color="#fff" />
-              </div>
-            </div>
-
-            {/* Name / role / contact */}
-            <div style={{ flex: 1, minWidth: 200 }}>
-              <div style={{ fontSize: 24, fontWeight: 800, color: '#fff', letterSpacing: '-0.5px', marginBottom: 4 }}>{profile.name}</div>
-              <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.75)', marginBottom: 12 }}>{profile.role} · {profile.department}</div>
-              <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Mail size={13} color="rgba(255,255,255,0.7)" /> {profile.email}
-                </span>
-                <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Phone size={13} color="rgba(255,255,255,0.7)" /> {profile.phone}
-                </span>
-                <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <MapPin size={13} color="rgba(255,255,255,0.7)" /> {profile.location}
-                </span>
-              </div>
-            </div>
-
-            {/* Badges */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end' }}>
-              <span style={{ padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, background: 'rgba(16,185,129,0.18)', color: '#6EE7B7', border: '1px solid rgba(16,185,129,0.35)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#6EE7B7', display: 'inline-block' }} /> Active
-              </span>
-              <span style={{ padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700, background: 'rgba(253,92,2,0.22)', color: '#FFA05C', border: '1px solid rgba(253,92,2,0.4)' }}>
-                Admin
-              </span>
-            </div>
+      <section style={{ ...panelStyle, marginBottom: 6 }}>
+        <div style={{ background: 'linear-gradient(120deg,#01152D 0%,#1A2D4A 45%,#FD5C02 120%)', padding: '28px 30px', color: '#fff' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
+            <div style={{ width: 82, height: 82, borderRadius: '50%', background: 'linear-gradient(135deg,#FD5C02,#FE8A3A)', border: '4px solid rgba(255,255,255,.9)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 25, fontWeight: 800 }}>{initials(user.name)}</div>
+            <div style={{ flex: 1, minWidth: 220 }}><div style={{ fontSize: 24, fontWeight: 800 }}>{user.name}</div><div style={{ color: 'rgba(255,255,255,.72)', marginTop: 3 }}>{user.role} · {access?.scope}</div><div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 12, fontSize: 13, color: 'rgba(255,255,255,.82)' }}><span style={{ display: 'flex', gap: 6, alignItems: 'center' }}><Mail size={13} /> {user.email}</span>{user.mobile && <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}><Phone size={13} /> {user.mobile}</span>}</div></div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end' }}><StatusBadge status={user.is_active ? 'Active' : 'Inactive'} /><span style={{ padding: '4px 10px', borderRadius: 20, background: 'rgba(253,92,2,.24)', color: '#FDBA8C', fontSize: 11, fontWeight: 700 }}>{user.role}</span></div>
           </div>
         </div>
+        <div style={{ padding: '0 16px', display: 'flex', overflowX: 'auto' }}>{TABS.map(({ key, label, icon: Icon }) => <button key={key} onClick={() => setActiveTab(key)} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '14px 16px', border: 'none', borderBottom: activeTab === key ? '2px solid #FD5C02' : '2px solid transparent', background: 'none', color: activeTab === key ? '#FD5C02' : 'var(--text-muted)', fontWeight: activeTab === key ? 700 : 500, cursor: 'pointer', whiteSpace: 'nowrap' }}><Icon size={15} /> {label}</button>)}</div>
+      </section>
 
-        {/* ── Tabs inside card ── */}
-        <div style={{ borderTop: '1px solid var(--border)', background: '#fff', padding: '0 20px', display: 'flex', gap: 0 }}>
-          {TABS.map(({ key, icon: Icon, label }) => (
-            <button
-              key={key}
-              onClick={() => setActiveTab(key)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 7,
-                padding: '14px 18px',
-                fontSize: 13, fontWeight: activeTab === key ? 700 : 500,
-                color: activeTab === key ? '#FD5C02' : 'var(--text-muted)',
-                background: 'none', border: 'none', cursor: 'pointer',
-                borderBottom: activeTab === key ? '2px solid #FD5C02' : '2px solid transparent',
-                marginBottom: -1, transition: 'all 0.15s',
-              }}
-            >
-              <Icon size={15} />
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
+      {error && <div className="alert alert-danger" style={{ marginTop: 16 }}><AlertCircle size={14} /> {error}</div>}
 
-      {/* ════════ PROFILE TAB ════════ */}
-      {activeTab === 'Profile' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 20, alignItems: 'start' }}>
-
-          {/* Left — Personal Information */}
-          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid var(--border)', boxShadow: '0 1px 4px rgba(1,21,45,0.05)', overflow: 'hidden' }}>
-            <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                <User size={16} color="#FD5C02" />
-                <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>Personal Information</span>
-              </div>
-              <button className="btn btn-secondary btn-sm" onClick={() => setShowEditModal(true)} style={{ gap: 5 }}>
-                <Edit2 size={11} /> Edit
-              </button>
-            </div>
-
-            {[
-              { label: 'Full Name',     value: profile.name,        Icon: User      },
-              { label: 'Email Address', value: profile.email,       Icon: Mail      },
-              { label: 'Phone Number',  value: profile.phone,       Icon: Phone     },
-              { label: 'Department',    value: profile.department,  Icon: Briefcase },
-              { label: 'Member Since',  value: profile.joinDate,    Icon: Calendar  },
-              { label: 'Last Login',    value: '05 Aug 2026 09:12 AM', Icon: Clock  },
-            ].map(({ label, value, Icon }, i, arr) => (
-              <div key={label} style={{ display: 'flex', alignItems: 'center', padding: '14px 22px', borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none' }}>
-                <div style={{ width: 32, height: 32, borderRadius: 8, background: '#FFF3EC', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginRight: 14 }}>
-                  <Icon size={14} color="#FD5C02" />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 2 }}>{label}</div>
-                </div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', textAlign: 'right' }}>{value}</div>
-              </div>
-            ))}
+      {activeTab === 'overview' && <div style={gridStyle}>
+        <Panel icon={User} title="Personal Information" action={canEditProfile ? <button className="btn btn-secondary btn-sm" onClick={() => setModal('profile')}><Edit2 size={11} /> Edit</button> : null}>
+          <InfoRow icon={User} label="Full Name" value={user.name} />
+          <InfoRow icon={Mail} label="Email Address" value={user.email} badge={<StatusBadge status={verification?.email?.verified ? 'Verified' : 'Not Verified'} />} />
+          <InfoRow icon={Phone} label="Mobile Number" value={user.mobile} badge={user.mobile ? <StatusBadge status={verification?.mobile?.verified ? 'Verified' : 'Not Verified'} /> : null} />
+          <InfoRow icon={Calendar} label="Member Since" value={formatDate(user.created_at)} />
+          <InfoRow icon={Clock} label="Last Login" value={formatDate(user.last_login, true)} />
+        </Panel>
+        <Panel icon={Shield} title="Role & Effective Access">
+          <div style={{ padding: 20, borderBottom: '1px solid var(--border)', display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10 }}>
+            {[['Role', user.role], ['Modules', `${access?.module_count || 0} / ${access?.total_modules || 0}`], ['Actions', access?.action_count || 0]].map(([label, value]) => <div key={label} style={{ textAlign: 'center', padding: '12px 8px', background: 'var(--bg)', borderRadius: 9 }}><div style={{ fontSize: 18, fontWeight: 800 }}>{value}</div><div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 3 }}>{label}</div></div>)}
           </div>
+          <div style={{ padding: 20 }}>{Object.entries(accessCategories).map(([category, modules]) => <div key={category} style={{ marginBottom: 14 }}><div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 7 }}>{category.toUpperCase()}</div><div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{modules.map(module => <span key={module.key} title={module.actions.map(action => action.label).join(', ')} style={{ fontSize: 11, padding: '5px 8px', borderRadius: 6, background: '#FFF3EC', color: '#C2410C', fontWeight: 600 }}>{module.label} · {module.actions.length}</span>)}</div></div>)}</div>
+        </Panel>
+      </div>}
 
-          {/* Right — Role & Permissions Summary */}
-          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid var(--border)', boxShadow: '0 1px 4px rgba(1,21,45,0.05)', overflow: 'hidden' }}>
-            <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 9 }}>
-              <Shield size={16} color="#FD5C02" />
-              <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>Role &amp; Permissions Summary</span>
-            </div>
+      {activeTab === 'company' && <div style={gridStyle}>
+        {!company ? <div style={{ gridColumn: '1 / -1' }}><EmptyCompany role={user.role} onOpenCompanies={() => navigate('/company-management/company-registration')} /></div> : <>
+          <Panel icon={Building2} title="Company Details" action={canEditCompany ? <button className="btn btn-secondary btn-sm" onClick={() => setModal('company')}><Edit2 size={11} /> Edit</button> : null}>
+            <InfoRow icon={Building2} label="Company" value={company.name} badge={<StatusBadge status={company.status} />} />
+            <InfoRow icon={UserCheck} label="Owner" value={company.owner_name} />
+            <InfoRow icon={Mail} label="Company Email" value={company.email} />
+            <InfoRow icon={Phone} label="Company Mobile" value={company.mobile} />
+            <InfoRow icon={FileCheck2} label="GST / PAN" value={`${company.gst_number || 'GST not provided'} · ${company.pan_number || 'PAN not provided'}`} />
+            <InfoRow icon={MapPin} label="Registered Address" value={[company.address, company.city, company.state, company.pin_code].filter(Boolean).join(', ')} />
+          </Panel>
+          <Panel icon={FileCheck2} title="KYC & Admin Verification" action={<button className="btn btn-secondary btn-sm" onClick={() => navigate('/company-management/company-registration')}>Manage <ChevronRight size={11} /></button>}>
+            <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><div><div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Admin Approval</div><div style={{ fontSize: 13, fontWeight: 700, marginTop: 2 }}>{company.status === 'Approved' ? `Approved ${formatDate(company.approved_at)}` : company.reject_reason || 'Awaiting platform review'}</div></div><StatusBadge status={company.status} /></div>
+            {(company.documents || []).map(document => <div key={document.type} style={{ padding: '13px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12 }}><div style={{ width: 32, height: 32, borderRadius: 8, background: document.uploaded ? '#ECFDF5' : '#F8FAFC', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><FileCheck2 size={14} color={document.uploaded ? '#047857' : '#94A3B8'} /></div><div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 700 }}>{document.label}</div>{document.reject_reason && <div style={{ fontSize: 11, color: '#B91C1C', marginTop: 2 }}>{document.reject_reason}</div>}</div><StatusBadge status={document.status} /></div>)}
+          </Panel>
+          <Panel icon={CreditCard} title="Subscription">
+            <InfoRow icon={CreditCard} label="Current Plan" value={company.subscription_plan || 'Free'} badge={<StatusBadge status={account.subscription?.status || 'Active'} />} />
+            <InfoRow icon={Calendar} label="Plan Period" value={account.subscription ? `${formatDate(account.subscription.starts_at)} – ${formatDate(account.subscription.expires_at)}` : 'Free plan · no billing period'} />
+            <div style={{ padding: 16 }}><button className="btn btn-secondary" style={{ width: '100%', justifyContent: 'center' }} onClick={() => navigate('/system/subscription')}>Open Subscription Management <ChevronRight size={14} /></button></div>
+          </Panel>
+        </>}
+      </div>}
 
-            {/* Bio */}
-            <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--border)' }}>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 6 }}>Bio</div>
-              <div style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.65 }}>{profile.bio}</div>
-            </div>
+      {activeTab === 'security' && <div style={gridStyle}>
+        <Panel icon={Lock} title="Password & Authentication">
+          <div style={{ padding: 20 }}><div style={{ display: 'flex', gap: 13, alignItems: 'center', padding: 14, borderRadius: 10, background: 'var(--bg)', border: '1px solid var(--border)', marginBottom: 16 }}><div style={{ width: 42, height: 42, borderRadius: 10, background: user.has_password ? '#ECFDF5' : '#FFF7ED', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Shield size={18} color={user.has_password ? '#047857' : '#C2410C'} /></div><div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 700 }}>{user.has_password ? 'Password login enabled' : 'Password login not configured'}</div><div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Last changed: {formatDate(user.password_changed_at)}</div></div><StatusBadge status={user.has_password ? 'Active' : 'Not Configured'} /></div><p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.6 }}>Use at least 8 characters with uppercase, lowercase, a number and a special character.</p>{canChangePassword && user.has_password && <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={() => setModal('password')}><Key size={14} /> Change Password</button>}</div>
+        </Panel>
+        <Panel icon={Smartphone} title="Contact Verification">
+          {[{ key: 'email', label: 'Email Address', value: user.email, icon: Mail }, { key: 'mobile', label: 'Mobile Number', value: user.mobile, icon: Phone }].map(item => { const verified = verification?.[item.key]?.verified; const Icon = item.icon; return <div key={item.key} style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12 }}><div style={{ width: 38, height: 38, borderRadius: 9, background: verified ? '#ECFDF5' : '#FFF7ED', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Icon size={16} color={verified ? '#047857' : '#C2410C'} /></div><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{item.label}</div><div style={{ fontSize: 13, fontWeight: 700, overflowWrap: 'anywhere' }}>{item.value || 'Not provided'}</div>{verified && <div style={{ fontSize: 11, color: '#047857', marginTop: 2 }}>Verified {formatDate(verification[item.key].verified_at)}</div>}</div>{item.value && (verified ? <StatusBadge status="Verified" /> : <button className="btn btn-secondary btn-sm" onClick={() => setModal(`verify-${item.key}`)}>Verify</button>)}</div> })}
+          <div className="alert alert-warning" style={{ margin: 16 }}><AlertCircle size={14} /><span>Two-factor authentication and device session revocation are not enabled yet. No unsupported security status is shown here.</span></div>
+        </Panel>
+      </div>}
 
-            {[
-              { label: 'Role',           value: 'Super Administrator',       Icon: UserCheck,  extra: null },
-              { label: 'Access Level',   value: 'Full Access — All Modules', Icon: Lock,       extra: null },
-              { label: 'Modules Access', value: '10 / 10 · 100%',           Icon: Database,   extra: null },
-              { label: 'Permissions',    value: '254 Permissions',           Icon: Shield,     extra: null },
-              { label: 'Data Access',    value: 'All Organizations',         Icon: Globe,      extra: null },
-            ].map(({ label, value, Icon }, i, arr) => (
-              <div key={label} style={{ display: 'flex', alignItems: 'center', padding: '13px 22px', borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none' }}>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>{label}</div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>{value}</span>
-                  <div style={{ width: 28, height: 28, borderRadius: 7, background: '#FFF3EC', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <Icon size={13} color="#FD5C02" />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ════════ SECURITY TAB ════════ */}
-      {activeTab === 'Security' && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 20, alignItems: 'start' }}>
-
-          {/* Password */}
-          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid var(--border)', boxShadow: '0 1px 4px rgba(1,21,45,0.05)', overflow: 'hidden' }}>
-            <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 9 }}>
-              <Lock size={16} color="#FD5C02" />
-              <span style={{ fontSize: 14, fontWeight: 700 }}>Password &amp; Authentication</span>
-            </div>
-            <div style={{ padding: 22 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', background: 'var(--bg)', borderRadius: 10, marginBottom: 18, border: '1px solid var(--border)' }}>
-                <div style={{ width: 42, height: 42, borderRadius: 10, background: '#ECFDF5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Shield size={18} color="#10B981" />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700 }}>Password is set</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Last changed: 01 Jan 2024</div>
-                </div>
-                <span className="badge badge-green">Secure</span>
-              </div>
-              <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 18, lineHeight: 1.65 }}>
-                Use a strong password with at least 8 characters combining uppercase, lowercase, numbers, and special characters.
-              </p>
-              <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={() => setShowPwdModal(true)}>
-                <Key size={14} /> Change Password
-              </button>
-            </div>
-          </div>
-
-          {/* Right col */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-            {/* 2FA */}
-            <div style={{ background: '#fff', borderRadius: 12, border: '1px solid var(--border)', boxShadow: '0 1px 4px rgba(1,21,45,0.05)', overflow: 'hidden' }}>
-              <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 9 }}>
-                <Smartphone size={16} color="#FD5C02" />
-                <span style={{ fontSize: 14, fontWeight: 700 }}>Two-Factor Authentication</span>
-              </div>
-              <div style={{ padding: 22 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14 }}>
-                  <div style={{ width: 42, height: 42, borderRadius: 10, background: twoFA ? '#ECFDF5' : '#FEF2F2', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    {twoFA ? <CheckCircle size={20} color="#10B981" /> : <AlertCircle size={20} color="#EF4444" />}
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700 }}>2FA is {twoFA ? 'Enabled' : 'Disabled'}</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{twoFA ? 'Your account is protected.' : 'Enable for extra security.'}</div>
-                  </div>
-                  <Toggle value={twoFA} onChange={() => setTwoFA(v => !v)} />
-                </div>
-                {twoFA
-                  ? <div className="alert alert-success"><CheckCircle size={14} /><span>2FA active. Account secured with OTP verification.</span></div>
-                  : <div className="alert alert-warning"><AlertCircle size={14} /><span>Enable 2FA to add an extra layer of security.</span></div>
-                }
-              </div>
-            </div>
-
-            {/* Notifications */}
-            <div style={{ background: '#fff', borderRadius: 12, border: '1px solid var(--border)', boxShadow: '0 1px 4px rgba(1,21,45,0.05)', overflow: 'hidden' }}>
-              <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 9 }}>
-                <Settings size={16} color="#FD5C02" />
-                <span style={{ fontSize: 14, fontWeight: 700 }}>Notification Preferences</span>
-              </div>
-              {[
-                { label: 'Email Notifications', desc: 'Receive alerts via email', value: emailNotif, onChange: () => setEmailNotif(v => !v), Icon: Mail },
-                { label: 'SMS Notifications',   desc: 'Receive alerts via SMS',   value: smsNotif,   onChange: () => setSmsNotif(v => !v),   Icon: Smartphone },
-              ].map(({ label, desc, value, onChange, Icon }, i) => (
-                <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 22px', borderBottom: i === 0 ? '1px solid var(--border)' : 'none' }}>
-                  <div style={{ width: 34, height: 34, borderRadius: 8, background: '#FFF3EC', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <Icon size={14} color="#FD5C02" />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600 }}>{label}</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{desc}</div>
-                  </div>
-                  <Toggle value={value} onChange={onChange} />
-                </div>
-              ))}
-            </div>
-
-            {/* Sessions */}
-            <div style={{ background: '#fff', borderRadius: 12, border: '1px solid var(--border)', boxShadow: '0 1px 4px rgba(1,21,45,0.05)', overflow: 'hidden' }}>
-              <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 9 }}>
-                <Globe size={16} color="#FD5C02" />
-                <span style={{ fontSize: 14, fontWeight: 700 }}>Active Sessions</span>
-              </div>
-              {[
-                { device: 'Chrome on Windows',  location: 'Bangalore, IN', time: 'Current session', active: true  },
-                { device: 'Firefox on Android', location: 'Mumbai, IN',    time: '05 Aug 2026',     active: false },
-              ].map((sess, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 22px', borderBottom: i === 0 ? '1px solid var(--border)' : 'none' }}>
-                  <div style={{ width: 34, height: 34, borderRadius: 8, background: sess.active ? '#FFF3EC' : 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <Smartphone size={14} color={sess.active ? '#FD5C02' : 'var(--text-muted)'} />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600 }}>{sess.device}</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{sess.location} · {sess.time}</div>
-                  </div>
-                  {sess.active
-                    ? <span className="badge badge-green">Current</span>
-                    : <button className="btn btn-danger btn-xs">Revoke</button>
-                  }
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ════════ ACTIVITY TAB ════════ */}
-      {activeTab === 'Activity' && (
-        <div style={{ marginTop: 20 }}>
-          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid var(--border)', boxShadow: '0 1px 4px rgba(1,21,45,0.05)', overflow: 'hidden' }}>
-            <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                <Activity size={16} color="#FD5C02" />
-                <span style={{ fontSize: 14, fontWeight: 700 }}>Recent Activity Log</span>
-              </div>
-              <span style={{ fontSize: 12, color: 'var(--text-muted)', background: 'var(--bg)', padding: '3px 10px', borderRadius: 20, border: '1px solid var(--border)' }}>Last 7 days</span>
-            </div>
-
-            {ACTIVITY_LOG.map((log, idx) => {
-              const meta = TYPE_META[log.type] || TYPE_META.profile
-              const Icon = meta.icon
-              return (
-                <div
-                  key={log.id}
-                  style={{ display: 'flex', alignItems: 'flex-start', gap: 16, padding: '14px 22px', borderBottom: idx < ACTIVITY_LOG.length - 1 ? '1px solid var(--border)' : 'none', transition: 'background 0.12s', cursor: 'default' }}
-                  onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg)' }}
-                  onMouseLeave={e => { e.currentTarget.style.background = '#fff' }}
-                >
-                  <div style={{ width: 40, height: 40, borderRadius: 10, background: meta.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <Icon size={17} color={meta.color} />
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>{log.action}</div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <Clock size={11} /> {log.time}
-                        </span>
-                        <span style={{ display: 'inline-flex', padding: '2px 9px', borderRadius: 20, fontSize: 10, fontWeight: 700, background: meta.bg, color: meta.color, textTransform: 'capitalize', letterSpacing: '0.3px' }}>
-                          {meta.label}
-                        </span>
-                      </div>
-                    </div>
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>{log.detail}</div>
-                  </div>
-                </div>
-              )
-            })}
-
-            <div style={{ padding: '13px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border)', background: 'var(--bg)' }}>
-              <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Showing {ACTIVITY_LOG.length} recent activities</span>
-              <button className="btn btn-secondary btn-sm" style={{ gap: 5 }}>
-                View All <ChevronRight size={13} />
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {activeTab === 'activity' && <div style={{ marginTop: 20 }}><Panel icon={Activity} title="My Recent Activity" action={<span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Latest 20 changes</span>}>
+        {account.activities?.length ? account.activities.map((log, index) => { const meta = ACTIVITY_META[log.module] || { icon: Activity, color: '#475569', bg: '#F1F5F9' }; const Icon = meta.icon; return <div key={log._id || `${log.created_at}-${index}`} style={{ display: 'flex', gap: 14, padding: '14px 20px', borderBottom: '1px solid var(--border)' }}><div style={{ width: 38, height: 38, borderRadius: 9, background: meta.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Icon size={16} color={meta.color} /></div><div style={{ flex: 1, minWidth: 0 }}><div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}><div style={{ fontSize: 13, fontWeight: 700 }}>{log.action} · {(log.module || 'system').replaceAll('_', ' ')}</div><span style={{ fontSize: 11, color: 'var(--text-muted)' }}><Clock size={11} style={{ verticalAlign: -2 }} /> {formatDate(log.created_at, true)}</span></div><div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4, overflowWrap: 'anywhere' }}>{log.path}{log.entity_id ? ` · ${log.entity_id}` : ''}</div></div></div> }) : <div style={{ padding: 38, textAlign: 'center', color: 'var(--text-muted)' }}><Activity size={30} style={{ marginBottom: 10 }} /><div style={{ fontWeight: 700, color: 'var(--text)' }}>No recorded changes yet</div><div style={{ fontSize: 12, marginTop: 5 }}>Successful create, update and delete actions will appear here.</div></div>}
+      </Panel></div>}
     </div>
   )
 }

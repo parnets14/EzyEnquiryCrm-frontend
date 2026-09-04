@@ -104,7 +104,7 @@ const NAV_CONFIG = [
       { to: '/system/notification-management', icon: Bell,       label: 'Notification Management', moduleKey: MODULES.NOTIFICATIONS, badgeKey: 'notifs' },
       { to: '/system/document-management',     icon: FolderOpen, label: 'Document Management',     moduleKey: MODULES.DOCUMENTS },
       { to: '/system/subscription',            icon: CreditCard, label: 'Subscription',            moduleKey: MODULES.SUBSCRIPTION },
-      { to: '/system/profile',                 icon: UserCircle, label: 'Profile',                 moduleKey: MODULES.PROFILE },
+      { to: '/system/profile',                 icon: UserCircle, label: 'My Account',              moduleKey: MODULES.PROFILE },
     ],
   },
 ]
