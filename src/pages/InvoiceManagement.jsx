@@ -769,6 +769,39 @@ function ViewModal({ invoice, onClose, onEdit, onPayment, onStatusChange }) {
             </div>
           </div>
 
+          {/* Linked Dispatch */}
+          {invoice.dispatch && (
+            <div style={{ marginBottom: 20, background: 'var(--bg)', borderRadius: 10, padding: '14px 16px', border: '1px solid var(--border)' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase',
+                letterSpacing: '.06em', color: '#FD5C02', marginBottom: 8 }}>Linked Dispatch</div>
+              <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text)', marginBottom: 8 }}>
+                {invoice.dispatch.dispatch_code || '—'}
+              </div>
+              {[
+                ['Status', invoice.dispatch.status?.replace(/_/g, ' ') || '—'],
+                ['Driver', invoice.dispatch.driver_name || '—'],
+                ['Mobile', invoice.dispatch.driver_mobile || '—'],
+                ['Vehicle', invoice.dispatch.vehicle_number || '—'],
+                ['Transport', invoice.dispatch.transport_name || '—'],
+                ['LR Number', invoice.dispatch.lr_number || '—'],
+                ['Dispatch Date', invoice.dispatch.dispatch_date ? fmtDate(invoice.dispatch.dispatch_date) : '—'],
+                ['Expected Delivery', invoice.dispatch.expected_delivery ? fmtDate(invoice.dispatch.expected_delivery) : '—'],
+                ['Delivered Date', invoice.dispatch.delivered_date ? fmtDate(invoice.dispatch.delivered_date) : '—'],
+              ].filter(([, val]) => val && val !== '—').map(([lbl, val]) => (
+                <div key={lbl} style={{ display: 'flex', justifyContent: 'space-between',
+                  fontSize: 13, marginBottom: 4 }}>
+                  <span style={{ color: 'var(--text-muted)' }}>{lbl}</span>
+                  <span style={{ fontWeight: 600, color: 'var(--text)' }}>{val}</span>
+                </div>
+              ))}
+              {invoice.dispatch.notes && (
+                <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px dashed var(--border)', fontSize: 12, color: 'var(--text-muted)' }}>
+                  📝 {invoice.dispatch.notes}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Items */}
           <div style={{ marginBottom: 20 }}>
             <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, color: 'var(--text)' }}>
@@ -1183,7 +1216,15 @@ export default function InvoiceManagement({ products = [], customers = [] }) {
                     </td>
                     <td style={{ padding: '10px 14px' }}>
                       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                        <button onClick={() => setViewInvoice(inv)}
+                        <button onClick={async () => {
+                          try {
+                            const res = await invoiceApi.get(inv._id)
+                            if (res.success) setViewInvoice(res.data)
+                          } catch (err) {
+                            console.error('Failed to load invoice:', err)
+                            setViewInvoice(inv) // Fallback to list data
+                          }
+                        }}
                           style={{ background: 'none', border: '1px solid var(--border)',
                             borderRadius: 6, cursor: 'pointer', padding: '4px 7px',
                             color: '#2563EB', display: 'flex', alignItems: 'center' }}

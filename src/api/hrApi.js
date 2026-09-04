@@ -3,7 +3,7 @@
  *
  * Employee:   GET|POST /employees  •  GET|PUT|DELETE /employees/:id
  * Attendance: GET /employees/attendance/list  •  GET /employees/attendance/summary
- *             POST /employees/attendance/mark
+ *             GET /employees/attendance/monthly  •  POST /employees/attendance/mark
  * Salary:     GET|POST /employees/salary/records
  *             PATCH /employees/salary/records/:id/pay
  */
@@ -33,9 +33,14 @@ export const hrApi = {
   listAttendance: (params = {}) =>
     api.get('/employees/attendance/list', { params }).then(r => r.data),
 
-  // params: { date }  → returns { total, present, absent, late, halfDay, onLeave }
+  // params: { date }  → returns { total, present, absent, late, halfDay, onLeave, holiday }
   getAttendanceSummary: (params = {}) =>
     api.get('/employees/attendance/summary', { params }).then(r => r.data),
+
+  // params: { employee_id?, month, year } → per-employee monthly rollup
+  // returns { month, year, report: [{ employee_id, present, absent, late, half_day, on_leave, holiday, payable_days, work_hours }] }
+  getMonthlyAttendance: (params = {}) =>
+    api.get('/employees/attendance/monthly', { params }).then(r => r.data),
 
   // Body: { employee_id, date, status, check_in?, check_out?, notes? }
   markAttendance: (data) =>

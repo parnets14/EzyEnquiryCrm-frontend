@@ -142,7 +142,8 @@ export default function EmployeeManagement({
   // ── Attendance state ──────────────────────────────────────
   const [attDate,       setAttDate]       = useState(new Date().toISOString().split('T')[0])
   const [attRecords,    setAttRecords]    = useState([])
-  const [attSummary,    setAttSummary]    = useState({ total:0,present:0,absent:0,late:0,halfDay:0,onLeave:0 })
+  const [attSummary,    setAttSummary]    = useState({ total:0,present:0,absent:0,late:0,halfDay:0,onLeave:0,holiday:0 })
+  const [attBulkBusy,   setAttBulkBusy]   = useState(false)
   const [attLoading,    setAttLoading]    = useState(false)
   const [attSearch,     setAttSearch]     = useState('')
   const [attDept,       setAttDept]       = useState('')
@@ -186,20 +187,28 @@ export default function EmployeeManagement({
         const data = raw?.attendance ? raw : (raw?.data || raw)
         const recs = Array.isArray(data?.attendance) ? data.attendance : []
         setAttRecords(recs)
-        // Compute client-side summary in case backend summary fails
+        // Compute client-side summary in case backend summary fails. Only count
+        // employees who had joined on/before this date (attendance opens from join).
         const byId = {}
         recs.forEach(r => { byId[String(r.employee_id?._id || r.employee_id)] = r.status })
-        let p = 0, a = 0, l = 0, hd = 0, ol = 0
-        activeEmps.forEach(e => {
+        const day = new Date(date); day.setHours(0, 0, 0, 0)
+        const eligible = activeEmps.filter(e => {
+          if (!e.join_date) return true
+          const j = new Date(e.join_date); j.setHours(0, 0, 0, 0)
+          return day >= j
+        })
+        let p = 0, a = 0, l = 0, hd = 0, ol = 0, ho = 0
+        eligible.forEach(e => {
           const st = byId[String(e._id || e.id)]
-          if (!st || st === 'Absent')  a++
-          else if (st === 'Present')   p++
-          else if (st === 'Late')      l++
-          else if (st === 'Half Day')  hd++
-          else if (st === 'On Leave')  ol++
+          if (!st || st === 'Absent')                     a++
+          else if (st === 'Present')                      p++
+          else if (st === 'Late')                         l++
+          else if (st === 'Half Day')                     hd++
+          else if (st === 'On Leave')                     ol++
+          else if (st === 'Holiday' || st === 'Week Off') ho++
           else p++
         })
-        setAttSummary({ total: activeEmps.length, present: p, absent: a, late: l, halfDay: hd, onLeave: ol })
+        setAttSummary({ total: eligible.length, present: p, absent: a, late: l, halfDay: hd, onLeave: ol, holiday: ho })
       }
       if (sumRes.status === 'fulfilled') {
         // API wraps response as { success, data: { total, present, ... } }
@@ -213,6 +222,7 @@ export default function EmployeeManagement({
             late:    s.late    ?? 0,
             halfDay: s.halfDay ?? 0,
             onLeave: s.onLeave ?? 0,
+            holiday: s.holiday ?? 0,
           })
         }
       }
@@ -334,11 +344,21 @@ export default function EmployeeManagement({
     if (eid) attByEmp[String(eid)] = r
   })
 
+  // Attendance only opens from the joining date onwards. An employee with no
+  // join_date is always eligible (nothing to enforce against).
+  const hasJoinedBy = (emp, dateStr) => {
+    if (!emp?.join_date) return true
+    const join = new Date(emp.join_date); join.setHours(0, 0, 0, 0)
+    const day  = new Date(dateStr);       day.setHours(0, 0, 0, 0)
+    return day >= join
+  }
+
   const filteredAttn = activeEmps.filter(e => {
-    const id = e._id || e.id
-    const rec = attByEmp[String(id)]
+    // Hide employees who had not joined on the selected date.
+    if (!hasJoinedBy(e, attDate)) return false
     const empDept   = e.department || ''
     const empBranch = e.branch || ''
+    const rec = attByEmp[String(e._id || e.id)]
     const empStatus = rec?.status || 'Absent'
     if (attSearch && !(e.name || '').toLowerCase().includes(attSearch.toLowerCase()) &&
         !(e.emp_code || '').toLowerCase().includes(attSearch.toLowerCase())) return false
@@ -381,6 +401,26 @@ export default function EmployeeManagement({
     } catch { toast(`Error updating ${emp.name}`) }
   }
 
+  // Bulk-mark every currently-filtered employee for the selected date. Standard
+  // HR convenience for marking a whole team present, or a holiday/week-off.
+  const handleBulkMark = async (status) => {
+    const targets = filteredAttn
+    if (targets.length === 0) return
+    if (!window.confirm(`Mark ${targets.length} employee(s) as "${status}" on ${fmtDate(attDate)}?`)) return
+    setAttBulkBusy(true)
+    let ok = 0
+    for (const emp of targets) {
+      const id = String(emp._id || emp.id)
+      try {
+        await hrApi.markAttendance({ employee_id: id, date: attDate, status })
+        ok++
+      } catch { /* continue */ }
+    }
+    await loadAttendance(attDate)
+    setAttBulkBusy(false)
+    toast(`✓ ${ok} employee(s) marked ${status}`)
+  }
+
   const openAttEdit = (emp) => {
     const id  = String(emp._id || emp.id)
     const rec = attByEmp[id]
@@ -420,31 +460,32 @@ export default function EmployeeManagement({
     salRecordByEmp[eid] = r
   })
 
-  // Get attendance summary for month to calculate absent days
-  const getEmpAttForMonth = async (empId) => {
-    const [year, month] = salMonth.split('-')
-    try {
-      const res = await hrApi.listAttendance({ employee_id: empId, month, year, limit: 100 })
-      const data  = res?.data || res
-      const recs  = Array.isArray(data?.attendance) ? data.attendance : []
-      const presentStatuses = ['Present', 'Late', 'On Leave']
-      const present   = recs.filter(r => presentStatuses.includes(r.status)).length
-      const absent    = recs.filter(r => r.status === 'Absent').length
-      const halfDay   = recs.filter(r => r.status === 'Half Day').length
-      const onLeave   = recs.filter(r => r.status === 'On Leave').length
-      return { present, absent, halfDay, onLeave, total: recs.length }
-    } catch { return { present: 0, absent: 0, halfDay: 0, onLeave: 0, total: 0 } }
-  }
-
   const handleProcessSalaries = async () => {
     setSalProcessing(true)
     const [year, month] = salMonth.split('-')
+
+    // Pull the whole month's attendance rollup once (server-computed), then map
+    // by employee. Single source of truth — no per-employee re-derivation.
+    let attByEmpId = {}
+    try {
+      const res    = await hrApi.getMonthlyAttendance({ month, year })
+      const data   = res?.report ? res : (res?.data || res)
+      const report = Array.isArray(data?.report) ? data.report : []
+      report.forEach(r => { attByEmpId[String(r.employee_id)] = r })
+    } catch { /* fall back to zeros below */ }
+
     let count = 0
     for (const emp of activeEmps) {
       const empId   = String(emp._id || emp.id)
       const gross   = emp.salary || 0
       if (!gross) continue
-      const attData = await getEmpAttForMonth(empId)
+      const r = attByEmpId[empId] || {}
+      const attData = {
+        present: (r.present || 0) + (r.late || 0),
+        absent:  r.absent   || 0,
+        halfDay: r.half_day || 0,
+        onLeave: r.on_leave || 0,
+      }
       const workingDays = 26
       const bd = calcSalaryBreakdown(gross, attData.present, workingDays, attData.absent)
       try {
@@ -609,7 +650,7 @@ export default function EmployeeManagement({
       )}
 
       {tab === 'attendance' && (
-        <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(6,1fr)', marginBottom: 16 }}>
+        <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(7,1fr)', marginBottom: 16 }}>
           {[
             { label: 'Total',    val: attSummary.total || activeEmps.length, color: 'blue'   },
             { label: 'Present',  val: attSummary.present,                    color: 'green'  },
@@ -617,6 +658,7 @@ export default function EmployeeManagement({
             { label: 'Late',     val: attSummary.late,                       color: 'purple' },
             { label: 'Half Day', val: attSummary.halfDay,                    color: 'yellow' },
             { label: 'On Leave', val: attSummary.onLeave,                    color: 'cyan'   },
+            { label: 'Holiday',  val: attSummary.holiday,                    color: 'gray'   },
           ].map(s => (
             <div key={s.label} className="stat-card" style={{ padding: '10px 12px' }}>
               <div className="stat-info">
@@ -770,12 +812,19 @@ export default function EmployeeManagement({
               <div>
                 <span className="card-title">Attendance — {fmtDate(attDate)}</span>
                 <div style={{ fontSize:12, color:'var(--text-muted)', marginTop:3 }}>
-                  Showing {filteredAttn.length} of {activeEmps.length} employees
+                  Showing {filteredAttn.length} of {activeEmps.filter(e => hasJoinedBy(e, attDate)).length} employees
                 </div>
               </div>
               <div className="header-actions">
                 <input className="form-control" type="date" value={attDate}
-                  onChange={e => setAttDate(e.target.value)} style={{ width:160 }} />
+                  max={new Date().toISOString().split('T')[0]}
+                  onChange={e => {
+                    const picked = e.target.value
+                    const today  = new Date().toISOString().split('T')[0]
+                    if (picked > today) { toast('Attendance cannot be marked for a future date'); return }
+                    setAttDate(picked)
+                  }}
+                  style={{ width:160 }} />
                 <button className="btn btn-secondary btn-sm" onClick={() => loadAttendance(attDate)}>
                   <RefreshCw style={{ width:13 }} />Refresh
                 </button>
@@ -803,8 +852,19 @@ export default function EmployeeManagement({
                 {STATUSES_ATT.map(s => <option key={s}>{s}</option>)}
               </select>
             </div>
-            <div style={{ padding:'8px 20px', background:'var(--primary-light)', borderBottom:'1px solid var(--border)', fontSize:12, color:'var(--primary)' }}>
-              💡 Click <strong>Check In</strong> when employee arrives → <strong>Check Out</strong> when leaving → hours auto-calculated. Use <strong>Edit</strong> to set status manually.
+            <div style={{ padding:'8px 20px', background:'var(--primary-light)', borderBottom:'1px solid var(--border)', fontSize:12, color:'var(--primary)', display:'flex', justifyContent:'space-between', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+              <span>
+                💡 Click <strong>Check In</strong> when employee arrives → <strong>Check Out</strong> when leaving → status &amp; hours auto-calculated. Use <strong>Edit</strong> to override.
+              </span>
+              <div className="table-actions">
+                <span style={{ fontSize:11, color:'var(--text-muted)', marginRight:4 }}>Bulk:</span>
+                <button className="btn btn-success btn-xs" disabled={attBulkBusy}
+                  onClick={() => handleBulkMark('Present')}>All Present</button>
+                <button className="btn btn-secondary btn-xs" disabled={attBulkBusy}
+                  onClick={() => handleBulkMark('Week Off')}>Week Off</button>
+                <button className="btn btn-secondary btn-xs" disabled={attBulkBusy}
+                  onClick={() => handleBulkMark('Holiday')}>Holiday</button>
+              </div>
             </div>
 
             <div className="table-wrap">
@@ -830,7 +890,8 @@ export default function EmployeeManagement({
                     const rec = attByEmp[id]
                     const ci    = rec?.check_in  || null
                     const co    = rec?.check_out || null
-                    const hrs   = calcHours(ci, co)
+                    // Prefer server-computed work_hours; fall back to client calc.
+                    const hrs   = rec?.work_hours || calcHours(ci, co)
                     const status = rec?.status || 'Absent'
 
                     const rowBg = status === 'Absent'   ? '#FFF5F5'
@@ -887,11 +948,26 @@ export default function EmployeeManagement({
                               </button>
                             )}
                             {!ci && (
-                              <button className="btn btn-ghost btn-xs"
-                                style={{ color:'var(--warning)', fontSize:11 }}
-                                onClick={() => handleMarkStatus(emp, 'On Leave')}>
-                                Leave
-                              </button>
+                              <>
+                                <button className="btn btn-ghost btn-xs"
+                                  style={{ color:'var(--warning)', fontSize:11 }}
+                                  title="Mark On Leave"
+                                  onClick={() => handleMarkStatus(emp, 'On Leave')}>
+                                  Leave
+                                </button>
+                                <button className="btn btn-ghost btn-xs"
+                                  style={{ color:'#D97706', fontSize:11 }}
+                                  title="Mark Half Day"
+                                  onClick={() => handleMarkStatus(emp, 'Half Day')}>
+                                  ½ Day
+                                </button>
+                                <button className="btn btn-ghost btn-xs"
+                                  style={{ color:'var(--danger)', fontSize:11 }}
+                                  title="Mark Absent"
+                                  onClick={() => handleMarkStatus(emp, 'Absent')}>
+                                  Absent
+                                </button>
+                              </>
                             )}
                             <button className="btn btn-secondary btn-xs" title="Edit / Correct" onClick={() => openAttEdit(emp)}>
                               <Edit2 style={{ width:11 }} />
