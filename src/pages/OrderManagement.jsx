@@ -114,8 +114,8 @@ const EMPTY_FORM = {
 }
 
 export default function OrderManagement({
-  branches=[], orders=[], inventory=[], products=[], customers=[], dispatches=[], enquiries=[],
-  updateOrderStatus, createDispatch, markDelivered, markInTransit, addOrder, deleteOrder, packOrder,
+  branches=[], orders=[], inventory=[], products=[], customers=[], dispatches=[], enquiries=[], employees=[],
+  updateOrderStatus, createDispatch, markDelivered, markInTransit, addOrder, deleteOrder, packOrder, assignOrder,
 }) {
   const branchNames = branches.map(b=>b.name||b).filter(Boolean)
 
@@ -241,6 +241,25 @@ export default function OrderManagement({
     setBusyId(null)
     if(res?.success===false){toast(res.message||'Delete failed',true)}
     else{toast('✓ Order deleted');setDeleteConfirm(null);if(selected&&ordId(selected)===id)setSelected(null)}
+  }
+
+  // Assign order to staff — uses ErpContext.assignOrder which also
+  // updates the orders list in-place so the row refreshes immediately.
+  const handleAssignStaff = async (orderId, staffId) => {
+    if (!staffId) return
+    const staffName = employees.find(u => String(u._id || u.id) === String(staffId) || String(u.user_id) === String(staffId))?.name || ''
+    setBusyId(orderId)
+    const res = await assignOrder(orderId, staffId, staffName)
+    setBusyId(null)
+    if (res?.success === false) {
+      toast(res.message || 'Assignment failed', true)
+    } else {
+      toast(`✓ Order assigned to ${staffName || 'staff'}`)
+      // Also patch the currently-selected detail panel if it's this order
+      if (selected && String(ordId(selected)) === String(orderId)) {
+        setSelected(p => ({ ...p, assigned_to: staffId, assigned_to_name: staffName }))
+      }
+    }
   }
 
   const resetDForm = ()=>setDForm({packQty:'',vehicle:'',driver:'',driverMobile:'',transport:'',lr:'',dispatchDate:'',expectedDelivery:'',expectedDays:'',branch:''})
@@ -472,7 +491,7 @@ export default function OrderManagement({
             <thead>
               <tr>
                 <th>Order No.</th><th>Enq. Ref</th><th>Customer</th><th>Product</th>
-                <th>Ordered</th><th>Dispatched</th><th>Remaining</th><th>Total ₹</th><th>Invoice No.</th><th>Vehicle / Driver</th><th>Date</th><th>Status</th><th>Actions</th>
+                <th>Ordered</th><th>Dispatched</th><th>Remaining</th><th>Total ₹</th><th>Assigned To</th><th>Invoice No.</th><th>Vehicle / Driver</th><th>Date</th><th>Status</th><th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -513,6 +532,30 @@ export default function OrderManagement({
                   <td style={{fontWeight:600,whiteSpace:'nowrap',color:ordDispatched(o)>0?'var(--primary)':'var(--text-muted)'}}>{ordDispatched(o)} {ordDispatched(o)>0?(o.unit||'Pcs'):''}</td>
                   <td style={{fontWeight:700,whiteSpace:'nowrap',color:ordRemaining(o)>0?'var(--warning,#D97706)':'var(--success)'}}>{ordRemaining(o)===0?'✓ 0':ordRemaining(o)} {ordRemaining(o)>0?(o.unit||'Pcs'):''}</td>
                   <td style={{fontWeight:700,color:'var(--success)',whiteSpace:'nowrap'}}>₹{ordTotal(o).toLocaleString()}</td>
+                  <td style={{fontSize:12}}>
+                    {/* Staff Assignment Dropdown */}
+                    <select
+                      className="form-control"
+                      style={{fontSize:11,padding:'4px 8px',minWidth:160,cursor:busyId===ordId(o)?'wait':'pointer'}}
+                      value={o.assigned_to || ''}
+                      onChange={(e) => handleAssignStaff(ordId(o), e.target.value)}
+                      disabled={busyId===ordId(o)}
+                    >
+                      <option value="">— Assign Staff —</option>
+                      {employees
+                        .filter(emp => emp.user_id && emp.is_active !== false)
+                        .map(emp => (
+                          <option key={emp._id || emp.id} value={emp.user_id}>
+                            {emp.name} {emp.designation ? `(${emp.designation})` : ''}
+                          </option>
+                        ))}
+                    </select>
+                    {o.assigned_to_name && (
+                      <div style={{fontSize:10,color:'var(--text-muted)',marginTop:2}}>
+                        ✓ {o.assigned_to_name}
+                      </div>
+                    )}
+                  </td>
                   <td style={{fontSize:11}}>
                     {o.invoice_number
                       ? <span style={{fontFamily:'monospace',fontWeight:700,color:'var(--primary)',fontSize:12}}>{o.invoice_number}</span>
@@ -545,7 +588,7 @@ export default function OrderManagement({
                 </tr>
                 )
               })}
-              {filtered.length===0&&<tr><td colSpan={13} style={{textAlign:'center',padding:32,color:'var(--text-muted)'}}>No orders found</td></tr>}
+              {filtered.length===0&&<tr><td colSpan={14} style={{textAlign:'center',padding:32,color:'var(--text-muted)'}}>No orders found</td></tr>}
             </tbody>
           </table>
         </div>

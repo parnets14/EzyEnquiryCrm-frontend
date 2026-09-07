@@ -316,6 +316,23 @@ export function ErpProvider({ children }) {
     }
   }, [])
 
+  // Assign order to a staff user — updates orders list in-place so the
+  // dropdown reflects the new assignment without a full page refresh.
+  const assignOrder = useCallback(async (orderId, staffId, staffName) => {
+    try {
+      const res     = await orderApi.assign(orderId, { staff_id: staffId })
+      const updated = res?.data || res
+      setOrders(prev => prev.map(o =>
+        (String(o._id || o.id) === String(orderId))
+          ? { ...o, assigned_to: staffId, assigned_to_name: updated?.assigned_to_name || staffName }
+          : o
+      ))
+      return { success: true, data: updated }
+    } catch (err) {
+      return { success: false, message: err.response?.data?.message || 'Assignment failed' }
+    }
+  }, [])
+
   const updateOrderStatus = useCallback(async (orderId, statusData) => {
     try {
       const res     = await orderApi.updateStatus(orderId, statusData)
@@ -1149,7 +1166,7 @@ export function ErpProvider({ children }) {
     addEnquiry, updateEnquiry, deleteEnquiry, convertEnquiryToOrder,
 
     // ── Order actions ─────────────────────────────────────
-    addOrder, updateOrderStatus, startPacking, markReadyForDispatch, deleteOrder, packOrder,
+    addOrder, assignOrder, updateOrderStatus, startPacking, markReadyForDispatch, deleteOrder, packOrder,
 
     // ── Dispatch actions ──────────────────────────────────
     createDispatch, markInTransit, markDelivered,

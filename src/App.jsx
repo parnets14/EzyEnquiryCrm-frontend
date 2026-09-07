@@ -137,7 +137,7 @@ function AppRoutes() {
         <Route path="marketplace/enquiry-management"
           element={<RequireAccess module={MODULES.ENQUIRIES}><EnquiryManagement enquiries={enquiries} inventory={inventory} orders={orders} products={products} branches={erpCtx.branches || []} {...erpCtx} /></RequireAccess>} />
         <Route path="marketplace/order-management"
-          element={<RequireAccess module={MODULES.ORDERS}><OrderManagement branches={erpCtx.branches || []} orders={orders} enquiries={enquiries} products={products} dispatches={dispatches} {...erpCtx} /></RequireAccess>} />
+          element={<RequireAccess module={MODULES.ORDERS}><OrderManagement branches={erpCtx.branches || []} orders={orders} enquiries={enquiries} products={products} dispatches={dispatches} employees={erpCtx.employees || []} {...erpCtx} /></RequireAccess>} />
         <Route path="marketplace/dispatch-management"
           element={<RequireAccess module={MODULES.DISPATCHES}><DispatchManagement branches={erpCtx.branches || []} dispatches={dispatches} orders={orders} {...erpCtx} /></RequireAccess>} />
 
