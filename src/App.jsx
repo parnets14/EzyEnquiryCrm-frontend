@@ -18,7 +18,7 @@ import WholesalerPurchaseOrders from './pages/WholesalerPurchaseOrders'
 import WholesalerProductRequests from './pages/WholesalerProductRequests'
 import InventoryManagement from './pages/InventoryManagement'
 import StockTransfer from './pages/StockTransfer'
-import ProductSearch from './pages/ProductSearch'
+
 import EnquiryManagement from './pages/EnquiryManagement'
 import OrderManagement from './pages/OrderManagement'
 import DispatchManagement from './pages/DispatchManagement'
@@ -126,14 +126,13 @@ function AppRoutes() {
           element={<RequireAccess module={MODULES.PURCHASES}><PurchaseManagement branches={erpCtx.branches || []} purchases={purchases} products={products} suppliers={erpCtx.suppliers} {...erpCtx} /></RequireAccess>} />
         <Route path="purchase-inventory/inventory-management"
           element={<RequireAccess module={MODULES.INVENTORY}><InventoryManagement branches={erpCtx.branches || []} inventory={inventory} products={products} warehouses={warehouses} {...erpCtx} /></RequireAccess>} />
+
         <Route path="purchase-inventory/stock-transfer"
           element={<RequireAccess module={MODULES.STOCK_TRANSFER}><StockTransfer branches={erpCtx.branches || []} transfers={transfers} warehouses={warehouses} products={products} {...erpCtx} /></RequireAccess>} />
         <Route path="purchase-inventory/warehouse-management"
           element={<RequireAccess module={MODULES.WAREHOUSES}><WarehouseManagement branches={erpCtx.branches || []} /></RequireAccess>} />
 
         {/* ── Marketplace ──────────────────────────────── */}
-        <Route path="marketplace/product-search"
-          element={<RequireAccess module={MODULES.PRODUCT_SEARCH}><ProductSearch products={products} inventory={inventory} {...erpCtx} /></RequireAccess>} />
         <Route path="marketplace/enquiry-management"
           element={<RequireAccess module={MODULES.ENQUIRIES}><EnquiryManagement enquiries={enquiries} inventory={inventory} orders={orders} products={products} branches={erpCtx.branches || []} {...erpCtx} /></RequireAccess>} />
         <Route path="marketplace/order-management"
@@ -161,7 +160,7 @@ function AppRoutes() {
         <Route path="finance/payment-management"
           element={<RequireAccess module={MODULES.PAYMENTS}><PaymentManagement /></RequireAccess>} />
         <Route path="finance/accounts-management"
-          element={<RequireAccess module={MODULES.ACCOUNTS}><AccountsModule sales={sales} purchases={purchases} /></RequireAccess>} />
+          element={<RequireAccess module={MODULES.ACCOUNTS}><AccountsModule sales={sales} purchases={purchases} customers={customers} suppliers={erpCtx.suppliers || []} /></RequireAccess>} />
         <Route path="finance/profit-loss"
           element={<RequireAccess module={MODULES.PROFIT_LOSS}><ProfitLoss /></RequireAccess>} />
 

@@ -56,6 +56,14 @@ export const inventoryApi = {
   adjust: (data) =>
     api.patch('/inventory/adjust', data).then(r => r.data),
 
+  // Single inventory record with recent movements.
+  get: (id) =>
+    api.get(`/inventory/${id}`).then(r => r.data),
+
+  // Update alert thresholds: { low_stock_alert?, reorder_level? }
+  updateSettings: (id, data) =>
+    api.patch(`/inventory/${id}/settings`, data).then(r => r.data),
+
   // ── Warehouses ────────────────────────────────────────────
 
   /**

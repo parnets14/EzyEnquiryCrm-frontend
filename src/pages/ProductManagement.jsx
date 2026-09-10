@@ -77,7 +77,6 @@ const EMPTY_FORM = {
   // discount % fields (off MRP)
   retail_discount:'', dealer_discount:'', wholesale_discount:'', project_discount:'',
   min_stock_level:'', reorder_level:'',
-  opening_stock:'', warehouse_id:'',
   status:'Active', sales_type:'Regular Sale', product_type:'Regular Product',
   new_arrival: false, featured: false,
 }
@@ -703,12 +702,6 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
     return next
   }), [])
 
-  const activeWarehouses = warehouses.filter(warehouse => warehouse.is_active !== false)
-  const warehouseOptions = activeWarehouses.map(warehouse => ({
-    value: warehouse._id || warehouse.id,
-    label: [warehouse.name, warehouse.warehouse_code, warehouse.city].filter(Boolean).join(' · '),
-  }))
-
   const validate = () => {
     const e = {}
     if (!form.name.trim()) e.name = 'Product name is required'
@@ -716,14 +709,13 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
     if (!form.category_id) e.category_id = 'Category is required'
     if (!form.unit)        e.unit = 'Unit is required'
 
-    if (!editProduct) {
-      const openingStock = form.opening_stock === '' ? 0 : Number(form.opening_stock)
-      if (!Number.isFinite(openingStock) || openingStock < 0) {
-        e.opening_stock = 'Opening stock must be zero or more'
-      } else if (openingStock > 0 && !form.warehouse_id) {
-        e.warehouse_id = 'Select a warehouse for opening stock'
-      }
+    const minStock = form.min_stock_level
+    if (minStock === '' || minStock === null || minStock === undefined) {
+      e.min_stock_level = 'Min stock level is required'
+    } else if (!Number.isFinite(Number(minStock)) || Number(minStock) < 0) {
+      e.min_stock_level = 'Enter a valid number (0 or more)'
     }
+
     return e
   }
 
@@ -787,8 +779,6 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
 
     if (!editProduct) {
       if (form.code.trim()) payload.code = form.code.trim()
-      payload.opening_stock = form.opening_stock === '' ? 0 : Number(form.opening_stock)
-      payload.warehouse_id = form.warehouse_id || null
     }
 
     await onSave(payload)
@@ -1004,55 +994,6 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
             </div>
           </div>
 
-          {!editProduct && (
-            <>
-              <FormSection title="Opening Stock (Optional)" />
-              <div style={{
-                background:'#F8FAFC', border:'1px solid var(--border)', borderRadius:10,
-                padding:14,
-              }}>
-                <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:12, lineHeight:1.5 }}>
-                  Enter the quantity physically available now. This creates stock in the selected warehouse.
-                  Min Stock Level and Reorder Level below are warning thresholds only; they are not available stock.
-                </div>
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
-                  <div>
-                    <SelectField
-                      label="Warehouse"
-                      required={Number(form.opening_stock) > 0}
-                      value={form.warehouse_id}
-                      onChange={v => set('warehouse_id', v)}
-                      options={warehouseOptions}
-                      placeholder={activeWarehouses.length ? 'Select warehouse' : 'No active warehouses available'}
-                      disabled={!activeWarehouses.length}
-                    />
-                    {errors.warehouse_id && <span className="form-error">{errors.warehouse_id}</span>}
-                  </div>
-                  <div>
-                    <label className="form-label">Opening Stock</label>
-                    <input
-                      className={`form-control${errors.opening_stock ? ' error' : ''}`}
-                      type="number"
-                      min="0"
-                      step="any"
-                      placeholder="0"
-                      value={form.opening_stock}
-                      disabled={!activeWarehouses.length}
-                      onChange={e => set('opening_stock', e.target.value)}
-                    />
-                    {errors.opening_stock && <span className="form-error">{errors.opening_stock}</span>}
-                  </div>
-                </div>
-                {!activeWarehouses.length && (
-                  <div style={{ marginTop:10, fontSize:11.5, color:'#B45309' }}>
-                    No active warehouse is available. Create or activate a warehouse first to add opening stock.
-                    You can still create this product with zero stock.
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-
           {/* â”€â”€ PRICING â”€â”€ */}
           <FormSection title="Pricing" />
           <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12 }}>
@@ -1073,8 +1014,9 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
           <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginTop:12 }}>
             <PriceInput label="Min Selling Rate"  value={form.min_selling_rate}  onChange={v=>set('min_selling_rate',v)} />
             <div>
-              <label className="form-label">Min Stock Level</label>
-              <input className="form-control" type="number" min="0" placeholder="0" value={form.min_stock_level} onChange={e=>set('min_stock_level',e.target.value)} />
+              <label className="form-label">Min Stock Level <span style={{ color:'var(--danger)' }}>*</span></label>
+              <input className={`form-control${errors.min_stock_level ? ' error' : ''}`} type="number" min="0" placeholder="0" value={form.min_stock_level} onChange={e=>set('min_stock_level',e.target.value)} />
+              {errors.min_stock_level && <span className="form-error">{errors.min_stock_level}</span>}
             </div>
             <div>
               <label className="form-label">Reorder Level</label>

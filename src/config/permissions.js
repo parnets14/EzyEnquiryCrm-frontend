@@ -112,7 +112,6 @@ export const PERMISSION_CATALOG = [
   { key: 'inventory', label: 'Inventory Management', category: 'Purchase & Inventory', actions: [a('view', 'View'), a('stock_in', 'Stock In'), a('stock_out', 'Stock Out')] },
   { key: 'stock_transfer', label: 'Stock Transfer', category: 'Purchase & Inventory', actions: [a('view', 'View'), a('transfer', 'Create Transfer'), a('approve', 'Approve'), a('complete', 'Complete'), a('cancel', 'Cancel'), a('delete', 'Delete')] },
   { key: 'product_search', label: 'Product Search', category: 'Marketplace', actions: [a('view', 'View / Search')] },
-  { key: 'enquiries', label: 'Enquiry Management', category: 'Marketplace', actions: [a('view', 'View'), a('create', 'Create'), a('edit', 'Edit'), a('delete', 'Delete'), a('reply', 'Reply'), a('offer', 'Send Offer'), a('close', 'Close / Cancel'), a('convert', 'Convert to Order')] },
   { key: 'orders', label: 'Order Management', category: 'Marketplace', actions: [a('view', 'View'), a('create', 'Create'), a('edit', 'Edit'), a('delete', 'Delete'), a('approve', 'Approve'), a('pick', 'Pick'), a('sort', 'Sort'), a('pack', 'Pack'), a('invoice', 'Generate Invoice'), a('dispatch', 'Dispatch'), a('deliver', 'Deliver'), a('cancel', 'Cancel')] },
   { key: 'dispatches', label: 'Dispatch Management', category: 'Marketplace', actions: [a('view', 'View'), a('dispatch', 'Create / In Transit'), a('edit', 'Edit'), a('deliver', 'Mark Delivered')] },
   { key: 'customers', label: 'Customer Management', category: 'CRM', actions: crudActions() },

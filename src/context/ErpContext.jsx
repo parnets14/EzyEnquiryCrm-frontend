@@ -133,7 +133,21 @@ export function ErpProvider({ children }) {
       if (ok(2))  setDispatches(arr(ok(2), 'dispatches'))
       if (ok(3))  setInventory(arr(ok(3), 'inventory'))
       if (ok(4))  setPurchases(arr(ok(4), 'purchases'))
-      if (ok(5))  setSales(arr(ok(5), 'sales'))
+      if (ok(5)) {
+        const rawSales = arr(ok(5), 'sales')
+        // Normalize: flatten populated order_id so components can read order_code directly.
+        setSales(rawSales.map(s => {
+          if (s.order_id && typeof s.order_id === 'object') {
+            return {
+              ...s,
+              order_code: s.order_id.order_code || s.order_code || '',
+              order_status: s.order_id.status || '',
+              order_id: s.order_id._id || s.order_id,
+            }
+          }
+          return s
+        }))
+      }
       if (ok(9))  setNotifications(arr(ok(9), 'notifications'))
       if (ok(10)) setProducts(arr(ok(10), 'products'))
       if (ok(11)) setCategories(Array.isArray(ok(11)?.data) ? ok(11).data : (ok(11) || []))

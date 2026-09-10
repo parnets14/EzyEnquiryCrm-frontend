@@ -172,6 +172,14 @@ function ProductSearch({ value, onChange, products }) {
                           {p.gst_percent ? <span style={{ color: '#7C3AED', marginLeft: 6, fontWeight: 400 }}>GST {p.gst_percent}%</span> : null}
                         </div>
                       )}
+                      {p.available_stock != null && (
+                        <div style={{ fontSize: 10.5, fontWeight: 700, marginTop: 2,
+                          color: Number(p.available_stock) <= 0 ? '#DC2626' : '#0369A1' }}>
+                          {Number(p.available_stock) <= 0
+                            ? 'Out of stock'
+                            : `${Number(p.available_stock).toLocaleString('en-IN')} ${p.unit || ''} in stock`}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )
@@ -390,26 +398,52 @@ function InvoiceModal({ editData, products: propProducts, customers, onSave, onC
       const i = p?.data ?? p
       return Array.isArray(i) ? i : (Array.isArray(i?.products) ? i.products : [])
     }
+    // Merge live available stock so the picker shows "X in stock".
+    const enrichWithStock = async (list) => {
+      try {
+        const res = await api.get('/inventory', { params: { limit: 1000, _t: Date.now() } })
+        const p = res?.data ?? res
+        const invs = Array.isArray(p?.data?.inventory) ? p.data.inventory
+          : Array.isArray(p?.inventory) ? p.inventory
+          : Array.isArray(p?.data) ? p.data : []
+        const stockMap = new Map()
+        for (const inv of invs) {
+          const pid = String(inv.product_id?._id || inv.product_id || '')
+          if (!pid) continue
+          const avail = (Number(inv.available_stock) || 0) > 0 ? Number(inv.available_stock) : (Number(inv.current_stock) || 0)
+          stockMap.set(pid, (stockMap.get(pid) || 0) + avail)
+        }
+        return list.map(p => {
+          const pid = String(p._id || p.id || '')
+          return stockMap.has(pid) ? { ...p, available_stock: stockMap.get(pid) } : { ...p, available_stock: p.available_stock ?? null }
+        })
+      } catch { return list }
+    }
+    const applyProducts = async (list) => {
+      const enriched = await enrichWithStock(list)
+      if (!cancelled) { setModalProducts(enriched); setLoadingProds(false) }
+    }
+
     const tryFetch = async () => {
       // 1) for-select — handles Super Admin too (no company_id filter)
       try {
         const list = parse(await api.get('/products/for-select', { params: { limit: 1000 } }))
-        if (!cancelled && list.length > 0) { setModalProducts(list); setLoadingProds(false); return }
+        if (!cancelled && list.length > 0) { await applyProducts(list); return }
       } catch { /* fall through */ }
       // 2) Super Admin: /products/admin/all
       if (isSuperAdmin) {
         try {
           const list = parse(await api.get('/products/admin/all', { params: { limit: 1000 } }))
-          if (!cancelled && list.length > 0) { setModalProducts(list); setLoadingProds(false); return }
+          if (!cancelled && list.length > 0) { await applyProducts(list); return }
         } catch { /* fall through */ }
       }
       // 3) Regular /products fallback
       try {
         const params = isSuperAdmin ? { limit: 1000, all_companies: true } : { limit: 500 }
         const list = parse(await api.get('/products', { params }))
-        if (!cancelled && list.length > 0) { setModalProducts(list); setLoadingProds(false); return }
+        if (!cancelled && list.length > 0) { await applyProducts(list); return }
       } catch { /* ignore */ }
-      if (!cancelled && propProducts?.length > 0) setModalProducts(propProducts)
+      if (!cancelled && propProducts?.length > 0) { await applyProducts(propProducts); return }
       if (!cancelled) setLoadingProds(false)
     }
     tryFetch()

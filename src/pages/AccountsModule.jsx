@@ -1,268 +1,181 @@
-import { useState, useEffect, useCallback } from 'react'
-import { BookOpen, TrendingUp, TrendingDown, DollarSign, ArrowUpRight, ArrowDownRight, RefreshCw } from 'lucide-react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import {
+  TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight, RefreshCw,
+  BookOpen, User, Truck, Wallet, Landmark,
+} from 'lucide-react'
 import { accountsApi, paymentApi } from '../api/financeApi'
 
+/* ─────────────────────────────────────────────────────────────
+   Helpers
+───────────────────────────────────────────────────────────── */
+const fmtMoney = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`
+const fmtDate  = (iso) => iso ? new Date(iso).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }) : '—'
+const monthStart = () => { const d = new Date(); d.setDate(1); return d.toISOString().split('T')[0] }
+const yearStart  = () => { const d = new Date(new Date().getFullYear(), 0, 1); return d.toISOString().split('T')[0] }
+const today      = () => new Date().toISOString().split('T')[0]
+
+const TYPE_BADGE = {
+  Sales:    'badge-green',   // money IN — you earned it
+  Receipt:  'badge-green',   // money IN — received from customer
+  Invoice:  'badge-blue',    // invoice raised (customer owes you)
+  Payment:  'badge-red',     // money OUT — paid by supplier / expense
+  Purchase: 'badge-red',     // money OUT — you bought it
+  Bill:     'badge-orange',  // bill from supplier (you owe them)
+  Expense:  'badge-orange',  // money OUT — overhead
+  Credit:   'badge-green',
+  Debit:    'badge-red',
+  Sale:     'badge-blue',
+}
+
 export default function AccountsModule({
-  sales = [], purchases = [], payments = { receivables: [], payables: [], history: [] },
-  orders = [], inventory = [],
+  sales = [], purchases = [], customers = [], suppliers = [],
 }) {
-  const [tab, setTab] = useState('ledger')
+  const [tab, setTab] = useState('company')
 
-  // ── Live payment summary from API ─────────────────────────
-  const [liveSummary, setLiveSummary] = useState({
-    totalOutstandingRcv: 0, totalOutstandingPay: 0,
-    totalReceived: 0, totalPaid: 0,
-  })
-  const [liveTransactions, setLiveTransactions] = useState([])
-
+  // ── Summary (top cards) ────────────────────────────────────
+  const [summary, setSummary] = useState({ rcv: 0, pay: 0, received: 0, paid: 0 })
   useEffect(() => {
-    const fetchSummary = async () => {
+    (async () => {
       try {
-        const [rcv, pay, txns] = await Promise.all([
-          paymentApi.listReceivables({ status: 'All', limit: 1 }),
-          paymentApi.listPayables({ status: 'All', limit: 1 }),
-          paymentApi.listTransactions({ type: 'All', limit: 500 }),
-        ])
-        const rcvList  = rcv?.data?.receivables  || []
-        const payList  = pay?.data?.payables     || []
-        const txnList  = txns?.data?.transactions || []
-        // Backend returns aggregated totals via pagination.total but not sum — compute from slices
-        // Use the full list from receivables/payables for outstanding totals
-        const [rcvAll, payAll] = await Promise.all([
+        const [rcvAll, payAll, txns] = await Promise.all([
           paymentApi.listReceivables({ status: 'All', limit: 1000 }),
           paymentApi.listPayables({ status: 'All', limit: 1000 }),
+          paymentApi.listTransactions({ type: 'All', limit: 1000 }),
         ])
         const allRcv = rcvAll?.data?.receivables || []
         const allPay = payAll?.data?.payables    || []
-        setLiveSummary({
-          totalOutstandingRcv: allRcv.reduce((s, r) => s + (parseFloat(r.outstanding) || 0), 0),
-          totalOutstandingPay: allPay.reduce((s, p) => s + (parseFloat(p.outstanding) || 0), 0),
-          totalReceived: txnList.filter(h => h.type === 'Received').reduce((s, h) => s + (parseFloat(h.amount) || 0), 0),
-          totalPaid:     txnList.filter(h => h.type === 'Paid').reduce((s, h)     => s + (parseFloat(h.amount) || 0), 0),
+        const txnList = txns?.data?.transactions  || []
+        setSummary({
+          rcv:      allRcv.reduce((s, r) => s + (parseFloat(r.outstanding) || 0), 0),
+          pay:      allPay.reduce((s, p) => s + (parseFloat(p.outstanding) || 0), 0),
+          received: txnList.filter(h => h.type === 'Received').reduce((s, h) => s + (parseFloat(h.amount) || 0), 0),
+          paid:     txnList.filter(h => h.type === 'Paid').reduce((s, h) => s + (parseFloat(h.amount) || 0), 0),
         })
-        setLiveTransactions(txnList)
-      } catch { /* silent fallback */ }
-    }
-    fetchSummary()
+      } catch { /* silent */ }
+    })()
   }, [])
 
-  // ── Cash Book state ────────────────────────────────────────
-  const [cashBook,       setCashBook]       = useState(null)
-  const [cashLoading,    setCashLoading]    = useState(false)
-  const [cashFromDate,   setCashFromDate]   = useState(() => {
-    const d = new Date(); d.setDate(1)
-    return d.toISOString().split('T')[0]
-  })
-  const [cashToDate, setCashToDate] = useState(() => new Date().toISOString().split('T')[0])
+  const totalSales    = sales.reduce((a, s) => a + (s.total_amount || 0), 0)
+  const totalPurchase = purchases.reduce((a, p) => a + (p.total_amount || 0), 0)
 
-  // ── Bank Book state ────────────────────────────────────────
-  const [bankBook,       setBankBook]       = useState(null)
-  const [bankLoading,    setBankLoading]    = useState(false)
-  const [bankFromDate,   setBankFromDate]   = useState(() => {
-    const d = new Date(); d.setDate(1)
-    return d.toISOString().split('T')[0]
-  })
-  const [bankToDate, setBankToDate] = useState(() => new Date().toISOString().split('T')[0])
+  // ── Company Ledger ─────────────────────────────────────────
+  const [compFrom, setCompFrom] = useState(yearStart)
+  const [compTo, setCompTo]     = useState(today)
+  const [company, setCompany]   = useState(null)
+  const [compLoading, setCompLoading] = useState(false)
+  const fetchCompany = useCallback(async () => {
+    setCompLoading(true)
+    try {
+      const res = await accountsApi.getCompanyLedger({ from_date: compFrom, to_date: compTo })
+      setCompany(res?.data || res)
+    } catch { setCompany(null) } finally { setCompLoading(false) }
+  }, [compFrom, compTo])
 
-  // ── Customer Ledger state ──────────────────────────────────
-  const [custId,     setCustId]     = useState('')
+  // ── Customer Ledger ────────────────────────────────────────
+  const [custId, setCustId]         = useState('')
   const [custLedger, setCustLedger] = useState(null)
-  const [custLoading,setCustLoading]= useState(false)
-  const [custError,  setCustError]  = useState('')
+  const [custLoading, setCustLoading] = useState(false)
+  const fetchCustLedger = useCallback(async (id) => {
+    if (!id) { setCustLedger(null); return }
+    setCustLoading(true)
+    try {
+      const res = await accountsApi.getCustomerLedger(id)
+      setCustLedger(res?.data || res)
+    } catch { setCustLedger(null) } finally { setCustLoading(false) }
+  }, [])
 
-  // ── Supplier Ledger state ──────────────────────────────────
-  const [suppId,     setSuppId]     = useState('')
+  // ── Supplier Ledger ────────────────────────────────────────
+  const [suppId, setSuppId]         = useState('')
   const [suppLedger, setSuppLedger] = useState(null)
-  const [suppLoading,setSuppLoading]= useState(false)
-  const [suppError,  setSuppError]  = useState('')
+  const [suppLoading, setSuppLoading] = useState(false)
+  const fetchSuppLedger = useCallback(async (id) => {
+    if (!id) { setSuppLedger(null); return }
+    setSuppLoading(true)
+    try {
+      const res = await accountsApi.getSupplierLedger(id)
+      setSuppLedger(res?.data || res)
+    } catch { setSuppLedger(null) } finally { setSuppLoading(false) }
+  }, [])
 
-  // ── Live calculations from props + live payment summary ──────
-  const totalSalesInvoiced  = sales.reduce((a, s) => a + (s.total_amount || 0), 0)
-  const totalSalesRevenue   = sales.reduce((a, s) => a + (s.amount       || 0), 0)
-  const totalGSTCollected   = sales.reduce((a, s) => a + (s.gst_amount   || 0), 0)
-  const totalPurchased      = purchases.reduce((a, p) => a + (p.total_amount || 0), 0)
-  const totalPurchaseCost   = purchases.reduce((a, p) => a + (p.amount       || 0), 0)
-  const totalGSTPaid        = purchases.reduce((a, p) => a + (p.gst_amount   || 0), 0)
-  const totalReceived       = liveSummary.totalReceived
-  const totalPaid           = liveSummary.totalPaid
-  const totalOutstandingRcv = liveSummary.totalOutstandingRcv
-  const totalOutstandingPay = liveSummary.totalOutstandingPay
-  const gstPayable = totalGSTCollected - totalGSTPaid
-  const netCash    = totalReceived - totalPaid
-
-  const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }) : '—'
-
-  // ── General Ledger (from props) ────────────────────────────
-  const ledger = [
-    ...purchases.map(p => ({
-      date: fmtDate(p.purchase_date || p.created_at), type: 'Purchase',
-      ref: p.purchase_code || '', party: p.supplier_name || '—',
-      narration: `Purchased ${p.product_name || ''} × ${p.qty || 0}`,
-      debit: p.total_amount || 0, credit: 0,
-      _ts: new Date(p.purchase_date || p.created_at || 0).getTime(),
-    })),
-    ...sales.map(s => ({
-      date: fmtDate(s.sale_date || s.created_at), type: 'Sales',
-      ref: s.sale_code || '', party: s.customer_name || '—',
-      narration: `Sold ${s.product_name || ''} × ${s.qty || 0}`,
-      debit: 0, credit: s.total_amount || 0,
-      _ts: new Date(s.sale_date || s.created_at || 0).getTime(),
-    })),
-    ...(liveTransactions).filter(h => h.type === 'Received').map(h => ({
-      date: fmtDate(h.txn_date || h.created_at), type: 'Receipt',
-      ref: h.txn_code || '', party: h.party_name || '—',
-      narration: h.notes || `Payment received via ${h.mode || 'Cash'}`,
-      debit: 0, credit: h.amount || 0,
-      _ts: new Date(h.txn_date || h.created_at || 0).getTime(),
-    })),
-    ...(liveTransactions).filter(h => h.type === 'Paid').map(h => ({
-      date: fmtDate(h.txn_date || h.created_at), type: 'Payment',
-      ref: h.txn_code || '', party: h.party_name || '—',
-      narration: h.notes || `Payment made via ${h.mode || 'Bank Transfer'}`,
-      debit: h.amount || 0, credit: 0,
-      _ts: new Date(h.txn_date || h.created_at || 0).getTime(),
-    })),
-  ].sort((a, b) => b._ts - a._ts)
-
-  let runningBalance = 0
-  const ledgerWithBalance = ledger.map(entry => {
-    runningBalance += (entry.credit - entry.debit)
-    return { ...entry, balance: runningBalance }
-  })
-
-  // ── Fetch Cash Book ────────────────────────────────────────
+  // ── Cash Book (daily cash flow) ────────────────────────────
+  const [cashFrom, setCashFrom] = useState(monthStart)
+  const [cashTo, setCashTo]     = useState(today)
+  const [cashBook, setCashBook] = useState(null)
+  const [cashLoading, setCashLoading] = useState(false)
   const fetchCashBook = useCallback(async () => {
     setCashLoading(true)
     try {
-      const res = await accountsApi.getCashBook({ from_date: cashFromDate, to_date: cashToDate })
+      const res = await accountsApi.getCashBook({ from_date: cashFrom, to_date: cashTo })
       setCashBook(res?.data || res)
-    } catch { setCashBook(null) }
-    finally { setCashLoading(false) }
-  }, [cashFromDate, cashToDate])
+    } catch { setCashBook(null) } finally { setCashLoading(false) }
+  }, [cashFrom, cashTo])
 
-  // ── Fetch Bank Book ────────────────────────────────────────
+  // ── Bank Book (bank transactions) ──────────────────────────
+  const [bankFrom, setBankFrom] = useState(monthStart)
+  const [bankTo, setBankTo]     = useState(today)
+  const [bankBook, setBankBook] = useState(null)
+  const [bankLoading, setBankLoading] = useState(false)
   const fetchBankBook = useCallback(async () => {
     setBankLoading(true)
     try {
-      const res = await accountsApi.getBankBook({ from_date: bankFromDate, to_date: bankToDate })
+      const res = await accountsApi.getBankBook({ from_date: bankFrom, to_date: bankTo })
       setBankBook(res?.data || res)
-    } catch { setBankBook(null) }
-    finally { setBankLoading(false) }
-  }, [bankFromDate, bankToDate])
+    } catch { setBankBook(null) } finally { setBankLoading(false) }
+  }, [bankFrom, bankTo])
 
-  // ── Fetch Customer Ledger ──────────────────────────────────
-  const fetchCustLedger = async () => {
-    if (!custId.trim()) { setCustError('Enter a Customer ID or select a customer'); return }
-    setCustLoading(true); setCustError(''); setCustLedger(null)
-    try {
-      const res = await accountsApi.getCustomerLedger(custId.trim())
-      setCustLedger(res?.data || res)
-    } catch (e) { setCustError(e?.response?.data?.message || 'Failed to load ledger') }
-    finally { setCustLoading(false) }
-  }
-
-  // ── Fetch Supplier Ledger ──────────────────────────────────
-  const fetchSuppLedger = async () => {
-    if (!suppId.trim()) { setSuppError('Enter a Supplier ID'); return }
-    setSuppLoading(true); setSuppError(''); setSuppLedger(null)
-    try {
-      const res = await accountsApi.getSupplierLedger(suppId.trim())
-      setSuppLedger(res?.data || res)
-    } catch (e) { setSuppError(e?.response?.data?.message || 'Failed to load ledger') }
-    finally { setSuppLoading(false) }
-  }
-
-  // Auto-load when switching to cash/bank tab
+  // Auto-load the active tab's data.
   useEffect(() => {
-    if (tab === 'cashbook') fetchCashBook()
-    if (tab === 'bankbook') fetchBankBook()
+    if (tab === 'company') fetchCompany()
+    if (tab === 'cash')    fetchCashBook()
+    if (tab === 'bank')    fetchBankBook()
   }, [tab]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Date filter row (reused for cash/bank book) ────────────
-  const DateFilter = ({ from, setFrom, to, setTo, loading, onApply }) => (
-    <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)' }}>From</label>
-        <input type="date" className="form-control" style={{ width: 150 }} value={from} onChange={e => setFrom(e.target.value)} />
+  const sortedCustomers = useMemo(
+    () => [...customers].sort((a, b) => (a.name || '').localeCompare(b.name || '')),
+    [customers],
+  )
+  const sortedSuppliers = useMemo(
+    () => [...suppliers].sort((a, b) => (a.name || '').localeCompare(b.name || '')),
+    [suppliers],
+  )
+
+  // ── Reusable date-range filter row ─────────────────────────
+  const DateRange = ({ from, setFrom, to, setTo, loading, onApply }) => (
+    <div style={{ display:'flex', gap:12, alignItems:'flex-end', marginBottom:16, flexWrap:'wrap' }}>
+      <div>
+        <label style={lbl}>From</label>
+        <input type="date" className="form-control" style={{ width:160 }} value={from} onChange={e => setFrom(e.target.value)} />
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)' }}>To</label>
-        <input type="date" className="form-control" style={{ width: 150 }} value={to} onChange={e => setTo(e.target.value)} />
+      <div>
+        <label style={lbl}>To</label>
+        <input type="date" className="form-control" style={{ width:160 }} value={to} onChange={e => setTo(e.target.value)} />
       </div>
-      <button className="btn btn-primary" onClick={onApply} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <button className="btn btn-primary" onClick={onApply} disabled={loading} style={{ display:'flex', alignItems:'center', gap:6 }}>
         <RefreshCw size={13} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
         {loading ? 'Loading…' : 'Apply'}
       </button>
     </div>
   )
 
-  // ── Book entries table (reused for cash/bank book) ─────────
-  const BookTable = ({ data, loading, columns }) => {
-    if (loading) return <div style={{ textAlign: 'center', padding: 40 }}><div className="spinner" /></div>
-    if (!data) return <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>Select date range and click Apply.</div>
-    const entries = data.entries || []
-    return (
-      <>
-        <div style={{ display: 'flex', gap: 20, marginBottom: 12, padding: '10px 14px',
-          background: 'var(--bg)', borderRadius: 8, border: '1px solid var(--border)' }}>
-          <div>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>Total In</div>
-            <div style={{ fontWeight: 700, color: 'var(--success)', fontSize: 16 }}>₹{(data.totalIn || 0).toLocaleString()}</div>
-          </div>
-          <div>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>Total Out</div>
-            <div style={{ fontWeight: 700, color: 'var(--danger)', fontSize: 16 }}>₹{(data.totalOut || 0).toLocaleString()}</div>
-          </div>
-          <div>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>Closing Balance</div>
-            <div style={{ fontWeight: 800, fontSize: 16, color: (data.closingBalance || 0) >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-              ₹{Math.abs(data.closingBalance || 0).toLocaleString()} {(data.closingBalance || 0) >= 0 ? 'Dr' : 'Cr'}
-            </div>
-          </div>
+  // ── Totals strip (In / Out / Balance) ──────────────────────
+  const TotalsStrip = ({ inLabel, inVal, outLabel, outVal, balance, drCr = true }) => (
+    <div style={{ display:'flex', gap:24, flexWrap:'wrap', marginBottom:12, padding:'12px 16px', background:'var(--bg)', borderRadius:10, border:'1px solid var(--border)' }}>
+      <div>
+        <div style={mini}>{inLabel}</div>
+        <div style={{ fontWeight:800, fontSize:16, color:'var(--success)' }}>{fmtMoney(inVal)}</div>
+      </div>
+      <div>
+        <div style={mini}>{outLabel}</div>
+        <div style={{ fontWeight:800, fontSize:16, color:'var(--danger)' }}>{fmtMoney(outVal)}</div>
+      </div>
+      <div>
+        <div style={mini}>Closing Balance</div>
+        <div style={{ fontWeight:900, fontSize:18, color: (balance || 0) >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+          {fmtMoney(Math.abs(balance || 0))}{drCr ? ` ${(balance || 0) >= 0 ? 'Dr' : 'Cr'}` : ''}
         </div>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Date</th><th>Type</th>
-                {columns.includes('mode') && <th>Mode</th>}
-                <th>Description</th>
-                {columns.includes('ref') && <th>Ref</th>}
-                <th>Debit (Dr.)</th><th>Credit (Cr.)</th><th>Balance</th>
-              </tr>
-            </thead>
-            <tbody>
-              {entries.length === 0 && (
-                <tr><td colSpan={8} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>
-                  No entries for this period.
-                </td></tr>
-              )}
-              {entries.map((e, i) => (
-                <tr key={i}>
-                  <td style={{ fontSize: 12 }}>{fmtDate(e.date)}</td>
-                  <td><span className={`badge ${e.type === 'Receipt' || e.type === 'Credit' ? 'badge-green' : e.type === 'Expense' ? 'badge-orange' : 'badge-red'}`} style={{ fontSize: 10 }}>{e.type}</span></td>
-                  {columns.includes('mode') && <td style={{ fontSize: 12 }}>{e.mode || '—'}</td>}
-                  <td style={{ fontSize: 12, maxWidth: 240 }}>{e.description}</td>
-                  {columns.includes('ref') && <td style={{ fontSize: 11, fontFamily: 'monospace' }}>{e.ref || '—'}</td>}
-                  <td style={{ color: 'var(--success)', fontWeight: e.debit > 0 ? 600 : 400 }}>{e.debit > 0 ? `₹${e.debit.toLocaleString()}` : '—'}</td>
-                  <td style={{ color: 'var(--danger)', fontWeight: e.credit > 0 ? 600 : 400 }}>{e.credit > 0 ? `₹${e.credit.toLocaleString()}` : '—'}</td>
-                  <td style={{ fontWeight: 700, color: e.balance >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-                    ₹{Math.abs(e.balance).toLocaleString()} {e.balance >= 0 ? 'Dr' : 'Cr'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </>
-    )
-  }
-
-  const gstRows = [
-    { desc: 'GST Collected on Sales (Output Tax)',  amount: totalGSTCollected, type: 'credit' },
-    { desc: 'GST Paid on Purchases (Input Tax)',     amount: -totalGSTPaid,     type: 'debit'  },
-    { desc: 'Net GST Payable to Government',         amount: gstPayable,        type: 'net', bold: true },
-  ]
+      </div>
+    </div>
+  )
 
   return (
     <>
@@ -271,298 +184,304 @@ export default function AccountsModule({
         <span className="breadcrumb-active">Accounts Module</span>
       </div>
 
-      {/* Summary Cards */}
-      <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 20 }}>
+      {/* Summary cards */}
+      <div className="stats-grid" style={{ gridTemplateColumns:'repeat(4,1fr)', marginBottom:20 }}>
         {[
-          { label: 'Total Sales (incl. GST)', val: `₹${totalSalesInvoiced.toLocaleString()}`,  color: 'blue',   icon: <TrendingUp />    },
-          { label: 'Total Purchase',          val: `₹${totalPurchased.toLocaleString()}`,       color: 'red',    icon: <TrendingDown />  },
-          { label: 'Outstanding Receivable',  val: `₹${totalOutstandingRcv.toLocaleString()}`, color: 'orange', icon: <ArrowUpRight />  },
-          { label: 'Outstanding Payable',     val: `₹${totalOutstandingPay.toLocaleString()}`, color: 'purple', icon: <ArrowDownRight />},
+          { label:'Total Sales',           val: fmtMoney(totalSales),     color:'blue',   icon:<TrendingUp /> },
+          { label:'Total Purchase',        val: fmtMoney(totalPurchase),  color:'red',    icon:<TrendingDown /> },
+          { label:'Outstanding Receivable',val: fmtMoney(summary.rcv),    color:'orange', icon:<ArrowUpRight /> },
+          { label:'Outstanding Payable',   val: fmtMoney(summary.pay),    color:'purple', icon:<ArrowDownRight /> },
         ].map(s => (
-          <div key={s.label} className="stat-card" style={{ padding: '14px 16px' }}>
+          <div key={s.label} className="stat-card" style={{ padding:'14px 16px' }}>
             <div className={`stat-icon ${s.color}`}>{s.icon}</div>
             <div className="stat-info">
               <div className="stat-label">{s.label}</div>
-              <div className="stat-value" style={{ fontSize: 18 }}>{s.val}</div>
+              <div className="stat-value" style={{ fontSize:18 }}>{s.val}</div>
             </div>
           </div>
         ))}
       </div>
 
-      {/* Cash position banner */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12,
-        background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 12,
-        padding: '16px 20px', marginBottom: 16 }}>
-        {[
-          { label: 'Cash/Bank Received',  val: `₹${totalReceived.toLocaleString()}`,         color: 'var(--success)' },
-          { label: 'Cash/Bank Paid Out',  val: `₹${totalPaid.toLocaleString()}`,              color: 'var(--danger)'  },
-          { label: 'Net Cash Position',   val: `₹${netCash.toLocaleString()}`,                color: netCash >= 0 ? 'var(--success)' : 'var(--danger)', bold: true },
-          { label: 'GST Payable (Net)',   val: `₹${gstPayable.toLocaleString()}`,             color: 'var(--warning)' },
-        ].map(item => (
-          <div key={item.label}>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>{item.label}</div>
-            <div style={{ fontWeight: item.bold ? 800 : 700, fontSize: item.bold ? 20 : 16, color: item.color }}>{item.val}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Tabs */}
+      {/* Tabs — standard accounting structure */}
       <div className="tabs">
         {[
-          ['ledger',    'General Ledger'],
-          ['cashbook',  'Cash Book'],
-          ['bankbook',  'Bank Book'],
-          ['custledger','Customer Ledger'],
-          ['suppledger','Supplier Ledger'],
-          ['gst',       'GST Summary'],
-          ['balance',   'Trial Balance'],
-        ].map(([k, l]) => (
-          <button key={k} className={`tab-btn${tab === k ? ' active' : ''}`} onClick={() => setTab(k)}>{l}</button>
+          ['company',  'Company Ledger', <BookOpen size={14} key="i" />],
+          ['customer', 'Customer Ledger', <User size={14} key="i" />],
+          ['supplier', 'Supplier Ledger', <Truck size={14} key="i" />],
+          ['cash',     'Cash Book',       <Wallet size={14} key="i" />],
+          ['bank',     'Bank Book',       <Landmark size={14} key="i" />],
+        ].map(([k, l, icon]) => (
+          <button key={k} className={`tab-btn${tab === k ? ' active' : ''}`} onClick={() => setTab(k)}
+            style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
+            {icon}{l}
+          </button>
         ))}
       </div>
 
-      {/* ── General Ledger ── */}
-      {tab === 'ledger' && (
+      {/* ══════════ COMPANY LEDGER ══════════ */}
+      {tab === 'company' && (
         <div className="card">
-          <div className="card-header">
-            <span className="card-title">General Ledger (Auto-generated)</span>
-            <span className="badge badge-blue">Live from props</span>
-          </div>
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr><th>Date</th><th>Type</th><th>Ref</th><th>Party</th><th>Narration</th><th>Debit (Dr.)</th><th>Credit (Cr.)</th><th>Balance</th></tr>
-              </thead>
-              <tbody>
-                {ledgerWithBalance.map((entry, i) => (
-                  <tr key={i}>
-                    <td style={{ fontSize: 12 }}>{entry.date}</td>
-                    <td>
-                      <span className={`badge ${entry.type === 'Sales' ? 'badge-green' : entry.type === 'Purchase' ? 'badge-red' : entry.type === 'Receipt' ? 'badge-cyan' : 'badge-orange'}`} style={{ fontSize: 10 }}>{entry.type}</span>
-                    </td>
-                    <td style={{ color: 'var(--primary)', fontSize: 12, fontFamily: 'monospace' }}>{entry.ref}</td>
-                    <td style={{ fontWeight: 600, fontSize: 13 }}>{entry.party}</td>
-                    <td style={{ fontSize: 12, color: 'var(--text-muted)', maxWidth: 200 }}>{entry.narration}</td>
-                    <td style={{ color: 'var(--danger)', fontWeight: entry.debit > 0 ? 600 : 400 }}>{entry.debit > 0 ? `₹${entry.debit.toLocaleString()}` : '—'}</td>
-                    <td style={{ color: 'var(--success)', fontWeight: entry.credit > 0 ? 600 : 400 }}>{entry.credit > 0 ? `₹${entry.credit.toLocaleString()}` : '—'}</td>
-                    <td style={{ fontWeight: 700, color: entry.balance >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-                      ₹{Math.abs(entry.balance).toLocaleString()} {entry.balance >= 0 ? 'Cr' : 'Dr'}
-                    </td>
+          <div className="card-header"><span className="card-title">Company Ledger — all transactions</span></div>
+          <div className="card-body">
+            <DateRange from={compFrom} setFrom={setCompFrom} to={compTo} setTo={setCompTo} loading={compLoading} onApply={fetchCompany} />
+            {company && (
+              <TotalsStrip
+                inLabel="Total Debit (In)"  inVal={company.totalDebit}
+                outLabel="Total Credit (Out)" outVal={company.totalCredit}
+                balance={company.closingBalance}
+              />
+            )}
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th style={th}>Date</th>
+                    <th style={th}>Type</th>
+                    <th style={th}>Reference</th>
+                    <th style={th}>Party</th>
+                    <th style={th}>Narration</th>
+                    <th style={{ ...th, textAlign:'right' }}>Debit / In (Dr.)</th>
+                    <th style={{ ...th, textAlign:'right' }}>Credit / Out (Cr.)</th>
+                    <th style={{ ...th, textAlign:'right' }}>Balance</th>
                   </tr>
-                ))}
-                {ledgerWithBalance.length === 0 && (
-                  <tr><td colSpan={8} style={{ textAlign: 'center', padding: 24, color: 'var(--text-muted)' }}>
-                    Ledger entries appear as you add purchases, complete sales, and record payments.
-                  </td></tr>
+                </thead>
+                <tbody>
+                  {compLoading && <tr><td colSpan={8} style={emptyCell}>Loading…</td></tr>}
+                  {!compLoading && (!company || (company.ledger || []).length === 0) && (
+                    <tr><td colSpan={8} style={emptyCell}>No transactions in this period.</td></tr>
+                  )}
+                  {!compLoading && (company?.ledger || []).map((e, i) => (
+                    <tr key={i}>
+                      <td style={cellSm}>{fmtDate(e.date)}</td>
+                      <td><span className={`badge ${TYPE_BADGE[e.type] || 'badge-gray'}`} style={{ fontSize:10 }}>{e.type}</span></td>
+                      <td style={{ ...cellSm, fontFamily:'monospace', color:'var(--primary)' }}>{e.ref || '—'}</td>
+                      <td style={{ fontWeight:600, fontSize:13 }}>{e.party}</td>
+                      <td style={{ ...cellSm, color:'var(--text-muted)', maxWidth:220 }}>{e.narration}</td>
+                      <td style={{ textAlign:'right', color:'var(--success)', fontWeight: e.debit > 0 ? 700 : 400 }}>{e.debit > 0 ? fmtMoney(e.debit) : '—'}</td>
+                      <td style={{ textAlign:'right', color:'var(--danger)', fontWeight: e.credit > 0 ? 700 : 400 }}>{e.credit > 0 ? fmtMoney(e.credit) : '—'}</td>
+                      <td style={{ textAlign:'right', fontWeight:800, color: e.balance >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                        {fmtMoney(Math.abs(e.balance))} <span style={{ fontSize:10, color:'var(--text-muted)' }}>{e.balance >= 0 ? 'Dr' : 'Cr'}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                {!compLoading && company && (company.ledger || []).length > 0 && (
+                  <tfoot>
+                    <tr style={{ borderTop:'2px solid var(--border)', background:'var(--bg)' }}>
+                      <td colSpan={5} style={{ ...cellSm, fontWeight:800, textAlign:'right', paddingRight:12 }}>Total</td>
+                      <td style={{ textAlign:'right', fontWeight:800, color:'var(--danger)' }}>{fmtMoney(company.totalDebit)}</td>
+                      <td style={{ textAlign:'right', fontWeight:800, color:'var(--success)' }}>{fmtMoney(company.totalCredit)}</td>
+                      <td style={{ textAlign:'right', fontWeight:900, color: (company.closingBalance || 0) >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                        {fmtMoney(Math.abs(company.closingBalance || 0))} <span style={{ fontSize:10, color:'var(--text-muted)' }}>{(company.closingBalance || 0) >= 0 ? 'Dr' : 'Cr'}</span>
+                      </td>
+                    </tr>
+                  </tfoot>
                 )}
-              </tbody>
-            </table>
+              </table>
+            </div>
           </div>
         </div>
       )}
 
-      {/* ── Cash Book ── */}
-      {tab === 'cashbook' && (
-        <div className="card">
-          <div className="card-header">
-            <span className="card-title">Cash Book</span>
-            <span className="badge badge-green">Live from API</span>
-          </div>
-          <div className="card-body">
-            <DateFilter from={cashFromDate} setFrom={setCashFromDate} to={cashToDate} setTo={setCashToDate} loading={cashLoading} onApply={fetchCashBook} />
-            <BookTable data={cashBook} loading={cashLoading} columns={['description']} />
-          </div>
-        </div>
-      )}
-
-      {/* ── Bank Book ── */}
-      {tab === 'bankbook' && (
-        <div className="card">
-          <div className="card-header">
-            <span className="card-title">Bank Book</span>
-            <span className="badge badge-blue">Live from API</span>
-          </div>
-          <div className="card-body">
-            <DateFilter from={bankFromDate} setFrom={setBankFromDate} to={bankToDate} setTo={setBankToDate} loading={bankLoading} onApply={fetchBankBook} />
-            <BookTable data={bankBook} loading={bankLoading} columns={['mode', 'ref']} />
-          </div>
-        </div>
-      )}
-
-      {/* ── Customer Ledger ── */}
-      {tab === 'custledger' && (
+      {/* ══════════ CUSTOMER LEDGER ══════════ */}
+      {tab === 'customer' && (
         <div className="card">
           <div className="card-header"><span className="card-title">Customer Ledger</span></div>
           <div className="card-body">
-            <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'flex-end' }}>
+            <div style={{ display:'flex', gap:10, alignItems:'flex-end', marginBottom:16, flexWrap:'wrap' }}>
               <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Customer ID</label>
-                <input className="form-control" style={{ width: 280 }} placeholder="Paste customer _id here"
-                  value={custId} onChange={e => setCustId(e.target.value)} />
+                <label style={lbl}>Select Customer</label>
+                <select className="form-control" style={{ minWidth:280 }} value={custId}
+                  onChange={e => { setCustId(e.target.value); fetchCustLedger(e.target.value) }}>
+                  <option value="">— Choose a customer —</option>
+                  {sortedCustomers.map(c => (
+                    <option key={c._id || c.id} value={c._id || c.id}>
+                      {c.name}{c.mobile ? ` · ${c.mobile}` : ''}
+                    </option>
+                  ))}
+                </select>
               </div>
-              <button className="btn btn-primary" onClick={fetchCustLedger} disabled={custLoading} style={{ gap: 6 }}>
-                <RefreshCw size={13} style={{ animation: custLoading ? 'spin 1s linear infinite' : 'none' }} />
-                {custLoading ? 'Loading…' : 'Load Ledger'}
-              </button>
+              {custLoading && <span style={{ color:'var(--text-muted)', fontSize:13 }}><RefreshCw size={12} style={{ verticalAlign:'-2px', animation:'spin 1s linear infinite' }}/> Loading…</span>}
             </div>
-            {custError && <div className="alert alert-danger" style={{ marginBottom: 12 }}>{custError}</div>}
+
+            {!custId && <div style={emptyCell}>Select a customer to view their ledger.</div>}
             {custLedger && (
               <>
-                <div style={{ fontWeight: 700, marginBottom: 8 }}>
-                  {custLedger.customer?.name} — Closing Balance:&nbsp;
-                  <span style={{ color: custLedger.closingBalance >= 0 ? 'var(--danger)' : 'var(--success)' }}>
-                    ₹{Math.abs(custLedger.closingBalance || 0).toLocaleString()} {custLedger.closingBalance >= 0 ? 'Dr' : 'Cr'}
+                <div style={{ fontWeight:700, marginBottom:10 }}>
+                  {custLedger.customer?.name} — Outstanding:&nbsp;
+                  <span style={{ color: (custLedger.closingBalance || 0) > 0 ? 'var(--danger)' : 'var(--success)' }}>
+                    {fmtMoney(Math.abs(custLedger.closingBalance || 0))} {(custLedger.closingBalance || 0) > 0 ? 'Dr' : 'Cr'}
                   </span>
                 </div>
-                <div className="table-wrap">
-                  <table>
-                    <thead><tr><th>Date</th><th>Type</th><th>Ref</th><th>Debit</th><th>Credit</th><th>Balance</th></tr></thead>
-                    <tbody>
-                      {(custLedger.ledger || []).map((row, i) => (
-                        <tr key={i}>
-                          <td style={{ fontSize: 12 }}>{fmtDate(row.date)}</td>
-                          <td><span className={`badge ${row.type === 'Sale' ? 'badge-red' : 'badge-green'}`} style={{ fontSize: 10 }}>{row.type}</span></td>
-                          <td style={{ fontSize: 11, fontFamily: 'monospace' }}>{row.sale_code || row.txn_code || '—'}</td>
-                          <td style={{ color: 'var(--danger)', fontWeight: row.debit > 0 ? 600 : 400 }}>{row.debit > 0 ? `₹${row.debit.toLocaleString()}` : '—'}</td>
-                          <td style={{ color: 'var(--success)', fontWeight: row.credit > 0 ? 600 : 400 }}>{row.credit > 0 ? `₹${row.credit.toLocaleString()}` : '—'}</td>
-                          <td style={{ fontWeight: 700, color: row.balance >= 0 ? 'var(--danger)' : 'var(--success)' }}>₹{Math.abs(row.balance).toLocaleString()}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <LedgerTable rows={custLedger.ledger} refFields={['rcv_code', 'sale_code']} />
               </>
             )}
           </div>
         </div>
       )}
 
-      {/* ── Supplier Ledger ── */}
-      {tab === 'suppledger' && (
+      {/* ══════════ SUPPLIER LEDGER ══════════ */}
+      {tab === 'supplier' && (
         <div className="card">
           <div className="card-header"><span className="card-title">Supplier Ledger</span></div>
           <div className="card-body">
-            <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'flex-end' }}>
+            <div style={{ display:'flex', gap:10, alignItems:'flex-end', marginBottom:16, flexWrap:'wrap' }}>
               <div>
-                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 4 }}>Supplier ID</label>
-                <input className="form-control" style={{ width: 280 }} placeholder="Paste supplier _id here"
-                  value={suppId} onChange={e => setSuppId(e.target.value)} />
+                <label style={lbl}>Select Supplier</label>
+                <select className="form-control" style={{ minWidth:280 }} value={suppId}
+                  onChange={e => { setSuppId(e.target.value); fetchSuppLedger(e.target.value) }}>
+                  <option value="">— Choose a supplier —</option>
+                  {sortedSuppliers.map(s => (
+                    <option key={s._id || s.id} value={s._id || s.id}>
+                      {s.name}{s.mobile ? ` · ${s.mobile}` : ''}
+                    </option>
+                  ))}
+                </select>
               </div>
-              <button className="btn btn-primary" onClick={fetchSuppLedger} disabled={suppLoading} style={{ gap: 6 }}>
-                <RefreshCw size={13} style={{ animation: suppLoading ? 'spin 1s linear infinite' : 'none' }} />
-                {suppLoading ? 'Loading…' : 'Load Ledger'}
-              </button>
+              {suppLoading && <span style={{ color:'var(--text-muted)', fontSize:13 }}><RefreshCw size={12} style={{ verticalAlign:'-2px', animation:'spin 1s linear infinite' }}/> Loading…</span>}
             </div>
-            {suppError && <div className="alert alert-danger" style={{ marginBottom: 12 }}>{suppError}</div>}
+
+            {!suppId && <div style={emptyCell}>Select a supplier to view their ledger.</div>}
             {suppLedger && (
               <>
-                <div style={{ fontWeight: 700, marginBottom: 8 }}>
-                  {suppLedger.supplier?.name} — Closing Balance:&nbsp;
-                  <span style={{ color: suppLedger.closingBalance >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-                    ₹{Math.abs(suppLedger.closingBalance || 0).toLocaleString()} {suppLedger.closingBalance >= 0 ? 'Cr' : 'Dr'}
+                <div style={{ fontWeight:700, marginBottom:10 }}>
+                  {suppLedger.supplier?.name} — Payable:&nbsp;
+                  <span style={{ color: (suppLedger.closingBalance || 0) > 0 ? 'var(--danger)' : 'var(--success)' }}>
+                    {fmtMoney(Math.abs(suppLedger.closingBalance || 0))} {(suppLedger.closingBalance || 0) > 0 ? 'Cr' : 'Dr'}
                   </span>
                 </div>
-                <div className="table-wrap">
-                  <table>
-                    <thead><tr><th>Date</th><th>Type</th><th>Ref</th><th>Debit</th><th>Credit</th><th>Balance</th></tr></thead>
-                    <tbody>
-                      {(suppLedger.ledger || []).map((row, i) => (
-                        <tr key={i}>
-                          <td style={{ fontSize: 12 }}>{fmtDate(row.date)}</td>
-                          <td><span className={`badge ${row.type === 'Purchase' ? 'badge-red' : 'badge-green'}`} style={{ fontSize: 10 }}>{row.type}</span></td>
-                          <td style={{ fontSize: 11, fontFamily: 'monospace' }}>{row.purchase_code || row.txn_code || '—'}</td>
-                          <td style={{ color: 'var(--danger)', fontWeight: row.debit > 0 ? 600 : 400 }}>{row.debit > 0 ? `₹${row.debit.toLocaleString()}` : '—'}</td>
-                          <td style={{ color: 'var(--success)', fontWeight: row.credit > 0 ? 600 : 400 }}>{row.credit > 0 ? `₹${row.credit.toLocaleString()}` : '—'}</td>
-                          <td style={{ fontWeight: 700 }}>₹{Math.abs(row.balance).toLocaleString()}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <LedgerTable rows={suppLedger.ledger} refFields={['pay_code', 'purchase_code']} />
               </>
             )}
           </div>
         </div>
       )}
 
-      {/* ── GST Summary ── */}
-      {tab === 'gst' && (
+      {/* ══════════ CASH BOOK ══════════ */}
+      {tab === 'cash' && (
         <div className="card">
-          <div className="card-header"><span className="card-title">GST Summary</span></div>
+          <div className="card-header"><span className="card-title">Cash Book — Daily Cash Flow</span></div>
           <div className="card-body">
-            <div style={{ maxWidth: 500 }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr>
-                    <th style={{ textAlign: 'left', padding: '8px 0', borderBottom: '2px solid var(--border)', fontSize: 12, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Description</th>
-                    <th style={{ textAlign: 'right', padding: '8px 0', borderBottom: '2px solid var(--border)', fontSize: 12, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {gstRows.map((row, i) => (
-                    <tr key={i}>
-                      <td style={{ padding: '10px 0', borderBottom: '1px solid var(--border)', fontWeight: row.bold ? 700 : 400, color: row.type === 'net' ? 'var(--warning)' : 'var(--text)' }}>{row.desc}</td>
-                      <td style={{ padding: '10px 0', borderBottom: '1px solid var(--border)', textAlign: 'right', fontWeight: row.bold ? 700 : 400, color: row.type === 'credit' ? 'var(--danger)' : row.type === 'debit' ? 'var(--success)' : 'var(--warning)' }}>
-                        {row.amount < 0 ? `− ₹${Math.abs(row.amount).toLocaleString()}` : `₹${row.amount.toLocaleString()}`}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DateRange from={cashFrom} setFrom={setCashFrom} to={cashTo} setTo={setCashTo} loading={cashLoading} onApply={fetchCashBook} />
+            {cashBook && (
+              <TotalsStrip inLabel="Cash In" inVal={cashBook.totalIn}
+                outLabel="Cash Out" outVal={cashBook.totalOut} balance={cashBook.closingBalance} drCr={false} />
+            )}
+            <BookTable data={cashBook} loading={cashLoading} showMode={false} />
           </div>
         </div>
       )}
 
-      {/* ── Trial Balance ── */}
-      {tab === 'balance' && (
+      {/* ══════════ BANK BOOK ══════════ */}
+      {tab === 'bank' && (
         <div className="card">
-          <div className="card-header"><span className="card-title">Trial Balance</span></div>
+          <div className="card-header"><span className="card-title">Bank Book — Bank Transactions</span></div>
           <div className="card-body">
-            <div style={{ maxWidth: 600 }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr>
-                    <th style={{ textAlign: 'left', padding: '8px 0', borderBottom: '2px solid var(--border)', fontSize: 12, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Account</th>
-                    <th style={{ textAlign: 'right', padding: '8px 0', borderBottom: '2px solid var(--border)', fontSize: 12, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Debit (Dr.)</th>
-                    <th style={{ textAlign: 'right', padding: '8px 0', borderBottom: '2px solid var(--border)', fontSize: 12, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Credit (Cr.)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[
-                    { account: 'Sales Revenue',          dr: 0,                  cr: totalSalesRevenue     },
-                    { account: 'GST Payable (Output)',   dr: 0,                  cr: totalGSTCollected      },
-                    { account: 'Purchase / COGS',        dr: totalPurchaseCost,  cr: 0                      },
-                    { account: 'GST Receivable (Input)', dr: totalGSTPaid,       cr: 0                      },
-                    { account: 'Accounts Receivable',    dr: totalOutstandingRcv,cr: 0                      },
-                    { account: 'Accounts Payable',       dr: 0,                  cr: totalOutstandingPay    },
-                    { account: 'Cash / Bank (Net)',       dr: netCash > 0 ? netCash : 0, cr: netCash < 0 ? Math.abs(netCash) : 0 },
-                  ].map((row, i) => (
-                    <tr key={i}>
-                      <td style={{ padding: '9px 0', borderBottom: '1px solid var(--border)', fontWeight: 500 }}>{row.account}</td>
-                      <td style={{ padding: '9px 0', borderBottom: '1px solid var(--border)', textAlign: 'right', color: row.dr > 0 ? 'var(--danger)' : 'var(--text-muted)' }}>
-                        {row.dr > 0 ? `₹${row.dr.toLocaleString()}` : '—'}
-                      </td>
-                      <td style={{ padding: '9px 0', borderBottom: '1px solid var(--border)', textAlign: 'right', color: row.cr > 0 ? 'var(--success)' : 'var(--text-muted)' }}>
-                        {row.cr > 0 ? `₹${row.cr.toLocaleString()}` : '—'}
-                      </td>
-                    </tr>
-                  ))}
-                  <tr style={{ fontWeight: 800, background: 'var(--bg)' }}>
-                    <td style={{ padding: '10px 0', borderTop: '2px solid var(--border)' }}>TOTAL</td>
-                    <td style={{ padding: '10px 0', borderTop: '2px solid var(--border)', textAlign: 'right', color: 'var(--danger)' }}>
-                      ₹{(totalPurchaseCost + totalGSTPaid + totalOutstandingRcv + (netCash > 0 ? netCash : 0)).toLocaleString()}
-                    </td>
-                    <td style={{ padding: '10px 0', borderTop: '2px solid var(--border)', textAlign: 'right', color: 'var(--success)' }}>
-                      ₹{(totalSalesRevenue + totalGSTCollected + totalOutstandingPay + (netCash < 0 ? Math.abs(netCash) : 0)).toLocaleString()}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+            <DateRange from={bankFrom} setFrom={setBankFrom} to={bankTo} setTo={setBankTo} loading={bankLoading} onApply={fetchBankBook} />
+            {bankBook && (
+              <TotalsStrip inLabel="Bank In" inVal={bankBook.totalIn}
+                outLabel="Bank Out" outVal={bankBook.totalOut} balance={bankBook.closingBalance} drCr={false} />
+            )}
+            <BookTable data={bankBook} loading={bankLoading} showMode />
           </div>
         </div>
       )}
+
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </>
   )
 }
+
+/* ── Customer / Supplier ledger table ── */
+function LedgerTable({ rows = [], refFields = [], balanceLabel = true }) {
+  const totalDebit  = rows.reduce((s, r) => s + (Number(r.debit)  || 0), 0)
+  const totalCredit = rows.reduce((s, r) => s + (Number(r.credit) || 0), 0)
+  const refOf = (r) => r.ref || refFields.map(f => r[f]).find(Boolean) || r.txn_code || '—'
+  return (
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style={th}>Date</th>
+            <th style={th}>Type</th>
+            <th style={th}>Reference</th>
+            <th style={{ ...th, textAlign:'right' }}>Debit (Dr.)</th>
+            <th style={{ ...th, textAlign:'right' }}>Credit (Cr.)</th>
+            <th style={{ ...th, textAlign:'right' }}>Balance</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 && <tr><td colSpan={6} style={emptyCell}>No entries yet.</td></tr>}
+          {rows.map((r, i) => (
+            <tr key={i}>
+              <td style={cellSm}>{fmtDate(r.date)}</td>
+              <td><span className={`badge ${TYPE_BADGE[r.type] || 'badge-gray'}`} style={{ fontSize:10 }}>{r.type}</span></td>
+              <td style={{ ...cellSm, fontFamily:'monospace', color:'var(--primary)' }}>{refOf(r)}</td>
+              <td style={{ textAlign:'right', color:'var(--danger)', fontWeight: r.debit > 0 ? 700 : 400 }}>{r.debit > 0 ? fmtMoney(r.debit) : '—'}</td>
+              <td style={{ textAlign:'right', color:'var(--success)', fontWeight: r.credit > 0 ? 700 : 400 }}>{r.credit > 0 ? fmtMoney(r.credit) : '—'}</td>
+              <td style={{ textAlign:'right', fontWeight:800 }}>
+                {fmtMoney(Math.abs(r.balance || 0))}{balanceLabel ? <span style={{ fontSize:10, color:'var(--text-muted)', marginLeft:3 }}>{(r.balance || 0) >= 0 ? 'Dr' : 'Cr'}</span> : ''}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+        {rows.length > 0 && (
+          <tfoot>
+            <tr style={{ borderTop:'2px solid var(--border)', background:'var(--bg)' }}>
+              <td colSpan={3} style={{ ...cellSm, fontWeight:800, textAlign:'right', paddingRight:12 }}>Total</td>
+              <td style={{ textAlign:'right', fontWeight:800, color:'var(--danger)' }}>{fmtMoney(totalDebit)}</td>
+              <td style={{ textAlign:'right', fontWeight:800, color:'var(--success)' }}>{fmtMoney(totalCredit)}</td>
+              <td style={{ textAlign:'right', fontWeight:900 }}>{fmtMoney(Math.abs(totalDebit - totalCredit))} <span style={{ fontSize:10, color:'var(--text-muted)' }}>{(totalDebit - totalCredit) >= 0 ? 'Dr' : 'Cr'}</span></td>
+            </tr>
+          </tfoot>
+        )}
+      </table>
+    </div>
+  )
+}
+
+/* ── Cash / Bank book table ── */
+function BookTable({ data, loading, showMode }) {
+  if (loading) return <div style={emptyCell}>Loading…</div>
+  const entries = data?.entries || []
+  return (
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th><th>Type</th>
+            {showMode && <th>Mode</th>}
+            <th>Description</th>
+            {showMode && <th>Ref</th>}
+            <th>In (Dr.)</th><th>Out (Cr.)</th><th>Balance</th>
+          </tr>
+        </thead>
+        <tbody>
+          {entries.length === 0 && (
+            <tr><td colSpan={showMode ? 8 : 6} style={emptyCell}>No entries for this period.</td></tr>
+          )}
+          {entries.map((e, i) => (
+            <tr key={i}>
+              <td style={cellSm}>{fmtDate(e.date)}</td>
+              <td><span className={`badge ${TYPE_BADGE[e.type] || 'badge-gray'}`} style={{ fontSize:10 }}>{e.type}</span></td>
+              {showMode && <td style={cellSm}>{e.mode || '—'}</td>}
+              <td style={{ ...cellSm, maxWidth:260 }}>{e.description}</td>
+              {showMode && <td style={{ ...cellSm, fontFamily:'monospace' }}>{e.ref || '—'}</td>}
+              <td style={{ color:'var(--success)', fontWeight: e.debit > 0 ? 600 : 400 }}>{e.debit > 0 ? fmtMoney(e.debit) : '—'}</td>
+              <td style={{ color:'var(--danger)', fontWeight: e.credit > 0 ? 600 : 400 }}>{e.credit > 0 ? fmtMoney(e.credit) : '—'}</td>
+              <td style={{ fontWeight:700, color: (e.balance || 0) >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                {fmtMoney(Math.abs(e.balance || 0))}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+const lbl     = { display:'block', fontSize:12, fontWeight:600, color:'var(--text-muted)', marginBottom:4 }
+const mini    = { fontSize:11, color:'var(--text-muted)', marginBottom:2 }
+const cellSm  = { fontSize:12 }
+const emptyCell = { textAlign:'center', padding:28, color:'var(--text-muted)' }
+const th = { padding:'9px 12px', textAlign:'left', fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'.4px', color:'var(--text-muted)', whiteSpace:'nowrap', borderBottom:'1px solid var(--border)' }

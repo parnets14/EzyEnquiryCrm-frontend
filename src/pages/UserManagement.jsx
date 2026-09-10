@@ -90,6 +90,8 @@ export default function UserManagement({ users = [], addUser, deleteUser, resetU
 
   // Permission preview shown inside the Add User modal (for the chosen role).
   const [modalPermsLoading, setModalPermsLoading] = useState(false)
+  // Editable per-user permission overrides in the Add User modal (module→actions).
+  const [userPerms, setUserPerms] = useState(null)
 
   const toast = (msg) => { setSuccessMsg(msg); setTimeout(() => setSuccessMsg(''), 3500) }
 
@@ -133,6 +135,36 @@ export default function UserManagement({ users = [], addUser, deleteUser, resetU
       .finally(() => { if (!cancelled) setModalPermsLoading(false) })
     return () => { cancelled = true }
   }, [showModal]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Seed the editable per-user permissions from the selected role whenever the
+  // modal opens, the role changes, or the role matrix finishes loading.
+  useEffect(() => {
+    if (!showModal) { setUserPerms(null); return }
+    const rolePerms = permByRole[form.role]
+    if (rolePerms) setUserPerms(structuredClone(rolePerms))
+  }, [showModal, form.role, permByRole]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Toggle a whole module on/off for the new user (view = gateway; enabling a
+  // module turns on all its actions, disabling turns them all off).
+  const toggleUserModule = (moduleKey) => {
+    setUserPerms(prev => {
+      const next = structuredClone(prev || {})
+      const mod = permModules.find(m => m.key === moduleKey)
+      const actions = mod?.actions || [{ key: 'view' }]
+      const current = next[moduleKey] || {}
+      const isOn = typeof current === 'boolean' ? current : current?.view === true
+      const turnOn = !isOn
+      next[moduleKey] = {}
+      actions.forEach(a => { next[moduleKey][a.key] = turnOn })
+      return next
+    })
+  }
+
+  // Reset the modal's per-user permissions back to the selected role's defaults.
+  const resetUserPermsToRole = () => {
+    const rolePerms = permByRole[form.role]
+    setUserPerms(rolePerms ? structuredClone(rolePerms) : {})
+  }
 
   // Grouped catalog reused by both the Roles tab and the Add User preview.
   // (defined below as groupedModules)
@@ -181,7 +213,17 @@ export default function UserManagement({ users = [], addUser, deleteUser, resetU
     const e = validate()
     if (Object.keys(e).length) { setErrors(e); return }
     setSaving(true)
-    const result = await addUser?.({ name: form.name, mobile: form.mobile, email: form.email, password: form.password, role: form.role })
+    // Send per-user permission overrides only when they differ from the role's
+    // defaults — otherwise leave null so the user simply follows the role.
+    const roleDefaults = permByRole[form.role]
+    const permsChanged = userPerms && roleDefaults &&
+      JSON.stringify(userPerms) !== JSON.stringify(roleDefaults)
+    const payload = {
+      name: form.name, mobile: form.mobile, email: form.email,
+      password: form.password, role: form.role,
+      permissions: form.role === 'Super Admin' ? null : (permsChanged ? userPerms : null),
+    }
+    const result = await addUser?.(payload)
     setSaving(false)
     if (result?.success === false) { toast(`Error: ${result.message}`); return }
     setForm(EMPTY_FORM); setErrors({})
@@ -404,10 +446,10 @@ export default function UserManagement({ users = [], addUser, deleteUser, resetU
           {/* Add User Modal */}
           {showModal && (() => {
             const roleIsSuper = form.role === 'Super Admin'
-            const rolePerms = permByRole[form.role] || {}
+            const activePerms = userPerms || permByRole[form.role] || {}
             const previewOn = (key) => {
               if (roleIsSuper) return true
-              const modulePermission = rolePerms[key]
+              const modulePermission = activePerms[key]
               return typeof modulePermission === 'boolean' ? modulePermission : modulePermission?.view === true
             }
             const totalOn = roleIsSuper ? permModules.length : permModules.filter(m => previewOn(m.key)).length
@@ -457,9 +499,17 @@ export default function UserManagement({ users = [], addUser, deleteUser, resetU
                         <Shield style={{ width: 14, color: ROLE_DOT[form.role] || 'var(--text-muted)' }} />
                         Modules this user can access
                       </label>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)' }}>
-                        {modalPermsLoading ? 'Loading…' : `${totalOn} enabled`}
-                      </span>
+                      <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+                        {!roleIsSuper && !modalPermsLoading && (
+                          <button type="button" onClick={resetUserPermsToRole}
+                            style={{ background:'none', border:'none', color:'var(--primary)', cursor:'pointer', fontSize:11, fontWeight:700 }}>
+                            Reset to role defaults
+                          </button>
+                        )}
+                        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)' }}>
+                          {modalPermsLoading ? 'Loading…' : `${totalOn} enabled`}
+                        </span>
+                      </div>
                     </div>
 
                     <div style={{
@@ -478,7 +528,9 @@ export default function UserManagement({ users = [], addUser, deleteUser, resetU
                             {mods.map(m => {
                               const on = previewOn(m.key)
                               return (
-                                <div key={m.key} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5 }}>
+                                <div key={m.key}
+                                  onClick={roleIsSuper ? undefined : () => toggleUserModule(m.key)}
+                                  style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, cursor: roleIsSuper ? 'default' : 'pointer', userSelect:'none' }}>
                                   <span style={{
                                     width: 17, height: 17, borderRadius: 5, flexShrink: 0,
                                     display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -499,7 +551,9 @@ export default function UserManagement({ users = [], addUser, deleteUser, resetU
                     </div>
                     <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 7, display: 'flex', alignItems: 'center', gap: 6 }}>
                       <Shield style={{ width: 12, flexShrink: 0 }} />
-                      Access comes from the <strong style={{ margin: '0 3px' }}>{form.role}</strong> role. Change it anytime in the Roles &amp; Permissions tab.
+                      {roleIsSuper
+                        ? <span>Super Admin always has full access.</span>
+                        : <span>Auto-filled from the <strong style={{ margin: '0 3px' }}>{form.role}</strong> role. Click a module to customise this user's access.</span>}
                     </div>
                   </div>
                 </div>

@@ -650,6 +650,12 @@ tbody tr:nth-child(even) td { background: #FBFCFE; }
 tbody tr { transition: background 0.12s; }
 tbody tr:hover td { background: #F1F5F9; }
 
+/* Inventory status row highlights — override the striping/hover td background */
+tbody tr.row-out td            { background: #fde3e3 !important; }
+tbody tr.row-out:hover td      { background: #fbd0d0 !important; }
+tbody tr.row-low td            { background: #fef6e0 !important; }
+tbody tr.row-low:hover td      { background: #fdeec4 !important; }
+
 /* Right-aligned utility for header + cells (e.g. Actions column) */
 th.col-right, td.col-right { text-align: right; }
 .table-actions { display: flex; gap: 5px; align-items: center; }

@@ -4,7 +4,7 @@ import {
   Building2, GitBranch, Warehouse, Users, Shield,
   Tag, Package,
   ShoppingBag, PackagePlus, BarChart3, ArrowLeftRight,
-  Search, MessageSquare, ShoppingCart, Truck,
+  MessageSquare, ShoppingCart, Truck,
   UserCheck, Target, CalendarClock,
   TrendingUp, Receipt, CreditCard, BookOpen, LineChart, FileEdit,
   UserCog,
@@ -50,7 +50,6 @@ const NAV_CONFIG = [
   {
     type: 'section', key: 'b2b', label: 'Marketplace Management', icon: ShoppingCart,
     items: [
-      { to: '/marketplace/product-search',    icon: Search,        label: 'Product Search',      moduleKey: MODULES.PRODUCT_SEARCH },
       { to: '/marketplace/enquiry-management',icon: MessageSquare, label: 'Enquiry Management',  moduleKey: MODULES.ENQUIRIES, badgeKey: 'enquiries' },
       { to: '/marketplace/order-management',  icon: ShoppingCart,  label: 'Order Management',    moduleKey: MODULES.ORDERS,    badgeKey: 'orders' },
       { to: '/marketplace/dispatch-management',icon: Truck,        label: 'Dispatch Management', moduleKey: MODULES.DISPATCHES, badgeKey: 'dispatch' },

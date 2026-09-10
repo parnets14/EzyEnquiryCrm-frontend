@@ -114,6 +114,10 @@ export const paymentApi = {
 
 // ── Accounts (Ledger, Cash Book, Bank Book) ───────────────────
 export const accountsApi = {
+  // Consolidated company ledger — params: { from_date, to_date }
+  getCompanyLedger: (params = {}) =>
+    api.get('/accounts/ledger/company', { params }).then(r => r.data),
+
   // Customer ledger with running balance
   getCustomerLedger: (customer_id) =>
     api.get('/accounts/ledger/customer', { params: { customer_id } }).then(r => r.data),
