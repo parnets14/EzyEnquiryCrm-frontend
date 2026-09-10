@@ -5,6 +5,8 @@ import {
   ChevronLeft, ChevronRight, Printer, Edit2, Calendar, Package
 } from 'lucide-react'
 import api from '../api/index'
+import { useErp } from '../context/ErpContext'
+import { useAuth } from '../context/AuthContext'
 
 // ── Image URL helpers ─────────────────────────────────────────
 const IMG_BASE = import.meta.env.VITE_API_URL
@@ -54,7 +56,7 @@ const emptyRow = () => ({
   brand_name: '', category_name: '', sub_category_name: '',
   size: '', finish: '', tile_type: '', grade: '',
   color: '', hsn_code: '',
-  unit: 'Box', gst_percent: 18,
+  unit: 'Pcs', gst_percent: 18,
   mrp: '', retail_price: '', dealer_price: '', purchase_price: '',
   pcs_per_box: '', sqft_per_box: '',
   product_image: '',
@@ -91,6 +93,17 @@ function ProductSearch({ value, onChange, products }) {
 
   const pick = (p) => { onChange(p); setOpen(false); setQ('') }
 
+  // Resolve product thumbnail URL
+  const thumb = (p) => {
+    const raw = Array.isArray(p.image_urls) ? p.image_urls.filter(Boolean)[0] : (p.product_image || '')
+    if (!raw) return null
+    if (raw.startsWith('http')) return raw
+    const base = import.meta.env.VITE_API_URL
+      ? import.meta.env.VITE_API_URL.replace('/api', '')
+      : 'http://localhost:5000'
+    return `${base}${raw}`
+  }
+
   return (
     <div ref={ref} style={{ position: 'relative', minWidth: 200 }}>
       <input
@@ -106,37 +119,64 @@ function ProductSearch({ value, onChange, products }) {
           position: 'absolute', top: '100%', left: 0, zIndex: 1001, marginTop: 2,
           background: 'var(--surface)', border: '1px solid var(--border)',
           borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,.14)',
-          minWidth: 300, maxHeight: 260, overflowY: 'auto',
+          minWidth: 340, maxHeight: 320, overflowY: 'auto',
         }}>
           {filtered.length === 0
-            ? <div style={{ padding: '10px 14px', fontSize: 12, color: 'var(--text-muted)' }}>No products found</div>
-            : filtered.map(p => (
-              <div key={p._id || p.id}
-                onMouseDown={() => pick(p)}
-                style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid var(--border)' }}
-                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--text)' }}>{p.name}</span>
-                  <span style={{ fontSize: 10, fontFamily: 'monospace', background: '#FFF3EC',
-                    color: '#FD5C02', padding: '1px 6px', borderRadius: 4, fontWeight: 700, flexShrink: 0, marginLeft: 6 }}>
-                    {p.code}
-                  </span>
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, display: 'flex', flexWrap: 'wrap', gap: '0 8px' }}>
-                  {p.category_name && <span>📁 {p.category_name}</span>}
-                  {p.brand_name    && <span>🏷 {p.brand_name}</span>}
-                  {p.size          && <span>📐 {p.size}</span>}
-                  {p.finish        && <span>✨ {p.finish}</span>}
-                </div>
-                {(p.dealer_price || p.retail_price) && (
-                  <div style={{ fontSize: 11, color: '#059669', fontWeight: 600, marginTop: 2 }}>
-                    ₹{parseFloat(p.dealer_price || p.retail_price).toLocaleString('en-IN')} / {p.unit}
-                  </div>
-                )}
+            ? <div style={{ padding: '10px 14px', fontSize: 12, color: 'var(--text-muted)' }}>
+                No products found
               </div>
-            ))
+            : filtered.map(p => {
+                const imgSrc = thumb(p)
+                return (
+                  <div key={p._id || p.id}
+                    onMouseDown={() => pick(p)}
+                    style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid var(--border)',
+                      display: 'flex', alignItems: 'center', gap: 10 }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  >
+                    {/* Product thumbnail */}
+                    {imgSrc
+                      ? <img src={imgSrc} alt={p.name}
+                          style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 6,
+                            border: '1px solid var(--border)', flexShrink: 0, background: '#f8fafc' }}
+                          onError={e => { e.currentTarget.style.display = 'none' }} />
+                      : <div style={{ width: 44, height: 44, borderRadius: 6, flexShrink: 0,
+                          border: '1px solid var(--border)', background: 'var(--bg)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: 18, color: 'var(--text-muted)' }}>📦</div>
+                    }
+                    {/* Product info */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 6 }}>
+                        <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--text)',
+                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {p.name}
+                        </span>
+                        <span style={{ fontSize: 10, fontFamily: 'monospace', background: '#FFF3EC',
+                          color: '#FD5C02', padding: '1px 6px', borderRadius: 4, fontWeight: 700,
+                          flexShrink: 0 }}>
+                          {p.code}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2,
+                        display: 'flex', flexWrap: 'wrap', gap: '0 8px' }}>
+                        {p.category_name && <span>📁 {p.category_name}</span>}
+                        {p.brand_name    && <span>🏷 {p.brand_name}</span>}
+                        {p.size          && <span>📐 {p.size}</span>}
+                        {p.finish        && <span>✨ {p.finish}</span>}
+                      </div>
+                      {(p.mrp || p.dealer_price || p.retail_price) && (
+                        <div style={{ fontSize: 11, color: '#059669', fontWeight: 700, marginTop: 2 }}>
+                          MRP ₹{parseFloat(p.mrp || p.dealer_price || p.retail_price).toLocaleString('en-IN')}
+                          {p.unit && <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> / {p.unit}</span>}
+                          {p.gst_percent ? <span style={{ color: '#7C3AED', marginLeft: 6 }}>GST {p.gst_percent}%</span> : null}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })
           }
         </div>
       )}
@@ -148,7 +188,8 @@ function ProductSearch({ value, onChange, products }) {
 function ItemsTable({ rows, onChange, products }) {
 
   const pickProduct = (idx, p) => {
-    const rate = parseFloat(p.dealer_price || p.retail_price || p.selling_price || 0)
+    // Rate auto-filled from product MRP; fallback to dealer/retail price if MRP not set
+    const rate = parseFloat(p.mrp || p.dealer_price || p.retail_price || p.selling_price || 0)
     const updated = rows.map((r, i) => {
       if (i !== idx) return r
       const next = {
@@ -165,7 +206,7 @@ function ItemsTable({ rows, onChange, products }) {
         grade:             p.grade || '',
         color:             p.color || '',
         hsn_code:          p.hsn_code || '',
-        unit:              p.unit || 'Box',
+        unit:              'Pcs',
         gst_percent:       p.gst_percent ?? 18,
         mrp:               p.mrp || '',
         retail_price:      p.retail_price || '',
@@ -339,40 +380,21 @@ function ItemsTable({ rows, onChange, products }) {
                 </div>
 
                 {/* ── ROW 3: Editable fields ── */}
-                <div style={{ display:'grid', gridTemplateColumns:'70px 90px 90px 70px 66px', gap:8, marginBottom:10 }}>
+                <div style={{ display:'grid', gridTemplateColumns:'90px 60px 90px', gap:8, marginBottom:10 }}>
                   <div>
                     <span style={lbl}>Qty</span>
                     <input style={{ ...inp, textAlign:'center' }} type="number" min="1"
                       value={row.qty} onChange={e => updateRow(idx,'qty',e.target.value)} />
                   </div>
+                  {/* Unit — fixed to Pcs */}
                   <div>
                     <span style={lbl}>Unit</span>
-                    <select style={inp} value={row.unit}
-                      onChange={e => updateRow(idx,'unit',e.target.value)}>
-                      {UNITS.map(u => <option key={u}>{u}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <span style={lbl}>Rate (₹)</span>
-                    <div style={{ position:'relative' }}>
-                      <span style={{ position:'absolute', left:7, top:'50%', transform:'translateY(-50%)',
-                        fontSize:12, color:'var(--text-muted)', pointerEvents:'none' }}>₹</span>
-                      <input style={{ ...inp, paddingLeft:18, textAlign:'right' }}
-                        type="number" min="0" step=".01"
-                        value={row.rate} onChange={e => updateRow(idx,'rate',e.target.value)} placeholder="0.00"/>
-                    </div>
+                    <div style={{ ...chip('Pcs'), justifyContent:'center', fontWeight:700, fontSize:12 }}>Pcs</div>
                   </div>
                   <div>
                     <span style={lbl}>Disc%</span>
-                    <input style={{ ...inp, textAlign:'center' }} type="number" min="0" max="100"
+                    <input style={{ ...inp, textAlign:'center' }} type="number" min="0" max="100" step="0.01"
                       value={row.disc} onChange={e => updateRow(idx,'disc',e.target.value)} />
-                  </div>
-                  <div>
-                    <span style={lbl}>GST%</span>
-                    <select style={inp} value={row.gst_percent}
-                      onChange={e => updateRow(idx,'gst_percent',e.target.value)}>
-                      {GST_RATES.map(g => <option key={g} value={g}>{g}%</option>)}
-                    </select>
                   </div>
                 </div>
 
@@ -381,7 +403,7 @@ function ItemsTable({ rows, onChange, products }) {
                   background:'var(--bg)', borderRadius:8, padding:'10px 12px',
                   border:'1px solid var(--border)' }}>
                   {[
-                    ['Qty',        `${row.qty || 0} ${row.unit}`,    '#2563EB'],
+                    ['Qty',        `${row.qty || 0} Pcs`,            '#2563EB'],
                     ['Amount',     fmt(amount),                       'var(--text)'],
                     ['Discount',   fmt(discAmt),                      '#D97706'],
                     ['GST Amt',    fmt(gstAmt),                       '#7C3AED'],
@@ -564,15 +586,57 @@ const EMPTY_FORM = {
   quotation_no: '',
   enquiry_id: '', enquiry_no: '',
   customer_name: '', customer_phone: '', customer_email: '',
+  delivery_no: '',
   quotation_date: today(), valid_until: plusDays(30),
   freight_charges: '', other_charges: '',
   remarks: '', terms: 'Prices are subject to change. GST extra as applicable.',
   items: [emptyRow()],
 }
 
-function QuotationModal({ editData, products, enquiries, onSave, onClose, saving }) {
-  const [form,   setForm]   = useState(EMPTY_FORM)
-  const [errors, setErrors] = useState({})
+function QuotationModal({ editData, products: propProducts, enquiries, onSave, onClose, saving }) {
+  const { user } = useAuth()
+  const isSuperAdmin = user?.role === 'Super Admin'
+  const [form,          setForm]          = useState(EMPTY_FORM)
+  const [errors,        setErrors]        = useState({})
+  const [modalProducts, setModalProducts] = useState(propProducts || [])
+  const [loadingProds,  setLoadingProds]  = useState(true)
+
+  // Always fetch fresh products when modal mounts
+  useEffect(() => {
+    let cancelled = false
+    const parse = (res) => {
+      const p = res?.data ?? res
+      const i = p?.data ?? p
+      return Array.isArray(i) ? i : (Array.isArray(i?.products) ? i.products : [])
+    }
+    const tryFetch = async () => {
+      // 1) for-select — works for all roles, Super Admin gets all company products
+      try {
+        const res  = await api.get('/products/for-select', { params: { limit: 1000 } })
+        const list = parse(res)
+        if (!cancelled && list.length > 0) { setModalProducts(list); setLoadingProds(false); return }
+      } catch { /* fall through */ }
+      // 2) For Super Admin: try /products/admin/all
+      if (isSuperAdmin) {
+        try {
+          const res  = await api.get('/products/admin/all', { params: { limit: 1000 } })
+          const list = parse(res)
+          if (!cancelled && list.length > 0) { setModalProducts(list); setLoadingProds(false); return }
+        } catch { /* fall through */ }
+      }
+      // 3) Regular /products fallback
+      try {
+        const params = isSuperAdmin ? { limit: 1000, all_companies: true } : { limit: 500 }
+        const res  = await api.get('/products', { params })
+        const list = parse(res)
+        if (!cancelled && list.length > 0) { setModalProducts(list); setLoadingProds(false); return }
+      } catch { /* ignore */ }
+      if (!cancelled && propProducts?.length > 0) setModalProducts(propProducts)
+      if (!cancelled) setLoadingProds(false)
+    }
+    tryFetch()
+    return () => { cancelled = true }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (editData) {
@@ -583,6 +647,7 @@ function QuotationModal({ editData, products, enquiries, onSave, onClose, saving
         customer_name:   editData.customer_name   || '',
         customer_phone:  editData.customer_phone  || '',
         customer_email:  editData.customer_email  || '',
+        delivery_no:     editData.delivery_no     || '',
         quotation_date:  editData.quotation_date?.slice(0,10) || today(),
         valid_until:     editData.valid_until?.slice(0,10)    || plusDays(30),
         freight_charges: editData.freight_charges ?? '',
@@ -640,6 +705,7 @@ function QuotationModal({ editData, products, enquiries, onSave, onClose, saving
       e.customer_name = 'Customer / Retailer is required (select enquiry or type name)'
     if (!form.quotation_date) e.quotation_date = 'Quotation date is required'
     if (!form.items.some(r => r.product_name || r.product_id)) e.items = 'Add at least one product'
+    if (!(form.delivery_no||'').trim()) e.delivery_no = 'Delivery address is required'
     return e
   }
 
@@ -808,6 +874,23 @@ function QuotationModal({ editData, products, enquiries, onSave, onClose, saving
             </div>
           </div>
           </div>
+          {/* Delivery Address — required */}
+          <div className="form-group" style={{ marginBottom:18 }}>
+            <label className="form-label">
+              Delivery Address <span style={{ color:'var(--danger)' }}>*</span>
+            </label>
+            <textarea className="form-control" rows={2}
+              value={form.delivery_no || ''}
+              onChange={e => set('delivery_no', e.target.value)}
+              placeholder="Full delivery address — street, city, pincode"
+              style={{ resize:'vertical' }}
+            />
+            {!(form.delivery_no?.trim()) && errors.delivery_no ? (
+              <div className="form-error" style={{ display:'flex', alignItems:'center', gap:4, marginTop:3 }}>
+                📍 {errors.delivery_no}
+              </div>
+            ) : null}
+          </div>
 
           {/* ═══ SECTION 3: Products ═══ */}
           <div style={{
@@ -827,7 +910,12 @@ function QuotationModal({ editData, products, enquiries, onSave, onClose, saving
               {errors.items}
             </div>
           )}
-          <ItemsTable rows={form.items} products={products} onChange={items => set('items', items)} />
+          <ItemsTable rows={form.items} products={modalProducts} onChange={items => set('items', items)} />
+          {loadingProds && (
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+              Loading products…
+            </div>
+          )}
 
           {/* Charges + Totals inline */}
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:14, marginTop:16,
@@ -1007,6 +1095,20 @@ function ViewModal({ q, onClose, onPrint }) {
             <InfoCard label="Mobile"  value={q.customer_phone}/>
             <InfoCard label="Email"   value={q.customer_email}/>
           </div>
+          {q.delivery_no && (
+            <div style={{ marginBottom:20 }}>
+              <div style={{ fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'.06em',
+                color:'var(--text-muted)', marginBottom:6 }}>Delivery Address</div>
+              <div style={{
+                fontSize:13, background:'var(--bg)', padding:'10px 14px',
+                borderRadius:8, border:'1px solid var(--border)', lineHeight:1.6,
+                display:'flex', alignItems:'flex-start', gap:8,
+              }}>
+                <span style={{flexShrink:0, marginTop:2}}>📍</span>
+                <span style={{fontWeight:600, color:'var(--text)'}}>{q.delivery_no}</span>
+              </div>
+            </div>
+          )}
 
           {/* ── Section: Created By ── */}
           <div style={{ fontSize:11, fontWeight:800, textTransform:'uppercase', letterSpacing:'.07em',
@@ -1016,7 +1118,7 @@ function ViewModal({ q, onClose, onPrint }) {
           <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:12 }}>
             <InfoCard label="Name" value={q.created_by_person || q.created_by_name || '—'}/>
             <InfoCard label="Company" value={q.created_by_company || '—'}/>
-            <InfoCard label="Source" value={q.source || (q.buyer_company_id ? 'Retailer App' : 'Admin')}/>
+            <InfoCard label="Source" value={q.source || q.created_by_type || (q.buyer_company_id ? 'Retailer App' : 'Admin')}/>
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:20 }}>
             <InfoCard label="Phone" value={q.created_by_mobile || '—'}/>
@@ -1511,8 +1613,13 @@ ${(q.remarks || q.terms) ? `
 // ══════════════════════════════════════════════════════════════
 // MAIN PAGE — QuotationManager
 // ══════════════════════════════════════════════════════════════
-export default function QuotationManager({ products = [], customers = [], enquiries = [] }) {
+export default function QuotationManager({ products: propProducts = [], customers = [], enquiries = [] }) {
+  const erpCtx = useErp()
+  // Use context products first, fall back to prop, then local fetch
+  const ctxProducts = erpCtx?.products || []
+
   const [quotations,  setQuotations]  = useState([])
+  const [products,    setProducts]    = useState([])
   const [loading,     setLoading]     = useState(true)
   const [saving,      setSaving]      = useState(false)
   const [showModal,   setShowModal]   = useState(false)
@@ -1526,28 +1633,67 @@ export default function QuotationManager({ products = [], customers = [], enquir
   const [toast,       setToast]       = useState(null)
   const PER_PAGE = 20
 
+  // Merge all product sources — context wins if populated
+  useEffect(() => {
+    const best = ctxProducts.length > 0 ? ctxProducts
+               : propProducts.length > 0 ? propProducts
+               : []
+    if (best.length > 0) setProducts(best)
+  }, [ctxProducts, propProducts])
+
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type })
     setTimeout(() => setToast(null), 3500)
   }
+
+  // ── Fetch products directly as a guaranteed fallback ───────
+  const fetchProducts = useCallback(async () => {
+    try {
+      // First try the unguarded for-select endpoint (needs backend restart)
+      const res     = await api.get('/products/for-select', { params: { limit: 500 } })
+      const payload = res?.data ?? res
+      const inner   = payload?.data ?? payload
+      const list    = Array.isArray(inner)           ? inner
+                    : Array.isArray(inner?.products) ? inner.products
+                    : []
+      if (list.length > 0) { setProducts(list); return }
+    } catch { /* fall through to guarded endpoint */ }
+
+    try {
+      // Fallback: guarded /products (works for Company Owner / Manager)
+      const res     = await api.get('/products', { params: { limit: 500 } })
+      const payload = res?.data ?? res
+      const inner   = payload?.data ?? payload
+      const list    = Array.isArray(inner)           ? inner
+                    : Array.isArray(inner?.products) ? inner.products
+                    : []
+      if (list.length > 0) setProducts(list)
+    } catch (e) {
+      console.error('[QM] fetchProducts FAILED →', e?.response?.status, e?.response?.data?.message || e?.message)
+    }
+  }, [])
 
   // ── Fetch ──────────────────────────────────────────────────
   const fetchQuotations = useCallback(async () => {
     setLoading(true)
     try {
       const res  = await quotationApi.list({ limit: 200 })
-      const data = res?.data || res
-      const list = Array.isArray(data) ? data : (Array.isArray(data?.quotations) ? data.quotations : [])
+      const d    = res?.data?.data || res?.data || res
+      const list = Array.isArray(d)             ? d
+                 : Array.isArray(d?.quotations) ? d.quotations
+                 : []
       setQuotations(list)
     } catch {
-      // Backend may not have /quotations yet — use empty state gracefully
       setQuotations([])
     } finally {
       setLoading(false)
     }
   }, [])
 
-  useEffect(() => { fetchQuotations() }, [fetchQuotations])
+  useEffect(() => {
+    fetchQuotations()
+    fetchProducts()
+  }, [fetchQuotations, fetchProducts])
 
   // ── Derived stats ──────────────────────────────────────────
   const stats = {
@@ -1781,7 +1927,6 @@ export default function QuotationManager({ products = [], customers = [], enquir
                   <th style={{ whiteSpace:'nowrap' }}>Enquiry No</th>
                   <th style={{ whiteSpace:'nowrap' }}>Quotation Date</th>
                   <th style={{ whiteSpace:'nowrap' }}>Customer</th>
-                  <th style={{ whiteSpace:'nowrap' }}>Retailer</th>
                   <th style={{ whiteSpace:'nowrap' }}>Created By</th>
                   <th style={{ whiteSpace:'nowrap' }}>Products</th>
                   <th style={{ whiteSpace:'nowrap', textAlign:'right' }}>Subtotal</th>
@@ -1836,32 +1981,32 @@ export default function QuotationManager({ products = [], customers = [], enquir
                         )}
                       </td>
 
-                      {/* Retailer (which retailer submitted it) */}
-                      <td>
-                        {q.created_by_name ? (
-                          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                            <div style={{ width:26, height:26, borderRadius:13, background:'#EFF6FF',
-                              color:'#2563EB', display:'flex', alignItems:'center', justifyContent:'center',
-                              fontWeight:800, fontSize:12, flexShrink:0 }}>
-                              {String(q.created_by_name).trim().charAt(0).toUpperCase()}
-                            </div>
-                            <span style={{ fontWeight:600, fontSize:12 }}>{q.created_by_name}</span>
-                          </div>
-                        ) : <span style={{ color:'var(--text-muted)' }}>—</span>}
-                      </td>
-
-                      {/* Created By (source) */}
+                      {/* Created By — name + source badge in one cell */}
                       <td style={{ whiteSpace:'nowrap' }}>
                         {(() => {
-                          const src = q.source || (q.buyer_company_id ? 'Retailer App' : 'Admin')
+                          const src = q.source || q.created_by_type || (q.buyer_company_id ? 'Retailer App' : 'Admin')
                           const c = src === 'Retailer App'
                             ? { bg:'#EFF6FF', color:'#2563EB' }
                             : src === 'Staff App'
                               ? { bg:'#F5F3FF', color:'#7C3AED' }
                               : { bg:'#F1F5F9', color:'#64748B' }
                           return (
-                            <span style={{ display:'inline-block', padding:'3px 9px', borderRadius:12,
-                              fontSize:11, fontWeight:700, background:c.bg, color:c.color }}>{src}</span>
+                            <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+                              {q.created_by_name && (
+                                <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                                  <div style={{ width:24, height:24, borderRadius:12, background:c.bg,
+                                    color:c.color, display:'flex', alignItems:'center', justifyContent:'center',
+                                    fontWeight:800, fontSize:11, flexShrink:0 }}>
+                                    {String(q.created_by_name).trim().charAt(0).toUpperCase()}
+                                  </div>
+                                  <span style={{ fontWeight:600, fontSize:12 }}>{q.created_by_name}</span>
+                                </div>
+                              )}
+                              <span style={{ display:'inline-block', padding:'2px 8px', borderRadius:10,
+                                fontSize:10, fontWeight:700, background:c.bg, color:c.color, alignSelf:'flex-start' }}>
+                                {src}
+                              </span>
+                            </div>
                           )
                         })()}
                       </td>
@@ -1909,88 +2054,52 @@ export default function QuotationManager({ products = [], customers = [], enquir
                       {/* Actions */}
                       <td>
                         {(() => {
-                          const isRetailerQuote = q.source === 'Retailer App' || !!q.buyer_company_id
-                          const canDecide = q.status === 'sent' || q.status === 'draft'
                           const btn = { display:'flex', alignItems:'center', justifyContent:'center', width:28, height:28, borderRadius:6, cursor:'pointer' }
                           return (
                             <div style={{ display:'flex', gap:4, justifyContent:'center', alignItems:'center', flexWrap:'nowrap' }}>
-                              {/* View — always */}
+
+                              {/* View — always visible */}
                               <button title="View" onClick={() => setViewData(q)}
                                 style={{ ...btn, border:'1px solid #BFDBFE', background:'#EFF6FF', color:'#2563EB' }}>
                                 <Eye size={13}/>
                               </button>
 
-                              {isRetailerQuote ? (
-                                /* Retailer-app quotation: only View / Accept / Reject / Print */
-                                <>
-                                  {canDecide && (
-                                    <>
-                                      <button title="Accept — creates order, purchase & sale" onClick={() => handleStatusChange(q,'accepted')}
-                                        style={{ display:'flex', alignItems:'center', gap:4, justifyContent:'center', height:28, padding:'0 12px', borderRadius:6, border:'1px solid #A7F3D0', background:'#059669', color:'#FFF', fontSize:11, fontWeight:700, cursor:'pointer' }}>
-                                        <CheckCircle size={12}/> Accept
-                                      </button>
-                                      <button title="Reject" onClick={() => handleStatusChange(q,'cancelled')}
-                                        style={{ display:'flex', alignItems:'center', gap:4, justifyContent:'center', height:28, padding:'0 12px', borderRadius:6, border:'1px solid #FECACA', background:'#FEF2F2', color:'#DC2626', fontSize:11, fontWeight:700, cursor:'pointer' }}>
-                                        <XCircle size={12}/> Reject
-                                      </button>
-                                    </>
-                                  )}
-                                  <button title="Print / Download" onClick={() => printQuotation(q)}
-                                    style={{ ...btn, border:'1px solid var(--border)', background:'var(--bg)', color:'var(--text-muted)' }}>
-                                    <Printer size={12}/>
-                                  </button>
-                                  <button title="Delete — also removes the linked enquiry" onClick={() => handleDelete(q)}
-                                    style={{ ...btn, border:'1px solid #FECACA', background:'#FEF2F2', color:'#DC2626' }}>
-                                    <Trash2 size={12}/>
-                                  </button>
-                                </>
-                              ) : (
-                                /* Admin/manual quotation: full workflow controls */
-                                <>
-                                  <button title="Edit" onClick={() => openEdit(q)}
-                                    style={{ ...btn, border:'1px solid #FED7AA', background:'#FFF7ED', color:'#EA580C' }}>
-                                    <Edit2 size={12}/>
-                                  </button>
-                                  {q.status === 'draft' && (
-                                    <button title="Mark as Sent" onClick={() => handleStatusChange(q,'sent')}
-                                      style={{ ...btn, border:'1px solid #BFDBFE', background:'#DBEAFE', color:'#1D4ED8' }}>
-                                      <Send size={12}/>
-                                    </button>
-                                  )}
-                                  {q.status === 'sent' && (
-                                    <button title="Mark as Accepted" onClick={() => handleStatusChange(q,'accepted')}
-                                      style={{ ...btn, border:'1px solid #A7F3D0', background:'#D1FAE5', color:'#059669' }}>
-                                      <CheckCircle size={12}/>
-                                    </button>
-                                  )}
-                                  {q.status === 'accepted' && (
-                                    <button title="Mark as Converted" onClick={() => handleStatusChange(q,'converted')}
-                                      style={{ ...btn, border:'1px solid #BAE6FD', background:'#E0F2FE', color:'#0284C7' }}>
-                                      <RefreshCw size={12}/>
-                                    </button>
-                                  )}
-                                  {(q.status === 'draft' || q.status === 'sent') && (
-                                    <button title="Mark as Expired" onClick={() => handleStatusChange(q,'expired')}
-                                      style={{ ...btn, border:'1px solid #FDE68A', background:'#FFFBEB', color:'#D97706' }}>
-                                      <Calendar size={12}/>
-                                    </button>
-                                  )}
-                                  {q.status !== 'cancelled' && q.status !== 'converted' && (
-                                    <button title="Cancel Quotation" onClick={() => handleStatusChange(q,'cancelled')}
-                                      style={{ ...btn, border:'1px solid #FECACA', background:'#FEF2F2', color:'#DC2626' }}>
-                                      <XCircle size={12}/>
-                                    </button>
-                                  )}
-                                  <button title="Print / Download" onClick={() => printQuotation(q)}
-                                    style={{ ...btn, border:'1px solid var(--border)', background:'var(--bg)', color:'var(--text-muted)' }}>
-                                    <Printer size={12}/>
-                                  </button>
-                                  <button title="Delete" onClick={() => handleDelete(q)}
-                                    style={{ ...btn, border:'1px solid #FECACA', background:'#FEF2F2', color:'#DC2626' }}>
-                                    <Trash2 size={12}/>
-                                  </button>
-                                </>
+                              {/* Edit */}
+                              <button title="Edit" onClick={() => openEdit(q)}
+                                style={{ ...btn, border:'1px solid #FED7AA', background:'#FFF7ED', color:'#EA580C' }}>
+                                <Edit2 size={13}/>
+                              </button>
+
+                              {/* Delete */}
+                              <button title="Delete" onClick={() => handleDelete(q)}
+                                style={{ ...btn, border:'1px solid #FECACA', background:'#FEF2F2', color:'#DC2626' }}>
+                                <Trash2 size={13}/>
+                              </button>
+
+                              {/* Accept — shown when quotation is draft or sent */}
+                              {(q.status === 'draft' || q.status === 'sent') && (
+                                <button
+                                  title="Accept — creates order, purchase & sale"
+                                  onClick={() => handleStatusChange(q, 'accepted')}
+                                  style={{ display:'flex', alignItems:'center', gap:4, height:28, padding:'0 10px',
+                                    borderRadius:6, border:'1px solid #A7F3D0', background:'#059669',
+                                    color:'#fff', fontSize:11, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap' }}>
+                                  <CheckCircle size={12}/> Accept
+                                </button>
                               )}
+
+                              {/* Convert — shown when quotation is accepted */}
+                              {q.status === 'accepted' && (
+                                <button
+                                  title="Convert to Sales Order"
+                                  onClick={() => handleStatusChange(q, 'converted')}
+                                  style={{ display:'flex', alignItems:'center', gap:4, height:28, padding:'0 10px',
+                                    borderRadius:6, border:'1px solid #BAE6FD', background:'#0284C7',
+                                    color:'#fff', fontSize:11, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap' }}>
+                                  <RefreshCw size={12}/> Convert
+                                </button>
+                              )}
+
                             </div>
                           )
                         })()}

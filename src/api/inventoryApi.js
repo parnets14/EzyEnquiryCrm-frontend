@@ -43,6 +43,13 @@ export const inventoryApi = {
     api.get('/inventory/movements', { params }).then(r => r.data),
 
   /**
+   * Get inventory KPI summary (totals + low/out count).
+   * Returns: { total_physical, total_available, total_reserved, ... low_stock, out_of_stock }
+   */
+  getSummary: () =>
+    api.get('/inventory/summary').then(r => r.data),
+
+  /**
    * Manual stock adjustment (positive = add, negative = deduct).
    * @param {object} data - { product_id, warehouse_id, adjustment, notes }
    */

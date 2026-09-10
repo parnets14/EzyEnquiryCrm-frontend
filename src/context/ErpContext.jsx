@@ -56,7 +56,12 @@ export function ErpProvider({ children }) {
   // ── Helper: extract array from API response ───────────────
   const arr = (res, key) => {
     const d = res?.data || res
-    return Array.isArray(d) ? d : (Array.isArray(d?.[key]) ? d[key] : [])
+    // Handle double-wrapped: { success, data: { [key]: [...] } }
+    if (Array.isArray(d?.data?.[key])) return d.data[key]
+    if (Array.isArray(d?.data))        return d.data
+    if (Array.isArray(d?.[key]))       return d[key]
+    if (Array.isArray(d))              return d
+    return []
   }
 
   // ── Fetch all data ────────────────────────────────────────

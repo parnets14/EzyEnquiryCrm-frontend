@@ -6,6 +6,7 @@ import {
   IndianRupee, CreditCard, Clock, AlertCircle
 } from 'lucide-react'
 import api from '../api/index'
+import { useAuth } from '../context/AuthContext'
 
 // ── API helpers ───────────────────────────────────────────────
 const invoiceApi = {
@@ -57,7 +58,7 @@ const emptyRow = () => ({
   product_id: '', product_name: '', product_code: '',
   brand_name: '', category_name: '', sub_category_name: '',
   size: '', finish: '', tile_type: '', grade: '', color: '',
-  hsn_code: '', unit: 'Box', gst_percent: 18,
+  hsn_code: '', unit: 'Pcs', gst_percent: 18,
   mrp: '', retail_price: '', dealer_price: '', purchase_price: '',
   pcs_per_box: '', sqft_per_box: '',
   qty: 1, rate: '', disc: 0,
@@ -107,6 +108,16 @@ function ProductSearch({ value, onChange, products }) {
     return () => document.removeEventListener('mousedown', h)
   }, [])
 
+  const thumb = (p) => {
+    const raw = Array.isArray(p.image_urls) ? p.image_urls.filter(Boolean)[0] : (p.product_image || '')
+    if (!raw) return null
+    if (raw.startsWith('http')) return raw
+    const base = import.meta.env.VITE_API_URL
+      ? import.meta.env.VITE_API_URL.replace('/api', '')
+      : 'http://localhost:5000'
+    return `${base}${raw}`
+  }
+
   return (
     <div ref={ref} style={{ position: 'relative', minWidth: 200 }}>
       <input className="form-control" style={{ fontSize: 12, padding: '5px 8px' }}
@@ -119,31 +130,53 @@ function ProductSearch({ value, onChange, products }) {
           position: 'absolute', top: '100%', left: 0, zIndex: 1002, marginTop: 2,
           background: 'var(--surface)', border: '1px solid var(--border)',
           borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,.14)',
-          minWidth: 300, maxHeight: 260, overflowY: 'auto',
+          minWidth: 340, maxHeight: 320, overflowY: 'auto',
         }}>
           {filtered.length === 0
             ? <div style={{ padding: '10px 14px', fontSize: 12, color: 'var(--text-muted)' }}>No products</div>
-            : filtered.map(p => (
-              <div key={p._id || p.id} onMouseDown={() => { onChange(p); setOpen(false); setQ('') }}
-                style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid var(--border)' }}
-                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
-                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ fontWeight: 700, fontSize: 13 }}>{p.name}</span>
-                  <span style={{ fontSize: 10, fontFamily: 'monospace', background: '#FFF3EC',
-                    color: '#FD5C02', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>{p.code}</span>
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-                  {p.category_name && <span>📁 {p.category_name} </span>}
-                  {p.brand_name    && <span>🏷 {p.brand_name}</span>}
-                </div>
-                {(p.dealer_price || p.retail_price) && (
-                  <div style={{ fontSize: 11, color: '#059669', fontWeight: 600, marginTop: 2 }}>
-                    ₹{parseFloat(p.dealer_price || p.retail_price).toLocaleString('en-IN')} / {p.unit}
+            : filtered.map(p => {
+                const imgSrc = thumb(p)
+                return (
+                  <div key={p._id || p.id} onMouseDown={() => { onChange(p); setOpen(false); setQ('') }}
+                    style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid var(--border)',
+                      display: 'flex', alignItems: 'center', gap: 10 }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    {/* Thumbnail */}
+                    {imgSrc
+                      ? <img src={imgSrc} alt={p.name}
+                          style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 6,
+                            border: '1px solid var(--border)', flexShrink: 0, background: '#f8fafc' }}
+                          onError={e => { e.currentTarget.style.display = 'none' }} />
+                      : <div style={{ width: 44, height: 44, borderRadius: 6, flexShrink: 0,
+                          border: '1px solid var(--border)', background: 'var(--bg)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: 18, color: 'var(--text-muted)' }}>📦</div>
+                    }
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 6 }}>
+                        <span style={{ fontWeight: 700, fontSize: 13, overflow: 'hidden',
+                          textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                        <span style={{ fontSize: 10, fontFamily: 'monospace', background: '#FFF3EC',
+                          color: '#FD5C02', padding: '1px 6px', borderRadius: 4, fontWeight: 700,
+                          flexShrink: 0 }}>{p.code}</span>
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                        {p.category_name && <span>📁 {p.category_name} </span>}
+                        {p.brand_name    && <span>🏷 {p.brand_name}</span>}
+                        {p.size          && <span> · 📐 {p.size}</span>}
+                      </div>
+                      {(p.mrp || p.dealer_price || p.retail_price) && (
+                        <div style={{ fontSize: 11, color: '#059669', fontWeight: 700, marginTop: 2 }}>
+                          MRP ₹{parseFloat(p.mrp || p.dealer_price || p.retail_price).toLocaleString('en-IN')}
+                          {p.gst_percent ? <span style={{ color: '#7C3AED', marginLeft: 6, fontWeight: 400 }}>GST {p.gst_percent}%</span> : null}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                )}
-              </div>
-            ))}
+                )
+              })
+          }
         </div>
       )}
     </div>
@@ -153,7 +186,8 @@ function ProductSearch({ value, onChange, products }) {
 // ── Items Table ────────────────────────────────────────────────
 function ItemsTable({ rows, onChange, products }) {
   const pickProduct = (idx, p) => {
-    const rate = parseFloat(p.dealer_price || p.retail_price || 0)
+    // Rate auto-filled from product MRP; fallback to dealer/retail price if MRP not set
+    const rate = parseFloat(p.mrp || p.dealer_price || p.retail_price || 0)
     const updated = rows.map((r, i) => {
       if (i !== idx) return r
       const next = {
@@ -170,7 +204,7 @@ function ItemsTable({ rows, onChange, products }) {
         grade:             p.grade || '',
         color:             p.color || '',
         hsn_code:          p.hsn_code || '',
-        unit:              p.unit || 'Box',
+        unit:              'Pcs',
         gst_percent:       p.gst_percent ?? 18,
         mrp:               p.mrp || '',
         retail_price:      p.retail_price || '',
@@ -268,27 +302,22 @@ function ItemsTable({ rows, onChange, products }) {
                 ))}
               </div>
               {/* Editable fields */}
-              <div style={{ display: 'grid', gridTemplateColumns: '70px 90px 110px 80px 70px', gap: 8, marginBottom: 10 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '90px 60px 90px', gap: 8, marginBottom: 10 }}>
                 <div><span style={lbl}>Qty</span>
                   <input style={{ ...inp, textAlign: 'center' }} type="number" min="1"
                     value={row.qty} onChange={e => updateRow(idx, 'qty', e.target.value)} /></div>
+                {/* Unit — fixed to Pcs */}
                 <div><span style={lbl}>Unit</span>
-                  <select style={inp} value={row.unit} onChange={e => updateRow(idx, 'unit', e.target.value)}>
-                    {UNITS.map(u => <option key={u}>{u}</option>)}</select></div>
-                <div><span style={lbl}>Rate (₹)</span>
-                  <input style={{ ...inp, textAlign: 'right' }} type="number" min="0" step=".01"
-                    value={row.rate} onChange={e => updateRow(idx, 'rate', e.target.value)} placeholder="0.00" /></div>
+                  <div style={{ ...chip('Pcs'), justifyContent: 'center', fontWeight: 700, fontSize: 12 }}>Pcs</div>
+                </div>
                 <div><span style={lbl}>Disc%</span>
-                  <input style={{ ...inp, textAlign: 'center' }} type="number" min="0" max="100"
+                  <input style={{ ...inp, textAlign: 'center' }} type="number" min="0" max="100" step="0.01"
                     value={row.disc} onChange={e => updateRow(idx, 'disc', e.target.value)} /></div>
-                <div><span style={lbl}>GST%</span>
-                  <select style={inp} value={row.gst_percent} onChange={e => updateRow(idx, 'gst_percent', e.target.value)}>
-                    {GST_RATES.map(g => <option key={g} value={g}>{g}%</option>)}</select></div>
               </div>
               {/* Computed summary */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 8,
                 background: 'var(--bg)', borderRadius: 8, padding: '10px 12px', border: '1px solid var(--border)' }}>
-                {[['Qty', `${row.qty || 0} ${row.unit}`, '#2563EB'],
+                {[['Qty', `${row.qty || 0} Pcs`, '#2563EB'],
                   ['Amount', fmt((parseFloat(row.qty)||0)*(parseFloat(row.rate)||0)), 'var(--text)'],
                   ['Discount', fmt((parseFloat(row.qty)||0)*(parseFloat(row.rate)||0)*(parseFloat(row.disc)||0)/100), '#D97706'],
                   ['GST Amt', fmt(row.gst_amount), '#7C3AED'],
@@ -345,9 +374,47 @@ function TotalsSummary({ rows, freightCharges, otherCharges, discountAmount, rou
 }
 
 // ── Invoice Form Modal ────────────────────────────────────────
-function InvoiceModal({ editData, products, customers, onSave, onClose, saving }) {
-  const [form,   setForm]   = useState({ ...EMPTY_FORM, items: [emptyRow()] })
-  const [errors, setErrors] = useState({})
+function InvoiceModal({ editData, products: propProducts, customers, onSave, onClose, saving }) {
+  const { user } = useAuth()
+  const isSuperAdmin = user?.role === 'Super Admin'
+  const [form,          setForm]          = useState({ ...EMPTY_FORM, items: [emptyRow()] })
+  const [errors,        setErrors]        = useState({})
+  const [modalProducts, setModalProducts] = useState(propProducts || [])
+  const [loadingProds,  setLoadingProds]  = useState(true)
+
+  // Always fetch fresh products when modal mounts
+  useEffect(() => {
+    let cancelled = false
+    const parse = (res) => {
+      const p = res?.data ?? res
+      const i = p?.data ?? p
+      return Array.isArray(i) ? i : (Array.isArray(i?.products) ? i.products : [])
+    }
+    const tryFetch = async () => {
+      // 1) for-select — handles Super Admin too (no company_id filter)
+      try {
+        const list = parse(await api.get('/products/for-select', { params: { limit: 1000 } }))
+        if (!cancelled && list.length > 0) { setModalProducts(list); setLoadingProds(false); return }
+      } catch { /* fall through */ }
+      // 2) Super Admin: /products/admin/all
+      if (isSuperAdmin) {
+        try {
+          const list = parse(await api.get('/products/admin/all', { params: { limit: 1000 } }))
+          if (!cancelled && list.length > 0) { setModalProducts(list); setLoadingProds(false); return }
+        } catch { /* fall through */ }
+      }
+      // 3) Regular /products fallback
+      try {
+        const params = isSuperAdmin ? { limit: 1000, all_companies: true } : { limit: 500 }
+        const list = parse(await api.get('/products', { params }))
+        if (!cancelled && list.length > 0) { setModalProducts(list); setLoadingProds(false); return }
+      } catch { /* ignore */ }
+      if (!cancelled && propProducts?.length > 0) setModalProducts(propProducts)
+      if (!cancelled) setLoadingProds(false)
+    }
+    tryFetch()
+    return () => { cancelled = true }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (editData) {
@@ -538,8 +605,13 @@ function InvoiceModal({ editData, products, customers, onSave, onClose, saving }
 
           {/* ── Items Table ── */}
           {errors.items && <div style={{ fontSize: 12, color: 'var(--danger)', marginBottom: 8 }}>{errors.items}</div>}
-          <ItemsTable rows={form.items} products={products}
+          <ItemsTable rows={form.items} products={modalProducts}
             onChange={(items) => set('items', items)} />
+          {loadingProds && (
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+              ⏳ Loading products…
+            </div>
+          )}
 
           {/* ── Charges & Totals ── */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginTop: 20 }}>
@@ -886,8 +958,9 @@ function ViewModal({ invoice, onClose, onEdit, onPayment, onStatusChange }) {
 }
 
 // ── Main Component ─────────────────────────────────────────────
-export default function InvoiceManagement({ products = [], customers = [] }) {
+export default function InvoiceManagement({ products: propProducts = [], customers = [] }) {
   const [invoices,    setInvoices]    = useState([])
+  const [products,    setProducts]    = useState(propProducts)
   const [summary,     setSummary]     = useState(null)
   const [loading,     setLoading]     = useState(false)
   const [saving,      setSaving]      = useState(false)
@@ -943,6 +1016,26 @@ export default function InvoiceManagement({ products = [], customers = [] }) {
   }, [])
 
   useEffect(() => { loadInvoices(1); loadSummary() }, [loadInvoices, loadSummary])
+
+  // ── Fetch products for dropdown (bypasses moduleAccess guard) ─
+  const fetchProducts = useCallback(async () => {
+    const parse = (res) => {
+      const payload = res?.data ?? res
+      const inner   = payload?.data ?? payload
+      return Array.isArray(inner) ? inner : (Array.isArray(inner?.products) ? inner.products : [])
+    }
+    try {
+      const list = parse(await api.get('/products/for-select', { params: { limit: 500 } }))
+      if (list.length > 0) { setProducts(list); return }
+    } catch { /* fall through */ }
+    try {
+      const list = parse(await api.get('/products', { params: { limit: 500 } }))
+      if (list.length > 0) { setProducts(list); return }
+    } catch { /* keep prop */ }
+    if (propProducts.length > 0) setProducts(propProducts)
+  }, [propProducts])
+
+  useEffect(() => { fetchProducts() }, [fetchProducts])
 
   // ── CRUD handlers ─────────────────────────────────────────
   const handleSave = async (payload) => {

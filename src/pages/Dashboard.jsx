@@ -303,10 +303,10 @@ export default function Dashboard({
                       <td style={{ fontSize: 11 }}>{oProd}</td>
                       <td style={{ fontWeight: 700, color: 'var(--success)' }}>₹{oTotal.toLocaleString()}</td>
                       <td><span className={`badge ${
-                        o.status === 'Delivered' ? 'badge-green' :
-                        o.status === 'Dispatched' ? 'badge-purple' :
-                        o.status === 'Ready' ? 'badge-orange' :
-                        o.status === 'Processing' ? 'badge-yellow' : 'badge-cyan'
+                        o.status === 'Delivered'        ? 'badge-green' :
+                        o.status === 'Out for Delivery' ? 'badge-purple' :
+                        o.status === 'Dispatched'       ? 'badge-orange' :
+                        o.status === 'Packing'          ? 'badge-yellow' : 'badge-cyan'
                       }`}>{o.status}</span></td>
                     </tr>
                   )

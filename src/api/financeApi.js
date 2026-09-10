@@ -194,6 +194,19 @@ export const invoiceApi = {
   recordPayment: (id, data) =>
     api.post(`/invoices/${id}/payment`, data).then(r => r.data),
 
+  // ── Staff Collection Verification ──────────────────────────
+  // List all invoices that have staff-recorded payments (all statuses)
+  listPendingVerification: (params = {}) =>
+    api.get('/invoices/pending-verification', { params }).then(r => r.data),
+
+  // Admin sends OTP to the staff member's mobile
+  sendVerificationOtp: (invoiceId, paymentId) =>
+    api.post(`/invoices/${invoiceId}/payment/${paymentId}/send-otp`).then(r => r.data),
+
+  // Admin submits the OTP entered by staff to verify the collection
+  verifyPayment: (invoiceId, paymentId, otp) =>
+    api.post(`/invoices/${invoiceId}/payment/${paymentId}/verify`, { otp }).then(r => r.data),
+
   delete: (id) =>
     api.delete(`/invoices/${id}`).then(r => r.data),
 }

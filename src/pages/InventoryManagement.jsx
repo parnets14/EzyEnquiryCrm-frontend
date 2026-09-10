@@ -1,338 +1,482 @@
-import { useState, useEffect, useCallback } from 'react'
-import { Search, AlertTriangle, TrendingDown, TrendingUp, Eye, X, Package, Warehouse as WarehouseIcon, RefreshCw } from 'lucide-react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import {
+  Search, AlertTriangle, TrendingDown, TrendingUp, Package,
+  Warehouse as WarehouseIcon, RefreshCw, X, ChevronDown, ChevronUp,
+  ArrowUpCircle, ArrowDownCircle, ArrowLeftRight, Edit3, Clock,
+  BarChart2, Boxes, ShieldAlert, Truck,
+} from 'lucide-react'
 import { inventoryApi } from '../api/inventoryApi'
 
-export default function InventoryManagement({
-  inventory: inventoryProp = [],
-  orders = [],
-  purchases = [],
-  products = [],
-  transfers: transfersProp = [],
-  loadingData: loadingProp = false,
-  branches = [],
-}) {
-  const [tab,        setTab]       = useState('stock')
-  const [search,     setSearch]    = useState('')
-  const [viewItem,   setViewItem]  = useState(null)
+/* ─────────────────────────────────────────────────────────────
+   Helpers
+───────────────────────────────────────────────────────────── */
+const fmtN  = n => Number(n || 0).toLocaleString('en-IN')
+const fmtD  = d => d ? new Date(d).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }) : '—'
+const fmtDT = d => d ? new Date(d).toLocaleString('en-IN', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }) : '—'
 
-  // ── Own data state (fetched fresh on mount) ──────────────
-  const [inventory,  setInventory]  = useState(inventoryProp)
-  const [transfers,  setTransfers]  = useState(transfersProp)
-  const [loading,    setLoading]    = useState(loadingProp)
+function stockStatus(row) {
+  // Backward-compat: old records only have current_stock, not available_stock
+  const avail = (Number(row.available_stock) || 0) > 0
+    ? Number(row.available_stock)
+    : (Number(row.current_stock) || 0)
+  const alert = Number(row.low_stock_alert) || 0
+  if (avail <= 0)                  return 'out'
+  if (alert > 0 && avail <= alert) return 'low'
+  return 'ok'
+}
 
+const STATUS_STYLE = {
+  ok:  { bg:'#ecfdf5', color:'#059669', border:'#a7f3d0', label:'In Stock' },
+  low: { bg:'#fffbeb', color:'#d97706', border:'#fde68a', label:'Low Stock' },
+  out: { bg:'#fef2f2', color:'#dc2626', border:'#fecaca', label:'Out of Stock' },
+}
+
+const MOVEMENT_STYLE = {
+  'Stock In':    { bg:'#ecfdf5', color:'#059669', border:'#a7f3d0', icon:<ArrowUpCircle   size={13}/>, label:'Stock In'    },
+  'Stock Out':   { bg:'#fef2f2', color:'#dc2626', border:'#fecaca', icon:<ArrowDownCircle size={13}/>, label:'Stock Out'   },
+  'Transfer In': { bg:'#eff6ff', color:'#1d4ed8', border:'#bfdbfe', icon:<ArrowLeftRight  size={13}/>, label:'Transfer In' },
+  'Transfer Out':{ bg:'#fef9c3', color:'#b45309', border:'#fde68a', icon:<ArrowLeftRight  size={13}/>, label:'Transfer Out'},
+  Reversal:      { bg:'#f3f4f6', color:'#6b7280', border:'#e5e7eb', icon:<RefreshCw       size={13}/>, label:'Reversal'    },
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Bucket chip
+───────────────────────────────────────────────────────────── */
+function Bucket({ label, value, color = '#1d4ed8', bg = '#eff6ff', border = '#bfdbfe', unit = '' }) {
+  return (
+    <div style={{
+      background: bg, border: `1px solid ${border}`, borderRadius: 10,
+      padding: '10px 14px', textAlign: 'center', minWidth: 0,
+    }}>
+      <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em', color, marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 20, fontWeight: 800, color }}>{fmtN(value)}</div>
+      {unit && <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>{unit}</div>}
+    </div>
+  )
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Main component
+───────────────────────────────────────────────────────────── */
+export default function InventoryManagement({ branches = [], inventory: inventoryProp = [], warehouses: warehousesProp = [] }) {
+  const [tab,          setTab]          = useState('stock')
+  const [search,       setSearch]       = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')   // all | ok | low | out
+  const [warehouseFilter, setWFilter]   = useState('all')
+  const [expandedId,   setExpandedId]   = useState(null)
+
+  // ── Data state ──────────────────────────────────────────
+  const [inventory,  setInventory]  = useState(inventoryProp || [])
+  const [movements,  setMovements]  = useState([])
+  const [summary,    setSummary]    = useState(null)
+  const [warehouses, setWarehouses] = useState(warehousesProp || [])
+  const [loading,    setLoading]    = useState(false)
+  const [loadingMov, setLoadingMov] = useState(false)
+
+  // ── Adjust modal state ──────────────────────────────────
+  const [adjustTarget, setAdjustTarget] = useState(null)  // inventory row
+  const [adjForm,      setAdjForm]      = useState({ adjustment: '', reason: '', purchase_rate: '' })
+  const [adjSaving,    setAdjSaving]    = useState(false)
+  const [adjMsg,       setAdjMsg]       = useState('')
+
+  // ── Movements filter state ──────────────────────────────
+  const [movType,    setMovType]    = useState('all')
+  const [movSearch,  setMovSearch]  = useState('')
+  const [movPage,    setMovPage]    = useState(1)
+  const [movTotal,   setMovTotal]   = useState(0)
+  const MOV_LIMIT = 50
+
+  // ── Load inventory + summary ─────────────────────────────
+  // Always fetches ALL records (no server-side status/warehouse filter).
+  // Status and warehouse filtering is done client-side so switching chips
+  // never triggers a network round-trip.
   const loadInventory = useCallback(async () => {
     setLoading(true)
     try {
-      const [invRes, trfRes] = await Promise.allSettled([
-        inventoryApi.list({ limit: 500 }),
-        inventoryApi.listTransfers({ limit: 200 }),
+      // _t busts the 304 browser cache so every Refresh click hits the server
+      const params = { limit: 500, _t: Date.now() }
+      if (warehouseFilter !== 'all') params.warehouse_id = warehouseFilter
+
+      const [invRes, sumRes, whRes] = await Promise.allSettled([
+        inventoryApi.list(params),
+        inventoryApi.getSummary ? inventoryApi.getSummary() : Promise.resolve(null),
+        inventoryApi.listWarehouses ? inventoryApi.listWarehouses() : Promise.resolve(null),
       ])
+
       if (invRes.status === 'fulfilled') {
         const d = invRes.value?.data || invRes.value
         const rows = Array.isArray(d) ? d : (Array.isArray(d?.inventory) ? d.inventory : [])
         setInventory(rows)
       }
-      if (trfRes.status === 'fulfilled') {
-        const d = trfRes.value?.data || trfRes.value
-        const rows = Array.isArray(d) ? d : (Array.isArray(d?.transfers) ? d.transfers : [])
-        setTransfers(rows)
+      if (sumRes.status === 'fulfilled' && sumRes.value) {
+        const d = sumRes.value?.data || sumRes.value
+        setSummary(d)
       }
-    } catch (err) {
-      console.error('[Inventory] load error', err)
+      if (whRes.status === 'fulfilled' && whRes.value) {
+        const d = whRes.value?.data || whRes.value
+        setWarehouses(Array.isArray(d) ? d : (Array.isArray(d?.warehouses) ? d.warehouses : []))
+      }
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [warehouseFilter])   // statusFilter intentionally NOT here — filtering is client-side
+
+  // ── Load movements ────────────────────────────────────────
+  const loadMovements = useCallback(async (page = 1) => {
+    setLoadingMov(true)
+    try {
+      const params = { limit: MOV_LIMIT, page }
+      if (movType !== 'all') params.movement_type = movType
+      if (movSearch)         params.search        = movSearch
+
+      const res = await inventoryApi.listMovements(params)
+      const d   = res?.data || res
+      setMovements(d?.movements || (Array.isArray(d) ? d : []))
+      setMovTotal(d?.pagination?.total || 0)
+      setMovPage(page)
+    } finally {
+      setLoadingMov(false)
+    }
+  }, [movType, movSearch])
 
   useEffect(() => { loadInventory() }, [loadInventory])
 
-  // ── Enrich inventory rows ────────────────────────────────
-  const stockRows = inventory.map(inv => {
-    // Backend now returns all fields directly on the inventory doc
-    const stockIn  = Number(inv.stock_in)        || 0
-    const stockOut = Number(inv.stock_out)       || 0
-    const current  = Number(inv.current_stock)   || 0
-    const lowAlert = Number(inv.low_stock_alert) || 0
+  useEffect(() => {
+    if (tab === 'movements') loadMovements(1)
+  }, [tab, loadMovements])
 
-    // Product fields — backend populates them directly
-    const name          = inv.product_name  || ''
-    const productCode   = inv.product_code  || ''
-    const brand         = inv.brand_name    || ''
-    const category      = inv.category_name || ''
-    const unit          = inv.unit          || 'Sq Ft'
-    const warehouse     = inv.warehouse_name || '—'
-    const branchId      = inv.branch_id     || null
+  // ── Filtered inventory rows ──────────────────────────────
+  const q = search.toLowerCase()
+  const filtered = inventory.filter(inv => {
+    if (!inv.product_id) return false
+    const name = (inv.product_name || '').toLowerCase()
+    const code = (inv.product_code || '').toLowerCase()
+    const brand= (inv.brand_name   || '').toLowerCase()
+    const cat  = (inv.category_name|| '').toLowerCase()
+    const wh   = (inv.warehouse_name|| '').toLowerCase()
+    const matchSearch = !q || name.includes(q) || code.includes(q) || brand.includes(q) || cat.includes(q) || wh.includes(q)
+    const st = stockStatus(inv)
+    const matchStatus = statusFilter === 'all' || st === statusFilter
+    return matchSearch && matchStatus
+  })
 
-    // Extra product details
-    const size          = inv.size           || ''
-    const finish        = inv.finish         || ''
-    const tile_type     = inv.tile_type      || ''
-    const grade         = inv.grade          || ''
-    const mrp           = Number(inv.mrp)           || 0
-    const retail_price  = Number(inv.retail_price)  || 0
-    const dealer_price  = Number(inv.dealer_price)  || 0
-    const purchase_price = Number(inv.purchase_price) || 0
-    const pcs_per_box   = inv.pcs_per_box   || ''
-    const sqft_per_box  = inv.sqft_per_box  || ''
-    const gst_percent   = inv.gst_percent   || ''
-    const description   = inv.description   || ''
-    const is_active     = inv.is_active !== undefined ? inv.is_active : true
-
-    return {
-      ...inv,
-      stockIn, stockOut, current, lowAlert,
-      name, productCode, brand, category, unit, warehouse, branchId,
-      size, finish, tile_type, grade, mrp, retail_price, dealer_price,
-      purchase_price, pcs_per_box, sqft_per_box, gst_percent, description, is_active,
-      status: current === 0 ? 'Out' : current <= lowAlert ? 'Low' : 'OK',
+  // ── Adjust submit ────────────────────────────────────────
+  const handleAdjust = async () => {
+    if (!adjustTarget) return
+    const adj = parseFloat(adjForm.adjustment)
+    if (!adj || isNaN(adj)) { setAdjMsg('Enter a valid non-zero adjustment.'); return }
+    setAdjSaving(true); setAdjMsg('')
+    try {
+      const payload = {
+        product_id:   adjustTarget.product_id?._id || adjustTarget.product_id,
+        warehouse_id: adjustTarget.warehouse_id?._id || adjustTarget.warehouse_id || undefined,
+        adjustment:   adj,
+        reason:       adjForm.reason || (adj > 0 ? 'Manual stock in' : 'Manual stock out'),
+        reference_type: 'Manual',
+      }
+      if (adjForm.purchase_rate) payload.purchase_rate = parseFloat(adjForm.purchase_rate)
+      await inventoryApi.adjust(payload)
+      setAdjMsg(`✓ Stock ${adj > 0 ? 'added' : 'deducted'} successfully.`)
+      setTimeout(() => {
+        setAdjustTarget(null)
+        setAdjForm({ adjustment: '', reason: '', purchase_rate: '' })
+        setAdjMsg('')
+        loadInventory()
+      }, 1200)
+    } catch (e) {
+      setAdjMsg(e?.response?.data?.message || 'Adjustment failed.')
+    } finally {
+      setAdjSaving(false)
     }
-  })
-
-  const filtered = stockRows.filter(s =>
-    (s.name        ?? '').toLowerCase().includes(search.toLowerCase()) ||
-    (s.brand       ?? '').toLowerCase().includes(search.toLowerCase()) ||
-    (s.category    ?? '').toLowerCase().includes(search.toLowerCase()) ||
-    (s.productCode ?? '').toLowerCase().includes(search.toLowerCase())
-  )
-
-  // ── Stock movements ─────────────────────────────────────
-  const purchaseMovements = purchases.map(p => ({
-    type:      'IN',
-    product:   p.product_name  || p.product_code || p.product || '',
-    batch:     p.batch_number  || p.batch_no     || '',
-    qty:       Number(p.qty || p.quantity || 0),
-    party:     p.supplier_name || p.supplier     || '',
-    warehouse: p.warehouse_name || '—',
-    date:      p.purchase_date || p.date         || '',
-    ref:       p.purchase_code || p._id          || p.id      || '',
-  }))
-
-  const orderMovements = orders
-    .filter(o => ['Dispatched', 'Delivered'].includes(o.status))
-    .map(o => ({
-      type:      'OUT',
-      product:   o.product_name  || o.product     || '',
-      batch:     o.batch_number  || o.batch_no    || '',
-      qty:       Number(o.qty || o.quantity || 0),
-      party:     o.customer_name || o.customer     || '',
-      warehouse: o.warehouse_name || '—',
-      date:      o.order_date    || o.date         || '',
-      ref:       o.order_code    || o._id          || o.id     || '',
-    }))
-
-  const transferMovements = transfers.flatMap(t => {
-    const product   = t.product_name  || t.product_code || ''
-    const qty       = Number(t.quantity || 0)
-    const ref       = t.transfer_code || t._id          || t.id || ''
-    const date      = t.transfer_date || t.created_at   || ''
-    return [
-      {
-        type:      'TRANSFER OUT',
-        product, qty,
-        party:     '—',
-        warehouse: t.from_warehouse_name || t.from_warehouse?.name || '—',
-        date, ref,
-        batch: '',
-      },
-      {
-        type:      'TRANSFER IN',
-        product, qty,
-        party:     '—',
-        warehouse: t.to_warehouse_name || t.to_warehouse?.name || '—',
-        date, ref,
-        batch: '',
-      },
-    ]
-  })
-
-  const allMovements = [...purchaseMovements, ...orderMovements, ...transferMovements]
-    .sort((a, b) => {
-      const da = a.date ? new Date(a.date) : 0
-      const db = b.date ? new Date(b.date) : 0
-      return db - da || String(b.ref).localeCompare(String(a.ref))
-    })
-
-  // ── Style helpers ────────────────────────────────────────
-  const movementStyle = (type) => {
-    if (type === 'IN')           return { bg: '#dcfce7', color: '#16a34a', border: '#86efac', label: '↑ IN' }
-    if (type === 'OUT')          return { bg: '#fee2e2', color: '#dc2626', border: '#fca5a5', label: '↓ OUT' }
-    if (type === 'TRANSFER OUT') return { bg: '#fef3c7', color: '#b45309', border: '#fde68a', label: '⇄ OUT' }
-    if (type === 'TRANSFER IN')  return { bg: '#eff6ff', color: '#1d4ed8', border: '#bfdbfe', label: '⇄ IN' }
-    return                              { bg: '#f3f4f6', color: '#6b7280', border: '#e5e7eb', label: type }
   }
 
-  const statusStyle = (status) => {
-    if (status === 'OK')  return { bg: '#dcfce7', color: '#16a34a', border: '#86efac', label: 'In Stock' }
-    if (status === 'Low') return { bg: '#fef9c3', color: '#b45309', border: '#fde68a', label: 'Low Stock' }
-    return                       { bg: '#fee2e2', color: '#dc2626', border: '#fca5a5', label: 'Out of Stock' }
-  }
+  // ── KPI cards — always from full inventory, not filtered subset ──
+  const allRows        = inventory  // alias for clarity
+  const totalPhysical  = summary?.total_physical   ?? allRows.reduce((a,r) => a + (Number(r.physical_stock)  || Number(r.current_stock) || 0), 0)
+  const totalAvailable = summary?.total_available  ?? allRows.reduce((a,r) => a + (Number(r.available_stock) || Number(r.current_stock) || 0), 0)
+  const totalReserved  = summary?.total_reserved   ?? allRows.reduce((a,r) => a + (Number(r.reserved_stock)  || 0), 0)
+  const totalBlocked   = summary?.total_blocked    ?? allRows.reduce((a,r) => a + (Number(r.blocked_stock)   || 0), 0)
+  const lowCount       = summary?.low_stock        ?? allRows.filter(r => stockStatus(r) === 'low').length
+  const outCount       = summary?.out_of_stock     ?? allRows.filter(r => stockStatus(r) === 'out').length
+  const stockValue     = summary?.total_stock_value ?? 0
 
   return (
     <>
       <div className="breadcrumb">
-        <span>Products &amp; Stock</span>
+        <span>Purchase &amp; Inventory</span>
         <span className="breadcrumb-sep">›</span>
         <span className="breadcrumb-active">Inventory Management</span>
       </div>
 
-      {/* Stats */}
-      <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 20 }}>
+      {/* ── KPI strip ── */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginBottom:20 }}>
         {[
-          { label: 'Total Products',    val: stockRows.length,                                               color: 'blue',   icon: <TrendingUp /> },
-          { label: 'Low Stock',         val: stockRows.filter(s => s.status === 'Low').length,               color: 'orange', icon: <AlertTriangle /> },
-          { label: 'Out of Stock',      val: stockRows.filter(s => s.status === 'Out').length,               color: 'red',    icon: <TrendingDown /> },
-          { label: 'Total Stock (Sq Ft)', val: stockRows.reduce((a, s) => a + s.current, 0).toLocaleString(), color: 'green',  icon: <TrendingUp /> },
-        ].map(s => (
-          <div key={s.label} className="stat-card" style={{ padding: '14px 16px' }}>
-            <div className={`stat-icon ${s.color}`}>{s.icon}</div>
-            <div className="stat-info">
-              <div className="stat-label">{s.label}</div>
-              <div className="stat-value" style={{ fontSize: 20 }}>{s.val}</div>
+          { label:'Available Stock', val: fmtN(totalAvailable), icon:<Boxes size={18}/>,        color:'#059669', bg:'#ecfdf5', border:'#a7f3d0' },
+          { label:'Physical Stock',  val: fmtN(totalPhysical),  icon:<BarChart2 size={18}/>,    color:'#1d4ed8', bg:'#eff6ff', border:'#bfdbfe' },
+          { label:'Low Stock SKUs',  val: fmtN(lowCount),       icon:<AlertTriangle size={18}/>,color:'#d97706', bg:'#fffbeb', border:'#fde68a', clickFilter:'low' },
+          { label:'Out of Stock',    val: fmtN(outCount),       icon:<ShieldAlert size={18}/>,  color:'#dc2626', bg:'#fef2f2', border:'#fecaca', clickFilter:'out' },
+        ].map(k => (
+          <div key={k.label}
+            onClick={() => k.clickFilter && setStatusFilter(prev => prev === k.clickFilter ? 'all' : k.clickFilter)}
+            style={{
+              background: k.bg, border: `1.5px solid ${k.border}`, borderRadius: 12,
+              padding: '14px 18px', display:'flex', alignItems:'center', gap:12,
+              cursor: k.clickFilter ? 'pointer' : 'default',
+              boxShadow: '0 1px 4px rgba(0,0,0,.06)',
+              outline: statusFilter === k.clickFilter ? `2px solid ${k.color}` : 'none',
+            }}>
+            <div style={{ width:40, height:40, borderRadius:10, background:'rgba(255,255,255,.7)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, color: k.color }}>
+              {k.icon}
+            </div>
+            <div>
+              <div style={{ fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'.05em', color: k.color, marginBottom:2 }}>{k.label}</div>
+              <div style={{ fontSize:22, fontWeight:900, color: k.color, lineHeight:1 }}>{k.val}</div>
             </div>
           </div>
         ))}
       </div>
 
-      {/* Tabs */}
-      <div className="tabs">
-        {[['stock', 'Current Stock'], ['movements', 'Stock Movements']].map(([k, l]) => (
+      {/* ── Secondary KPIs: reserved / blocked / stock value ── */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:20 }}>
+        {[
+          { label:'Reserved (for orders)', val: fmtN(totalReserved), color:'#7c3aed', bg:'#f5f3ff', border:'#ddd6fe' },
+          { label:'Blocked / QC Hold',     val: fmtN(totalBlocked),  color:'#b45309', bg:'#fffbeb', border:'#fde68a' },
+          { label:'Stock Value (Cost)',     val: stockValue > 0 ? `₹${fmtN(stockValue)}` : '—', color:'#0f766e', bg:'#f0fdfa', border:'#99f6e4' },
+        ].map(k => (
+          <div key={k.label} style={{ background: k.bg, border: `1px solid ${k.border}`, borderRadius:10, padding:'10px 16px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <span style={{ fontSize:12, fontWeight:600, color: k.color }}>{k.label}</span>
+            <span style={{ fontSize:16, fontWeight:800, color: k.color }}>{k.val}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Tabs ── */}
+      <div className="tabs" style={{ marginBottom:0 }}>
+        {[
+          ['stock',     'Current Stock'],
+          ['movements', 'Stock Movements'],
+        ].map(([k, l]) => (
           <button key={k} className={`tab-btn${tab === k ? ' active' : ''}`} onClick={() => setTab(k)}>{l}</button>
         ))}
       </div>
 
-      {/* ═══ CURRENT STOCK TAB ═══ */}
+      {/* ══════════════════════════════════════════════════════
+          TAB: CURRENT STOCK
+      ══════════════════════════════════════════════════════ */}
       {tab === 'stock' && (
-        <div className="card">
-          <div className="card-header">
-            <span className="card-title">Live Stock Levels ({filtered.length})</span>
-            <div className="header-actions">
+        <div className="card" style={{ marginTop:0, borderTopLeftRadius:0 }}>
+          {/* Toolbar */}
+          <div className="card-header" style={{ flexWrap:'wrap', gap:10 }}>
+            <span className="card-title">Live Stock ({filtered.length})</span>
+            <div className="header-actions" style={{ flexWrap:'wrap', gap:8 }}>
               <div className="search-bar">
-                <Search size={14} />
-                <input
-                  placeholder="Search product, brand, category, code…"
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                />
+                <Search size={14}/>
+                <input placeholder="Search product, code, brand, warehouse…" value={search} onChange={e => setSearch(e.target.value)}/>
               </div>
-              <button
-                className="btn btn-secondary"
-                onClick={loadInventory}
-                disabled={loading}
-                style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-                title="Refresh inventory"
-              >
-                <RefreshCw size={14} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
+              {/* Status filter */}
+              <select className="form-control" style={{ width:140 }} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+                <option value="all">All Status</option>
+                <option value="ok">In Stock</option>
+                <option value="low">Low Stock</option>
+                <option value="out">Out of Stock</option>
+              </select>
+              {/* Warehouse filter */}
+              {warehouses.length > 0 && (
+                <select className="form-control" style={{ width:150 }} value={warehouseFilter} onChange={e => setWFilter(e.target.value)}>
+                  <option value="all">All Warehouses</option>
+                  {warehouses.map(w => <option key={w._id||w.id} value={w._id||w.id}>{w.name}</option>)}
+                </select>
+              )}
+              <button className="btn btn-secondary" onClick={loadInventory} disabled={loading} style={{ display:'flex', alignItems:'center', gap:6 }}>
+                <RefreshCw size={14} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }}/>
                 Refresh
               </button>
             </div>
           </div>
+
+          {/* Status filter pills (quick access) */}
+          <div style={{ display:'flex', gap:8, padding:'0 20px 14px', flexWrap:'wrap' }}>
+            {Object.entries(STATUS_STYLE).map(([k, s]) => (
+              <button key={k}
+                onClick={() => setStatusFilter(prev => prev === k ? 'all' : k)}
+                style={{
+                  padding:'3px 12px', borderRadius:20, fontSize:11, fontWeight:700, cursor:'pointer',
+                  background: statusFilter === k ? s.color : s.bg,
+                  color:      statusFilter === k ? '#fff'   : s.color,
+                  border:`1.5px solid ${s.border}`,
+                }}>
+                {s.label}
+              </button>
+            ))}
+          </div>
+
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th style={thStyle}>#</th>
-                  <th style={thStyle}>Product Name</th>
-                  <th style={thStyle}>Code</th>
-                  <th style={thStyle}>Brand</th>
-                  <th style={thStyle}>Category</th>
-                  <th style={thStyle}>Warehouse</th>
-                  <th style={thStyle}>Branch</th>
-                  <th style={{ ...thStyle, textAlign: 'right' }}>Stock In</th>
-                  <th style={{ ...thStyle, textAlign: 'right' }}>Stock Out</th>
-                  <th style={{ ...thStyle, textAlign: 'right' }}>Current Stock</th>
-                  <th style={thStyle}>Unit</th>
-                  <th style={{ ...thStyle, textAlign: 'right' }}>Low Alert</th>
-                  <th style={{ ...thStyle, textAlign: 'center' }}>Status</th>
+                  <th style={th}>#</th>
+                  <th style={th}>Product</th>
+                  <th style={th}>Warehouse</th>
+                  <th style={{ ...th, textAlign:'center' }}>Available</th>
+                  <th style={{ ...th, textAlign:'center' }}>Physical</th>
+                  <th style={{ ...th, textAlign:'center' }}>Reserved</th>
+                  <th style={{ ...th, textAlign:'center' }}>Packed</th>
+                  <th style={{ ...th, textAlign:'center' }}>Blocked</th>
+                  <th style={{ ...th, textAlign:'center' }}>Min Alert</th>
+                  <th style={{ ...th, textAlign:'center' }}>Status</th>
+                  <th style={{ ...th, textAlign:'center' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {loading && (
-                  <tr>
-                    <td colSpan={13} style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
-                      <RefreshCw size={24} style={{ opacity: .4, display: 'block', margin: '0 auto 8px' }} />
-                      Loading inventory…
-                    </td>
-                  </tr>
+                  <tr><td colSpan={11} style={emptyCell}>
+                    <RefreshCw size={24} style={{ opacity:.3, display:'block', margin:'0 auto 8px' }}/>
+                    Loading inventory…
+                  </td></tr>
                 )}
                 {!loading && filtered.length === 0 && (
-                  <tr>
-                    <td colSpan={13} style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
-                      <Package size={32} style={{ opacity: .25, display: 'block', margin: '0 auto 8px' }} />
-                      {search ? 'No matching records.' : 'No inventory records found.'}
-                    </td>
-                  </tr>
+                  <tr><td colSpan={11} style={emptyCell}>
+                    <Package size={32} style={{ opacity:.2, display:'block', margin:'0 auto 8px' }}/>
+                    {search || statusFilter !== 'all' ? 'No matching records.' : 'No inventory records found. Create a purchase order to add stock.'}
+                  </td></tr>
                 )}
-                {!loading && filtered.map((s, i) => {
-                  const ss = statusStyle(s.status)
-                  const branchName = (branches.find(b => (b._id || b.id) === String(s.branchId || s.branch_id)))?.name
-                    || s.branch_name || '—'
+                {!loading && filtered.map((inv, i) => {
+                  const id  = String(inv._id || inv.id || i)
+                  const st  = stockStatus(inv)
+                  const ss  = STATUS_STYLE[st]
+                  const isExpanded = expandedId === id
+                  const avail = Number(inv.available_stock) || 0
+                  const phys  = Number(inv.physical_stock)  || 0
+                  const res   = Number(inv.reserved_stock)  || 0
+                  const pkd   = Number(inv.packed_stock)    || 0
+                  const blk   = Number(inv.blocked_stock)   || 0
+                  const alert = Number(inv.low_stock_alert) || 0
+                  const unit  = inv.unit || ''
+
                   return (
-                    <tr key={s._id || s.id || i}>
-                      <td style={{ ...tdStyle, color: 'var(--text-muted)', fontSize: 12 }}>{i + 1}</td>
+                    <>
+                      <tr key={id} style={{ background: isExpanded ? '#f8fafc' : undefined }}>
+                        <td style={{ ...td, color:'var(--text-muted)', fontSize:12 }}>{i+1}</td>
 
-                      {/* Product Name */}
-                      <td style={{ ...tdStyle, fontWeight: 700, maxWidth: 200 }}>
-                        <div style={{ fontWeight: 700, fontSize: 13 }}>{s.name || '—'}</div>
-                        {(s.size || s.finish) && (
-                          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-                            {[s.size, s.finish].filter(Boolean).join(' · ')}
+                        {/* Product info */}
+                        <td style={td}>
+                          <div style={{ fontWeight:700, fontSize:13 }}>{inv.product_name || '—'}</div>
+                          {inv.product_code && (
+                            <div style={{ fontFamily:'monospace', fontSize:11, color:'var(--primary)', marginTop:2 }}>{inv.product_code}</div>
+                          )}
+                          <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:2 }}>
+                            {[inv.brand_name, inv.category_name].filter(Boolean).join(' · ')}
                           </div>
-                        )}
-                      </td>
+                        </td>
 
-                      <td style={{ ...tdStyle, fontSize: 11, fontFamily: 'monospace', color: 'var(--text-muted)' }}>
-                        {s.productCode || '—'}
-                      </td>
-                      <td style={{ ...tdStyle, fontSize: 12 }}>{s.brand    || '—'}</td>
-                      <td style={{ ...tdStyle, fontSize: 12 }}>{s.category || '—'}</td>
-                      <td style={{ ...tdStyle, fontSize: 12 }}>
-                        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <WarehouseIcon size={12} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
-                          {s.warehouse}
-                        </span>
-                      </td>
-                      <td style={{ ...tdStyle, fontSize: 12 }}>{branchName}</td>
+                        {/* Warehouse */}
+                        <td style={{ ...td, fontSize:12 }}>
+                          <div style={{ display:'flex', alignItems:'center', gap:5 }}>
+                            <WarehouseIcon size={12} style={{ color:'var(--text-muted)', flexShrink:0 }}/>
+                            <span style={{ fontWeight:600 }}>{inv.warehouse_name || '—'}</span>
+                          </div>
+                        </td>
 
-                      <td style={{ ...tdStyle, textAlign: 'right', color: '#16a34a', fontWeight: 600 }}>
-                        +{s.stockIn.toLocaleString()}
-                      </td>
-                      <td style={{ ...tdStyle, textAlign: 'right', color: s.stockOut > 0 ? '#dc2626' : 'var(--text-muted)', fontWeight: 600 }}>
-                        {s.stockOut > 0 ? `-${s.stockOut.toLocaleString()}` : '—'}
-                      </td>
-                      <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 800, fontSize: 15,
-                        color: s.current === 0 ? '#dc2626' : s.current <= s.lowAlert ? '#d97706' : 'var(--text)' }}>
-                        {s.current.toLocaleString()}
-                      </td>
-                      <td style={{ ...tdStyle, fontSize: 12 }}>{s.unit}</td>
-                      <td style={{ ...tdStyle, textAlign: 'right', color: 'var(--text-muted)', fontSize: 12 }}>
-                        {s.lowAlert}
-                      </td>
+                        {/* Available — most prominent */}
+                        <td style={{ ...td, textAlign:'center' }}>
+                          <div style={{
+                            display:'inline-block', padding:'4px 12px', borderRadius:20, fontSize:14, fontWeight:900,
+                            background: st === 'out' ? '#fef2f2' : st === 'low' ? '#fffbeb' : '#ecfdf5',
+                            color:      st === 'out' ? '#dc2626' : st === 'low' ? '#d97706' : '#059669',
+                          }}>
+                            {fmtN(avail)}
+                          </div>
+                          <div style={{ fontSize:10, color:'var(--text-muted)', marginTop:2 }}>{unit}</div>
+                        </td>
 
-                      <td style={{ ...tdStyle, textAlign: 'center', whiteSpace: 'nowrap' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                        {/* Physical */}
+                        <td style={{ ...td, textAlign:'center', fontWeight:700, color:'#1d4ed8' }}>{fmtN(phys)}</td>
+
+                        {/* Reserved */}
+                        <td style={{ ...td, textAlign:'center', color: res > 0 ? '#7c3aed' : 'var(--text-muted)', fontWeight: res > 0 ? 700 : 400 }}>
+                          {res > 0 ? fmtN(res) : '—'}
+                        </td>
+
+                        {/* Packed */}
+                        <td style={{ ...td, textAlign:'center', color: pkd > 0 ? '#0e7490' : 'var(--text-muted)', fontWeight: pkd > 0 ? 700 : 400 }}>
+                          {pkd > 0 ? fmtN(pkd) : '—'}
+                        </td>
+
+                        {/* Blocked */}
+                        <td style={{ ...td, textAlign:'center', color: blk > 0 ? '#b45309' : 'var(--text-muted)', fontWeight: blk > 0 ? 700 : 400 }}>
+                          {blk > 0 ? fmtN(blk) : '—'}
+                        </td>
+
+                        {/* Min Alert */}
+                        <td style={{ ...td, textAlign:'center', color:'var(--text-muted)', fontSize:12 }}>
+                          {alert > 0 ? fmtN(alert) : '—'}
+                        </td>
+
+                        {/* Status badge */}
+                        <td style={{ ...td, textAlign:'center' }}>
                           <span style={{
-                            background: ss.bg, color: ss.color,
-                            border: `1px solid ${ss.border}`,
-                            borderRadius: 20, padding: '3px 10px',
-                            fontWeight: 700, fontSize: 11, whiteSpace: 'nowrap',
+                            background:ss.bg, color:ss.color, border:`1px solid ${ss.border}`,
+                            borderRadius:20, padding:'3px 10px', fontWeight:700, fontSize:11, whiteSpace:'nowrap',
                           }}>
                             {ss.label}
                           </span>
-                          <button
-                            title="View Product Details"
-                            onClick={() => setViewItem(s)}
-                            style={{
-                              display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              width: 28, height: 28, borderRadius: 6,
-                              background: '#eff6ff', border: '1px solid #bfdbfe',
-                              color: '#2563eb', cursor: 'pointer', flexShrink: 0,
-                            }}
-                          >
-                            <Eye size={13} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
+                        </td>
+
+                        {/* Actions */}
+                        <td style={{ ...td, textAlign:'center' }}>
+                          <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}>
+                            {/* Expand row */}
+                            <button title="View breakdown" onClick={() => setExpandedId(prev => prev === id ? null : id)}
+                              style={{ ...iconBtn, background:'#eff6ff', border:'1px solid #bfdbfe', color:'#2563eb' }}>
+                              {isExpanded ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
+                            </button>
+                            {/* Adjust stock */}
+                            <button title="Adjust stock" onClick={() => { setAdjustTarget(inv); setAdjForm({ adjustment:'', reason:'', purchase_rate: inv.purchase_rate||'' }) }}
+                              style={{ ...iconBtn, background:'#f0fdf4', border:'1px solid #a7f3d0', color:'#059669' }}>
+                              <Edit3 size={14}/>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+
+                      {/* Expanded detail row */}
+                      {isExpanded && (
+                        <tr key={`${id}-exp`}>
+                          <td colSpan={11} style={{ padding:'0 0 0 0', background:'#f8fafc', borderBottom:'2px solid var(--border)' }}>
+                            <div style={{ padding:'16px 20px', display:'flex', flexDirection:'column', gap:14 }}>
+
+                              {/* Bucket breakdown grid */}
+                              <div>
+                                <div style={secLabel}>Stock Bucket Breakdown</div>
+                                <div style={{ display:'grid', gridTemplateColumns:'repeat(6,1fr)', gap:8 }}>
+                                  <Bucket label="Available"  value={avail} color="#059669" bg="#ecfdf5" border="#a7f3d0" unit={unit}/>
+                                  <Bucket label="Physical"   value={phys}  color="#1d4ed8" bg="#eff6ff" border="#bfdbfe" unit={unit}/>
+                                  <Bucket label="Reserved"   value={res}   color="#7c3aed" bg="#f5f3ff" border="#ddd6fe" unit={unit}/>
+                                  <Bucket label="Picking"    value={Number(inv.picking_stock)||0} color="#0e7490" bg="#ecfeff" border="#a5f3fc" unit={unit}/>
+                                  <Bucket label="Packed"     value={pkd}   color="#0f766e" bg="#f0fdfa" border="#99f6e4" unit={unit}/>
+                                  <Bucket label="Blocked"    value={blk}   color="#b45309" bg="#fffbeb" border="#fde68a" unit={unit}/>
+                                </div>
+                              </div>
+
+                              {/* Stock flow equation */}
+                              <div style={{ fontSize:12, color:'var(--text-muted)', fontStyle:'italic' }}>
+                                Physical = Available + Reserved + Picking + Packed + Blocked&nbsp;
+                                ({fmtN(avail)} + {fmtN(res)} + {fmtN(Number(inv.picking_stock)||0)} + {fmtN(pkd)} + {fmtN(blk)} = {fmtN(phys)})
+                              </div>
+
+                              {/* Stats row */}
+                              <div style={{ display:'flex', gap:24, flexWrap:'wrap', fontSize:12 }}>
+                                <span><strong>Dispatched (total):</strong> {fmtN(inv.dispatched_qty)} {unit}</span>
+                                <span><strong>Stock In (total):</strong>   {fmtN(inv.stock_in)} {unit}</span>
+                                <span><strong>Stock Out (total):</strong>  {fmtN(inv.stock_out)} {unit}</span>
+                                {inv.purchase_rate > 0 && <span><strong>Purchase Rate:</strong> ₹{fmtN(inv.purchase_rate)}</span>}
+                                {Number(inv.reorder_level) > 0 && <span><strong>Reorder Level:</strong> {fmtN(inv.reorder_level)} {unit}</span>}
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </>
                   )
                 })}
               </tbody>
@@ -341,260 +485,232 @@ export default function InventoryManagement({
         </div>
       )}
 
-      {/* ═══ MOVEMENTS TAB ═══ */}
+      {/* ══════════════════════════════════════════════════════
+          TAB: STOCK MOVEMENTS
+      ══════════════════════════════════════════════════════ */}
       {tab === 'movements' && (
-        <div className="card">
-          <div className="card-header">
-            <span className="card-title">Stock Movements ({allMovements.length})</span>
+        <div className="card" style={{ marginTop:0, borderTopLeftRadius:0 }}>
+          <div className="card-header" style={{ flexWrap:'wrap', gap:10 }}>
+            <span className="card-title">
+              Stock Movements{movTotal > 0 ? ` (${fmtN(movTotal)} total)` : ''}
+            </span>
+            <div className="header-actions" style={{ flexWrap:'wrap', gap:8 }}>
+              <div className="search-bar">
+                <Search size={14}/>
+                <input placeholder="Search product or reference…" value={movSearch} onChange={e => { setMovSearch(e.target.value); loadMovements(1) }}/>
+              </div>
+              <select className="form-control" style={{ width:150 }} value={movType} onChange={e => { setMovType(e.target.value); loadMovements(1) }}>
+                <option value="all">All Types</option>
+                <option value="Stock In">Stock In</option>
+                <option value="Stock Out">Stock Out</option>
+                <option value="Transfer In">Transfer In</option>
+                <option value="Transfer Out">Transfer Out</option>
+                <option value="Reversal">Reversal</option>
+              </select>
+              <button className="btn btn-secondary" onClick={() => loadMovements(movPage)} disabled={loadingMov} style={{ display:'flex', alignItems:'center', gap:6 }}>
+                <RefreshCw size={14} style={{ animation: loadingMov ? 'spin 1s linear infinite' : 'none' }}/>
+                Refresh
+              </button>
+            </div>
           </div>
+
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th style={thStyle}>Type</th>
-                  <th style={thStyle}>Product</th>
-                  <th style={thStyle}>Batch No.</th>
-                  <th style={{ ...thStyle, textAlign: 'right' }}>Qty</th>
-                  <th style={thStyle}>Party / Customer</th>
-                  <th style={thStyle}>Warehouse</th>
-                  <th style={thStyle}>Reference</th>
-                  <th style={thStyle}>Date</th>
+                  <th style={th}>Type</th>
+                  <th style={th}>Product</th>
+                  <th style={th}>Warehouse</th>
+                  <th style={{ ...th, textAlign:'right' }}>Qty</th>
+                  <th style={{ ...th, textAlign:'right' }}>Before</th>
+                  <th style={{ ...th, textAlign:'right' }}>After</th>
+                  <th style={th}>Reference</th>
+                  <th style={th}>Notes</th>
+                  <th style={th}>By</th>
+                  <th style={th}>Date</th>
                 </tr>
               </thead>
               <tbody>
-                {loading && (
-                  <tr>
-                    <td colSpan={8} style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
-                      <RefreshCw size={24} style={{ opacity: .4, display: 'block', margin: '0 auto 8px' }} />
-                      Loading movements…
-                    </td>
-                  </tr>
+                {loadingMov && (
+                  <tr><td colSpan={10} style={emptyCell}>
+                    <RefreshCw size={22} style={{ opacity:.3, display:'block', margin:'0 auto 8px', animation:'spin 1s linear infinite' }}/>
+                    Loading movements…
+                  </td></tr>
                 )}
-                {!loading && allMovements.length === 0 && (
-                  <tr>
-                    <td colSpan={8} style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
-                      No stock movements found.
-                    </td>
-                  </tr>
+                {!loadingMov && movements.length === 0 && (
+                  <tr><td colSpan={10} style={emptyCell}>
+                    <Clock size={28} style={{ opacity:.2, display:'block', margin:'0 auto 8px' }}/>
+                    No stock movements found.
+                  </td></tr>
                 )}
-                {!loading && allMovements.map((m, i) => {
-                  const ms = movementStyle(m.type)
+                {!loadingMov && movements.map((m, i) => {
+                  const ms = MOVEMENT_STYLE[m.movement_type] || MOVEMENT_STYLE['Reversal']
+                  const isIn  = m.movement_type === 'Stock In'   || m.movement_type === 'Transfer In'
+                  const isOut = m.movement_type === 'Stock Out'  || m.movement_type === 'Transfer Out'
                   return (
-                    <tr key={i}>
-                      <td style={tdStyle}>
+                    <tr key={m._id || i}>
+                      <td style={td}>
                         <span style={{
-                          background: ms.bg, color: ms.color,
-                          border: `1px solid ${ms.border}`,
-                          borderRadius: 20, padding: '3px 10px',
-                          fontWeight: 700, fontSize: 11, whiteSpace: 'nowrap',
+                          display:'inline-flex', alignItems:'center', gap:5,
+                          background:ms.bg, color:ms.color, border:`1px solid ${ms.border}`,
+                          borderRadius:20, padding:'3px 10px', fontWeight:700, fontSize:11, whiteSpace:'nowrap',
                         }}>
-                          {ms.label}
+                          {ms.icon} {ms.label}
                         </span>
                       </td>
-                      <td style={{ ...tdStyle, fontWeight: 600, fontSize: 13 }}>{m.product || '—'}</td>
-                      <td style={{ ...tdStyle, fontSize: 11, fontFamily: 'monospace', color: 'var(--text-muted)' }}>
-                        {m.batch || '—'}
+                      <td style={td}>
+                        <div style={{ fontWeight:700, fontSize:12 }}>{m.product_name || m.product_id?.name || '—'}</div>
+                        {(m.product_code || m.product_id?.code) && (
+                          <div style={{ fontFamily:'monospace', fontSize:10, color:'var(--text-muted)' }}>{m.product_code || m.product_id?.code}</div>
+                        )}
                       </td>
-                      <td style={{ ...tdStyle, fontWeight: 700, textAlign: 'right' }}>{m.qty || 0}</td>
-                      <td style={{ ...tdStyle, fontSize: 12 }}>{m.party || '—'}</td>
-                      <td style={{ ...tdStyle, fontSize: 12 }}>{m.warehouse}</td>
-                      <td style={{ ...tdStyle, color: 'var(--primary)', fontSize: 12, fontFamily: 'monospace' }}>{m.ref || '—'}</td>
-                      <td style={{ ...tdStyle, fontSize: 12 }}>
-                        {m.date
-                          ? new Date(m.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
-                          : '—'}
+                      <td style={{ ...td, fontSize:12 }}>{m.warehouse_name || m.warehouse_id?.name || '—'}</td>
+                      <td style={{ ...td, textAlign:'right', fontWeight:800, fontSize:14,
+                        color: isIn ? '#059669' : isOut ? '#dc2626' : '#7c3aed' }}>
+                        {isIn ? '+' : isOut ? '−' : '⇄'}{fmtN(m.quantity)}
                       </td>
+                      <td style={{ ...td, textAlign:'right', fontSize:12, color:'var(--text-muted)' }}>{fmtN(m.previous_stock)}</td>
+                      <td style={{ ...td, textAlign:'right', fontSize:12, fontWeight:700, color: isIn ? '#059669' : '#dc2626' }}>{fmtN(m.new_stock)}</td>
+                      <td style={{ ...td, fontSize:11 }}>
+                        <div style={{ color:'var(--primary)', fontFamily:'monospace', fontWeight:600 }}>{m.reference_type || '—'}</div>
+                        {m.invoice_number && <div style={{ fontFamily:'monospace', fontSize:10, color:'var(--text-muted)' }}>{m.invoice_number}</div>}
+                      </td>
+                      <td style={{ ...td, fontSize:11, color:'var(--text-muted)', maxWidth:200, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                        {m.notes || '—'}
+                      </td>
+                      <td style={{ ...td, fontSize:11 }}>{m.created_by?.name || '—'}</td>
+                      <td style={{ ...td, fontSize:11, whiteSpace:'nowrap' }}>{fmtDT(m.movement_date || m.created_at)}</td>
                     </tr>
                   )
                 })}
               </tbody>
             </table>
           </div>
+
+          {/* Pagination */}
+          {movTotal > MOV_LIMIT && (
+            <div style={{ display:'flex', justifyContent:'center', alignItems:'center', gap:10, padding:'12px 20px', borderTop:'1px solid var(--border)' }}>
+              <button className="btn btn-secondary btn-sm" disabled={movPage <= 1 || loadingMov} onClick={() => loadMovements(movPage-1)}>← Prev</button>
+              <span style={{ fontSize:12, color:'var(--text-muted)' }}>Page {movPage} of {Math.ceil(movTotal/MOV_LIMIT)}</span>
+              <button className="btn btn-secondary btn-sm" disabled={movPage >= Math.ceil(movTotal/MOV_LIMIT) || loadingMov} onClick={() => loadMovements(movPage+1)}>Next →</button>
+            </div>
+          )}
         </div>
       )}
 
-      {/* ═══ PRODUCT DETAIL MODAL ═══ */}
-      {viewItem && (
-        <div
-          className="modal-overlay"
-          onClick={() => setViewItem(null)}
-          style={{ zIndex: 1000 }}
-        >
-          <div
-            className="modal"
-            style={{ maxWidth: 680, width: '96vw', maxHeight: '92vh', display: 'flex', flexDirection: 'column' }}
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="modal-header" style={{ flexShrink: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <Package style={{ color: 'var(--primary)', width: 20 }} />
-                <span className="modal-title">Product Inventory Details</span>
+      {/* ══════════════════════════════════════════════════════
+          ADJUST STOCK MODAL
+      ══════════════════════════════════════════════════════ */}
+      {adjustTarget && (
+        <div className="modal-overlay" onClick={() => { setAdjustTarget(null); setAdjMsg('') }}>
+          <div className="modal" style={{ maxWidth:500 }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                <Edit3 size={16} style={{ color:'var(--primary)' }}/>
+                <span className="modal-title">Adjust Stock</span>
               </div>
-              <button className="btn-ghost" onClick={() => setViewItem(null)}><X size={18} /></button>
+              <button className="btn-ghost" onClick={() => { setAdjustTarget(null); setAdjMsg('') }}><X size={16}/></button>
             </div>
-
-            <div className="modal-body" style={{ padding: 0, overflowY: 'auto', flex: 1 }}>
-              {/* Header strip */}
-              <div style={{
-                padding: '16px 22px',
-                background: 'var(--bg)',
-                borderBottom: '1px solid var(--border)',
-                display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap',
-              }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 4 }}>Product Name</div>
-                  <div style={{ fontWeight: 800, fontSize: 20, color: 'var(--text)', lineHeight: 1.2 }}>
-                    {viewItem.name || '—'}
-                  </div>
-                  {viewItem.productCode && (
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4, fontFamily: 'monospace' }}>
-                      Code: {viewItem.productCode}
-                    </div>
-                  )}
+            <div className="modal-body">
+              {/* Product info strip */}
+              <div style={{ background:'var(--bg)', borderRadius:8, padding:'10px 14px', marginBottom:16 }}>
+                <div style={{ fontWeight:800, fontSize:14 }}>{adjustTarget.product_name}</div>
+                <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:3 }}>
+                  {adjustTarget.product_code && <span style={{ fontFamily:'monospace' }}>{adjustTarget.product_code} · </span>}
+                  <WarehouseIcon size={11} style={{ display:'inline', marginRight:3 }}/>{adjustTarget.warehouse_name || '—'}
                 </div>
-                {(() => {
-                  const ss = statusStyle(viewItem.status)
-                  return (
-                    <span style={{
-                      background: ss.bg, color: ss.color,
-                      border: `1.5px solid ${ss.border}`,
-                      borderRadius: 20, padding: '6px 16px',
-                      fontWeight: 700, fontSize: 14, flexShrink: 0,
-                    }}>
-                      {viewItem.status === 'OK' ? '✅' : viewItem.status === 'Low' ? '⚠️' : '❌'} {ss.label}
-                    </span>
-                  )
-                })()}
               </div>
 
-              <div style={{ padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-                {/* Stock Summary */}
-                <div>
-                  <div style={sectionTitle}>Stock Summary</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 0, border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
-                    {[
-                      { label: 'Stock In',      val: `+${viewItem.stockIn.toLocaleString()}`,  color: '#16a34a', bg: '#f0fdf4' },
-                      { label: 'Stock Out',     val: viewItem.stockOut > 0 ? `-${viewItem.stockOut.toLocaleString()}` : '—', color: viewItem.stockOut > 0 ? '#dc2626' : 'var(--text-muted)', bg: viewItem.stockOut > 0 ? '#fff1f2' : 'var(--bg)' },
-                      { label: 'Current Stock', val: viewItem.current.toLocaleString(), bold: true,
-                        color: viewItem.current === 0 ? '#dc2626' : viewItem.current <= viewItem.lowAlert ? '#d97706' : 'var(--text)', bg: 'var(--bg)' },
-                      { label: 'Low Alert',     val: viewItem.lowAlert || '—', color: 'var(--text-muted)', bg: 'var(--bg)' },
-                    ].map((f, idx) => (
-                      <div key={f.label} style={{
-                        padding: '14px 16px', textAlign: 'center',
-                        borderRight: idx < 3 ? '1px solid var(--border)' : 'none',
-                        background: f.bg,
-                      }}>
-                        <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.04em' }}>{f.label}</div>
-                        <div style={{ fontSize: f.bold ? 22 : 18, fontWeight: f.bold ? 800 : 700, color: f.color }}>{f.val}</div>
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>{viewItem.unit}</div>
-                      </div>
-                    ))}
+              {/* Current stock summary */}
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:8, marginBottom:16 }}>
+                {[
+                  { l:'Available', v: Number(adjustTarget.available_stock)||0, hi:true },
+                  { l:'Physical',  v: Number(adjustTarget.physical_stock) ||0 },
+                  { l:'Reserved',  v: Number(adjustTarget.reserved_stock) ||0 },
+                ].map(f => (
+                  <div key={f.l} style={{ textAlign:'center', background: f.hi ? '#ecfdf5' : 'var(--bg)', borderRadius:8, padding:'8px 10px', border:`1px solid ${f.hi ? '#a7f3d0' : 'var(--border)'}` }}>
+                    <div style={{ fontSize:9, fontWeight:700, textTransform:'uppercase', color: f.hi ? '#059669' : 'var(--text-muted)', marginBottom:3 }}>{f.l}</div>
+                    <div style={{ fontSize:18, fontWeight:800, color: f.hi ? '#059669' : 'var(--text)' }}>{fmtN(f.v)}</div>
+                    <div style={{ fontSize:10, color:'var(--text-muted)' }}>{adjustTarget.unit}</div>
                   </div>
-                </div>
+                ))}
+              </div>
 
-                {/* Product Details */}
-                <div>
-                  <div style={sectionTitle}>Product Details</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px 12px' }}>
-                    {[
-                      { label: 'Brand',       val: viewItem.brand      || '—' },
-                      { label: 'Category',    val: viewItem.category   || '—' },
-                      { label: 'Size',        val: viewItem.size       || '—' },
-                      { label: 'Finish',      val: viewItem.finish     || '—' },
-                      { label: 'Tile Type',   val: viewItem.tile_type  || '—' },
-                      { label: 'Grade',       val: viewItem.grade      || '—' },
-                      { label: 'Unit',        val: viewItem.unit       || '—' },
-                      { label: 'GST %',       val: viewItem.gst_percent ? `${viewItem.gst_percent}%` : '—' },
-                      { label: 'Pcs / Box',   val: viewItem.pcs_per_box   ? String(viewItem.pcs_per_box)                          : '—' },
-                      { label: 'Sqft / Box',  val: viewItem.sqft_per_box  ? parseFloat(viewItem.sqft_per_box).toFixed(2)          : '—' },
-                    ].map(f => (
-                      <div key={f.label} style={{ background: 'var(--bg)', borderRadius: 7, padding: '9px 12px' }}>
-                        <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-muted)', marginBottom: 3 }}>{f.label}</div>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: f.val === '—' ? 'var(--text-muted)' : 'var(--text)' }}>{f.val}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Pricing */}
-                {(viewItem.mrp > 0 || viewItem.retail_price > 0 || viewItem.dealer_price > 0 || viewItem.purchase_price > 0) && (
-                  <div>
-                    <div style={sectionTitle}>Pricing</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px 12px' }}>
-                      {[
-                        { label: 'MRP',            val: viewItem.mrp            > 0 ? `₹${parseFloat(viewItem.mrp).toLocaleString('en-IN')}` : '—' },
-                        { label: 'Retail Price',   val: viewItem.retail_price   > 0 ? `₹${parseFloat(viewItem.retail_price).toLocaleString('en-IN')}` : '—' },
-                        { label: 'Dealer Price',   val: viewItem.dealer_price   > 0 ? `₹${parseFloat(viewItem.dealer_price).toLocaleString('en-IN')}` : '—' },
-                        { label: 'Purchase Price', val: viewItem.purchase_price > 0 ? `₹${parseFloat(viewItem.purchase_price).toLocaleString('en-IN')}` : '—', highlight: true },
-                      ].map(f => (
-                        <div key={f.label} style={{ background: f.highlight ? '#f0fdf4' : 'var(--bg)', border: `1px solid ${f.highlight ? '#86efac' : 'var(--border)'}`, borderRadius: 7, padding: '10px 12px', textAlign: 'center' }}>
-                          <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-muted)', marginBottom: 4 }}>{f.label}</div>
-                          <div style={{ fontSize: 14, fontWeight: 700, color: f.highlight ? '#059669' : f.val === '—' ? 'var(--text-muted)' : 'var(--text)' }}>{f.val}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Warehouse */}
-                <div>
-                  <div style={sectionTitle}>Warehouse</div>
-                  <div style={{ background: 'var(--bg)', borderRadius: 8, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <WarehouseIcon size={18} style={{ color: 'var(--primary)', flexShrink: 0 }} />
-                    <span style={{ fontWeight: 600, fontSize: 14 }}>{viewItem.warehouse}</span>
-                  </div>
-                </div>
-
-                {/* Description */}
-                {viewItem.description && (
-                  <div>
-                    <div style={sectionTitle}>Description</div>
-                    <div style={{ background: 'var(--bg)', borderRadius: 8, padding: '12px 16px', fontSize: 13, color: 'var(--text)', lineHeight: 1.6 }}>
-                      {viewItem.description}
-                    </div>
+              {/* Form */}
+              <div className="form-group">
+                <label className="form-label">Adjustment Quantity *</label>
+                <input
+                  className="form-control"
+                  type="number"
+                  step="any"
+                  placeholder="+ to add stock  /  − to deduct"
+                  value={adjForm.adjustment}
+                  onChange={e => setAdjForm(f => ({ ...f, adjustment: e.target.value }))}
+                />
+                {adjForm.adjustment && Number(adjForm.adjustment) !== 0 && (
+                  <div style={{ marginTop:6, fontSize:12, fontWeight:600,
+                    color: Number(adjForm.adjustment) > 0 ? '#059669' : '#dc2626' }}>
+                    {Number(adjForm.adjustment) > 0
+                      ? `▲ Add ${fmtN(Math.abs(Number(adjForm.adjustment)))} ${adjustTarget.unit} to available stock`
+                      : `▼ Remove ${fmtN(Math.abs(Number(adjForm.adjustment)))} ${adjustTarget.unit} from available stock`}
                   </div>
                 )}
               </div>
-            </div>
+              <div className="form-group">
+                <label className="form-label">Reason / Note</label>
+                <input
+                  className="form-control"
+                  placeholder="e.g. Physical count correction, damaged goods, opening stock"
+                  value={adjForm.reason}
+                  onChange={e => setAdjForm(f => ({ ...f, reason: e.target.value }))}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Purchase Rate (₹) <span style={{ fontWeight:400, color:'var(--text-muted)' }}>— optional, updates cost</span></label>
+                <input
+                  className="form-control"
+                  type="number"
+                  min="0"
+                  step="any"
+                  placeholder={adjustTarget.purchase_rate ? `Current: ₹${adjustTarget.purchase_rate}` : '0.00'}
+                  value={adjForm.purchase_rate}
+                  onChange={e => setAdjForm(f => ({ ...f, purchase_rate: e.target.value }))}
+                />
+              </div>
 
-            <div className="modal-footer" style={{ flexShrink: 0 }}>
-              <button className="btn btn-secondary" onClick={() => setViewItem(null)}>Close</button>
+              {adjMsg && (
+                <div style={{
+                  padding:'8px 12px', borderRadius:8, fontSize:12, fontWeight:600, marginTop:4,
+                  background: adjMsg.startsWith('✓') ? '#ecfdf5' : '#fef2f2',
+                  color:      adjMsg.startsWith('✓') ? '#059669' : '#dc2626',
+                  border:     `1px solid ${adjMsg.startsWith('✓') ? '#a7f3d0' : '#fecaca'}`,
+                }}>
+                  {adjMsg}
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => { setAdjustTarget(null); setAdjMsg('') }}>Cancel</button>
+              <button className="btn btn-primary" disabled={adjSaving || !adjForm.adjustment} onClick={handleAdjust}>
+                {adjSaving ? 'Saving…' : 'Apply Adjustment'}
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Spin animation for refresh button */}
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </>
   )
 }
 
-/* ── Table styles ── */
-const thStyle = {
-  padding: '9px 12px',
-  textAlign: 'left',
-  fontSize: 11,
-  fontWeight: 700,
-  textTransform: 'uppercase',
-  letterSpacing: '0.4px',
-  color: 'var(--text-muted)',
-  whiteSpace: 'nowrap',
-  borderBottom: '1px solid var(--border)',
+/* ── Shared micro-styles ── */
+const th = {
+  padding: '9px 12px', textAlign:'left',
+  fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'.4px',
+  color:'var(--text-muted)', whiteSpace:'nowrap', borderBottom:'1px solid var(--border)',
 }
-
-const tdStyle = {
-  padding: '10px 12px',
-  fontSize: 13,
-  verticalAlign: 'middle',
-}
-
-const sectionTitle = {
-  fontSize: 11,
-  fontWeight: 700,
-  textTransform: 'uppercase',
-  letterSpacing: '.05em',
-  color: 'var(--text-muted)',
-  marginBottom: 8,
-}
+const td = { padding:'10px 12px', fontSize:13, verticalAlign:'middle' }
+const emptyCell = { textAlign:'center', padding:40, color:'var(--text-muted)' }
+const iconBtn = { display:'flex', alignItems:'center', justifyContent:'center', width:28, height:28, borderRadius:7, cursor:'pointer', flexShrink:0 }
+const secLabel = { fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'.05em', color:'var(--text-muted)', marginBottom:8 }

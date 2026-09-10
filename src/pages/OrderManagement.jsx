@@ -5,18 +5,22 @@ import {
   History, ArrowRight, ChevronRight, Plus, Trash2, Edit2, X,
 } from 'lucide-react'
 
-// ── Requirement §7: Simplified display statuses ──────────────
-const DISPLAY_STATUSES = ['New','Accepted','Processing','Ready','Dispatched','Delivered','Cancelled']
+// ── Unified 6-stage order lifecycle ─────────────────────────────────────────
+// New → Accepted → Packing → Dispatched → Out for Delivery → Delivered
+const DISPLAY_STATUSES = ['New', 'Accepted', 'Packing', 'Dispatched', 'Out for Delivery', 'Delivered', 'Cancelled']
 
 // Map display status → backend status group for filtering
 const DISPLAY_TO_BACKEND = {
-  New:        ['New'],
-  Accepted:   ['Pending Approval','Approved'],
-  Processing: ['Picking Started','Picking Completed','Sorting Started','Sorting Completed','Packing Started','Packing Completed','Invoice Generated','Partially Dispatched'],
-  Ready:      ['Ready for Dispatch'],
-  Dispatched: ['Dispatched','In Transit'],
-  Delivered:  ['Delivered'],
-  Cancelled:  ['Cancelled'],
+  'New':              ['New'],
+  'Accepted':         ['Accepted'],
+  'Packing':          ['Packing', 'Pending Approval', 'Approved',
+                       'Picking Started', 'Picking Completed',
+                       'Sorting Started', 'Sorting Completed',
+                       'Packing Started', 'Packing Completed', 'Invoice Generated'],
+  'Dispatched':       ['Dispatched', 'Ready', 'Ready for Dispatch', 'Partially Dispatched'],
+  'Out for Delivery': ['Out for Delivery', 'In Transit'],
+  'Delivered':        ['Delivered'],
+  'Cancelled':        ['Cancelled'],
 }
 
 // Map any backend status → display status
@@ -27,62 +31,45 @@ function toDisplay(status) {
   return status
 }
 
-// Backend transition map (unchanged)
+// Backend transition map (6-stage lifecycle)
 const NEXT_STATUS = {
-  'New':               ['Pending Approval','Cancelled'],
-  'Pending Approval':  ['Approved','Cancelled'],
-  'Approved':          ['Picking Started','Cancelled'],
-  'Picking Started':   ['Picking Completed','Cancelled'],
-  'Picking Completed': ['Sorting Started'],
-  'Sorting Started':   ['Sorting Completed'],
-  'Sorting Completed': ['Packing Started'],
-  'Packing Started':   ['Packing Completed'],
-  'Packing Completed': ['Invoice Generated'],
-  'Invoice Generated': ['Ready for Dispatch'],
-  'Ready for Dispatch':['Dispatched'],
-  'Dispatched':        ['In Transit'],
-  'In Transit':        ['Delivered'],
-  'Delivered':         [],
-  'Cancelled':         [],
+  'New':             ['Accepted',   'Cancelled'],
+  'Accepted':        ['Packing',    'Cancelled'],
+  'Packing':         ['Dispatched', 'Cancelled'],
+  'Dispatched':      ['Out for Delivery'],
+  'Out for Delivery':['Delivered'],
+  'Delivered':       [],
+  'Cancelled':       [],
 }
 
-// Human-readable action labels for each backend status transition
+// Human-readable action labels for each status transition button
 const STATUS_ACTION_LABEL = {
-  'Pending Approval': 'Accept',
-  'Approved':         'Approve',
-  'Picking Started':  'Start Picking',
-  'Picking Completed':'Picking Done',
-  'Sorting Started':  'Start Sorting',
-  'Sorting Completed':'Sorting Done',
-  'Packing Started':  'Start Packing',
-  'Packing Completed':'Packing Done',
-  'Invoice Generated':'Generate Invoice',
-  'Ready for Dispatch':'Mark Ready',
-  'Dispatched':       'Dispatch',
-  'In Transit':       'In Transit',
-  'Delivered':        'Delivered',
-  'Cancelled':        'Cancel',
+  'Accepted':        'Accept Order',
+  'Packing':         'Start Packing',
+  'Dispatched':      'Mark Dispatched',
+  'Out for Delivery':'Mark Out for Delivery',
+  'Delivered':       'Mark Delivered',
+  'Cancelled':       'Cancel Order',
 }
 
 const STATUS_COLOR = {
-  New:'badge-blue', Accepted:'badge-cyan', Processing:'badge-yellow',
-  Ready:'badge-orange', Dispatched:'badge-purple', Delivered:'badge-green', Cancelled:'badge-red',
-  'Pending Approval':'badge-cyan','Approved':'badge-green',
-  'Picking Started':'badge-yellow','Picking Completed':'badge-yellow',
-  'Sorting Started':'badge-orange','Sorting Completed':'badge-orange',
-  'Packing Started':'badge-purple','Packing Completed':'badge-purple',
-  'Invoice Generated':'badge-blue','Ready for Dispatch':'badge-orange',
-  'In Transit':'badge-yellow',
+  'New':              'badge-blue',
+  'Accepted':         'badge-cyan',
+  'Packing':          'badge-yellow',
+  'Dispatched':       'badge-orange',
+  'Out for Delivery': 'badge-purple',
+  'Delivered':        'badge-green',
+  'Cancelled':        'badge-red',
 }
 
 const STAT_CARDS = [
-  { s:'New',        ic:'#2563EB', bc:'#BFDBFE', bg:'#EFF6FF', iconBg:'#DBEAFE', Icon:ClipboardList },
-  { s:'Accepted',   ic:'#059669', bc:'#A7F3D0', bg:'#F0FDF4', iconBg:'#D1FAE5', Icon:CheckCircle   },
-  { s:'Processing', ic:'#7C3AED', bc:'#DDD6FE', bg:'#F5F3FF', iconBg:'#EDE9FE', Icon:Box           },
-  { s:'Ready',      ic:'#D97706', bc:'#FDE68A', bg:'#FFFBEB', iconBg:'#FEF3C7', Icon:Layers        },
-  { s:'Dispatched', ic:'#7C3AED', bc:'#DDD6FE', bg:'#F5F3FF', iconBg:'#EDE9FE', Icon:Send          },
-  { s:'Delivered',  ic:'#059669', bc:'#A7F3D0', bg:'#ECFDF5', iconBg:'#D1FAE5', Icon:ShieldCheck   },
-  { s:'Cancelled',  ic:'#DC2626', bc:'#FECACA', bg:'#FEF2F2', iconBg:'#FEE2E2', Icon:XCircle       },
+  { s:'New',              ic:'#2563EB', bc:'#BFDBFE', bg:'#EFF6FF', iconBg:'#DBEAFE', Icon:ClipboardList },
+  { s:'Accepted',         ic:'#059669', bc:'#A7F3D0', bg:'#F0FDF4', iconBg:'#D1FAE5', Icon:CheckCircle   },
+  { s:'Packing',          ic:'#7C3AED', bc:'#DDD6FE', bg:'#F5F3FF', iconBg:'#EDE9FE', Icon:Box           },
+  { s:'Dispatched',       ic:'#D97706', bc:'#FDE68A', bg:'#FFFBEB', iconBg:'#FEF3C7', Icon:Truck         },
+  { s:'Out for Delivery', ic:'#7C3AED', bc:'#DDD6FE', bg:'#F5F3FF', iconBg:'#EDE9FE', Icon:Send          },
+  { s:'Delivered',        ic:'#059669', bc:'#A7F3D0', bg:'#ECFDF5', iconBg:'#D1FAE5', Icon:ShieldCheck   },
+  { s:'Cancelled',        ic:'#DC2626', bc:'#FECACA', bg:'#FEF2F2', iconBg:'#FEE2E2', Icon:XCircle       },
 ]
 
 const ordId       = o => o._id           || o.id      || ''
@@ -247,7 +234,9 @@ export default function OrderManagement({
   // updates the orders list in-place so the row refreshes immediately.
   const handleAssignStaff = async (orderId, staffId) => {
     if (!staffId) return
-    const staffName = employees.find(u => String(u._id || u.id) === String(staffId) || String(u.user_id) === String(staffId))?.name || ''
+    // staffId is always a plain string (User._id) coming from the dropdown value
+    const resolveUid = u => typeof u.user_id === 'object' && u.user_id ? String(u.user_id._id || u.user_id) : String(u.user_id || '')
+    const staffName = employees.find(u => resolveUid(u) === String(staffId))?.name || ''
     setBusyId(orderId)
     const res = await assignOrder(orderId, staffId, staffName)
     setBusyId(null)
@@ -257,7 +246,7 @@ export default function OrderManagement({
       toast(`✓ Order assigned to ${staffName || 'staff'}`)
       // Also patch the currently-selected detail panel if it's this order
       if (selected && String(ordId(selected)) === String(orderId)) {
-        setSelected(p => ({ ...p, assigned_to: staffId, assigned_to_name: staffName }))
+        setSelected(p => ({ ...p, assigned_to: staffId, assigned_to_name: staffName, assigned_date: new Date().toISOString(), assignment_type: 'MANUAL' }))
       }
     }
   }
@@ -273,6 +262,10 @@ export default function OrderManagement({
     if(packQty>remaining){toast(`You can pack at most ${remaining} ${dispatchForm.unit||''} (remaining)`,true);return}
     if(!dForm.vehicle||!dForm.driver||!dForm.driverMobile||!dForm.transport||!dForm.dispatchDate){
       toast('Fill Vehicle, Driver, Driver Mobile, Transport and Dispatch Date',true);return
+    }
+    // Require at least one of: explicit expected delivery date OR delivery days
+    if(!dForm.expectedDelivery && !dForm.expectedDays){
+      toast('Enter an Expected Delivery Date or Delivery Days',true);return
     }
     const orderId = dispatchForm._id||dispatchForm.id
     let exp = dForm.expectedDelivery
@@ -324,13 +317,10 @@ export default function OrderManagement({
 
   // Simplified per-row actions:
   //   New            → Accept + Cancel
-  //   Accepted/proc. → single "Packing" button (opens packing form)
-  //   Ready          → "Packing" (opens packing form)
-  //   Dispatched     → In Transit
-  //   In Transit     → Delivered
-  const PACK_READY = ['Pending Approval','Approved','Picking Started','Picking Completed',
-    'Sorting Started','Sorting Completed','Packing Started','Packing Completed',
-    'Invoice Generated','Ready for Dispatch','Partially Dispatched']
+  //   New            → Accept + Cancel
+  //   Accepted/Packing → Packing button (opens dispatch form)
+  //   Dispatched     → Out for Delivery button
+  //   Out for Delivery → Mark Delivered
   const openPacking = (o)=>{ setDispatchForm(o); resetDForm(); setDForm(f=>({...f,branch:o.branch_name||'',packQty:String(ordRemaining(o))})) }
   const ActionBtns = ({o})=>{
     const oid=ordId(o); const busy=busyId===oid
@@ -369,7 +359,7 @@ export default function OrderManagement({
         {/* New → Accept + Cancel */}
         {o.status==='New'&&(
           <>
-            <button className="btn btn-primary btn-xs" disabled={busy} onClick={()=>doStatusUpdate(oid,'Pending Approval','Accepted')}>
+            <button className="btn btn-primary btn-xs" disabled={busy} onClick={()=>doStatusUpdate(oid,'Accepted','Accepted')}>
               <CheckCircle style={{width:12}}/>{busy?'…':'Accept'}
             </button>
             <button className="btn btn-danger btn-xs" disabled={busy} onClick={()=>doStatusUpdate(oid,'Cancelled','')}>
@@ -378,24 +368,23 @@ export default function OrderManagement({
           </>
         )}
 
-        {/* Pack (remaining) — show whenever there's still quantity left to pack,
-            even after earlier batches were dispatched/delivered. */}
-        {o.status!=='New'&&o.status!=='Cancelled'&&ordRemaining(o)>0&&(
+        {/* Pack (remaining) — show for Accepted/Packing when quantity still left to dispatch */}
+        {o.status!=='New'&&o.status!=='Cancelled'&&o.status!=='Dispatched'&&o.status!=='Out for Delivery'&&o.status!=='Delivered'&&ordRemaining(o)>0&&(
           <button className="btn btn-primary btn-xs" disabled={busy} onClick={()=>openPacking(o)}>
             <Package style={{width:12}}/>{ordDispatched(o)>0?`Pack (${ordRemaining(o)} left)`:'Packing'}
           </button>
         )}
 
-        {/* Dispatched → In Transit (for the current shipment) */}
+        {/* Dispatched → Out for Delivery */}
         {o.status==='Dispatched'&&(
           <button className="btn btn-primary btn-xs" disabled={busy} onClick={()=>{
             if(o.dispatch_id)markInTransit?.(o.dispatch_id?._id||o.dispatch_id)
-            else doStatusUpdate(oid,'In Transit','In transit')
-          }}><Send style={{width:12}}/>{busy?'…':'In Transit'}</button>
+            else doStatusUpdate(oid,'Out for Delivery','Out for delivery')
+          }}><Send style={{width:12}}/>{busy?'…':'Out for Delivery'}</button>
         )}
 
-        {/* In Transit → Delivered (for the current shipment) */}
-        {o.status==='In Transit'&&(
+        {/* Out for Delivery → Delivered */}
+        {o.status==='Out for Delivery'&&(
           <button className="btn btn-primary btn-xs" style={{background:'var(--success)'}} disabled={busy}
             onClick={()=>{
               if(o.dispatch_id)markDelivered?.(o.dispatch_id?._id||o.dispatch_id)
@@ -522,7 +511,7 @@ export default function OrderManagement({
                   </td>
                   <td>
                     <div className="user-name">{ordCustomer(o)}</div>
-                    <div className="user-role">{o.customer_mobile||o.delivery_address||''}</div>
+                    <div className="user-role">{o.customer_mobile||''}</div>
                   </td>
                   <td style={{fontSize:12,maxWidth:160}}>
                     {ordProduct(o)}
@@ -533,28 +522,36 @@ export default function OrderManagement({
                   <td style={{fontWeight:700,whiteSpace:'nowrap',color:ordRemaining(o)>0?'var(--warning,#D97706)':'var(--success)'}}>{ordRemaining(o)===0?'✓ 0':ordRemaining(o)} {ordRemaining(o)>0?(o.unit||'Pcs'):''}</td>
                   <td style={{fontWeight:700,color:'var(--success)',whiteSpace:'nowrap'}}>₹{ordTotal(o).toLocaleString()}</td>
                   <td style={{fontSize:12}}>
-                    {/* Staff Assignment Dropdown */}
+                    {/* Staff Assignment — badge if assigned + dropdown */}
+                    {o.assigned_to_name && (
+                      <div style={{display:'flex',alignItems:'center',gap:5,marginBottom:5,padding:'3px 7px',background:'#ecfdf5',border:'1px solid #a7f3d0',borderRadius:20,width:'fit-content',maxWidth:160}}>
+                        <div style={{width:18,height:18,borderRadius:'50%',background:'#059669',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:800,fontSize:9,flexShrink:0}}>
+                          {(o.assigned_to_name||'?').charAt(0).toUpperCase()}
+                        </div>
+                        <span style={{fontWeight:700,fontSize:10,color:'#065f46',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',maxWidth:110}}>
+                          {o.assigned_to_name}
+                        </span>
+                      </div>
+                    )}
                     <select
                       className="form-control"
-                      style={{fontSize:11,padding:'4px 8px',minWidth:160,cursor:busyId===ordId(o)?'wait':'pointer'}}
-                      value={o.assigned_to || ''}
+                      style={{fontSize:11,padding:'3px 6px',minWidth:140,cursor:busyId===ordId(o)?'wait':'pointer'}}
+                      value={String(typeof o.assigned_to === 'object' && o.assigned_to ? (o.assigned_to._id || o.assigned_to) : (o.assigned_to || ''))}
                       onChange={(e) => handleAssignStaff(ordId(o), e.target.value)}
                       disabled={busyId===ordId(o)}
                     >
-                      <option value="">— Assign Staff —</option>
+                      <option value="">{o.assigned_to_name ? '— Reassign —' : '— Assign Staff —'}</option>
                       {employees
                         .filter(emp => emp.user_id && emp.is_active !== false)
-                        .map(emp => (
-                          <option key={emp._id || emp.id} value={emp.user_id}>
-                            {emp.name} {emp.designation ? `(${emp.designation})` : ''}
-                          </option>
-                        ))}
+                        .map(emp => {
+                          const uid = typeof emp.user_id === 'object' && emp.user_id ? String(emp.user_id._id || emp.user_id) : String(emp.user_id || '')
+                          return (
+                            <option key={emp._id || emp.id} value={uid}>
+                              {emp.name} {emp.designation ? `(${emp.designation})` : ''}
+                            </option>
+                          )
+                        })}
                     </select>
-                    {o.assigned_to_name && (
-                      <div style={{fontSize:10,color:'var(--text-muted)',marginTop:2}}>
-                        ✓ {o.assigned_to_name}
-                      </div>
-                    )}
                   </td>
                   <td style={{fontSize:11}}>
                     {o.invoice_number
@@ -580,8 +577,8 @@ export default function OrderManagement({
                   <td style={{fontSize:11,whiteSpace:'nowrap'}}>{ordDate(o)}</td>
                   <td>
                     {/* Status badge — read only, no buttons here */}
-                    <span className={`badge ${o.status==='Partially Dispatched'?'badge-orange':STATUS_COLOR[toDisplay(o.status)]||'badge-gray'}`} style={{fontSize:11,whiteSpace:'nowrap'}}>
-                      {o.status==='Partially Dispatched'?'Partial':toDisplay(o.status)}
+                    <span className={`badge ${STATUS_COLOR[toDisplay(o.status)]||'badge-gray'}`} style={{fontSize:11,whiteSpace:'nowrap'}}>
+                      {toDisplay(o.status)}
                     </span>
                   </td>
                   <td><ActionBtns o={o}/></td>
@@ -774,13 +771,73 @@ export default function OrderManagement({
 
               {showHistory?<StatusHistory history={selected.status_history||[]}/>:(
                 <>
+                  {/* Assignment */}
+                  <div style={{background:'var(--bg)',borderRadius:8,padding:'12px 14px',marginBottom:12,border:'1.5px solid var(--border)'}}>
+                    <div style={{fontWeight:700,fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:8,display:'flex',alignItems:'center',gap:6}}>
+                      <span style={{width:8,height:8,borderRadius:'50%',background:selected.assigned_to?'var(--success)':'#d1d5db',display:'inline-block',flexShrink:0}}/>
+                      Staff Assignment
+                    </div>
+
+                    {selected.assigned_to_name ? (
+                      <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+                        {/* Avatar */}
+                        <div style={{width:38,height:38,borderRadius:'50%',background:'var(--primary)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:800,fontSize:15,flexShrink:0}}>
+                          {(selected.assigned_to_name||'?').charAt(0).toUpperCase()}
+                        </div>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontWeight:800,fontSize:13,color:'var(--text)'}}>{selected.assigned_to_name}</div>
+                          {selected.assigned_date&&(
+                            <div style={{fontSize:11,color:'var(--text-muted)',marginTop:2}}>
+                              Assigned {fmtDate(selected.assigned_date)}
+                              {selected.assignment_type&&<span style={{marginLeft:6,padding:'1px 6px',borderRadius:10,background:'#dbeafe',color:'#1d4ed8',fontSize:10,fontWeight:700}}>{selected.assignment_type}</span>}
+                            </div>
+                          )}
+                        </div>
+                        {/* Re-assign dropdown */}
+                        <select
+                          className="form-control"
+                          style={{fontSize:11,padding:'4px 8px',width:'auto',minWidth:140,cursor:'pointer'}}
+                          value={String(typeof selected.assigned_to === 'object' && selected.assigned_to ? (selected.assigned_to._id||selected.assigned_to) : (selected.assigned_to||''))}
+                          onChange={(e) => handleAssignStaff(ordId(selected), e.target.value)}
+                          disabled={!!busyId}
+                        >
+                          <option value="">— Reassign —</option>
+                          {employees.filter(emp => emp.user_id && emp.is_active !== false).map(emp => {
+                            const uid = typeof emp.user_id === 'object' && emp.user_id ? String(emp.user_id._id||emp.user_id) : String(emp.user_id||'')
+                            return <option key={emp._id||emp.id} value={uid}>{emp.name}{emp.designation?` (${emp.designation})`:''}</option>
+                          })}
+                        </select>
+                      </div>
+                    ) : (
+                      <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+                        <div style={{fontSize:12,color:'var(--text-muted)',flex:1}}>No staff assigned yet. Select someone from the list to assign this order.</div>
+                        <select
+                          className="form-control"
+                          style={{fontSize:11,padding:'4px 8px',width:'auto',minWidth:160,cursor:'pointer',borderColor:'var(--primary)'}}
+                          value=""
+                          onChange={(e) => handleAssignStaff(ordId(selected), e.target.value)}
+                          disabled={!!busyId}
+                        >
+                          <option value="">— Assign Staff —</option>
+                          {employees.filter(emp => emp.user_id && emp.is_active !== false).map(emp => {
+                            const uid = typeof emp.user_id === 'object' && emp.user_id ? String(emp.user_id._id||emp.user_id) : String(emp.user_id||'')
+                            return <option key={emp._id||emp.id} value={uid}>{emp.name}{emp.designation?` (${emp.designation})`:''}</option>
+                          })}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+
                   {/* Customer */}
                   <div style={{background:'var(--bg)',borderRadius:8,padding:'12px 14px',marginBottom:12}}>
                     <div style={{fontWeight:700,fontSize:11,color:'var(--text-muted)',textTransform:'uppercase',marginBottom:8}}>Customer</div>
-                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}}>
+                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr',gap:10}}>
                       <div><div style={{fontSize:10,color:'var(--text-muted)'}}>Name</div><div style={{fontWeight:700}}>{selected.customer_name||'—'}</div></div>
                       <div><div style={{fontSize:10,color:'var(--text-muted)'}}>Mobile</div><div style={{fontWeight:600}}>{selected.customer_mobile||'—'}</div></div>
-                      <div><div style={{fontSize:10,color:'var(--text-muted)'}}>Delivery</div><div style={{fontSize:12}}>{selected.delivery_address||selected.location||'—'}</div></div>
+                      <div style={{gridColumn:'span 2'}}>
+                        <div style={{fontSize:10,color:'var(--text-muted)',fontWeight:700,textTransform:'uppercase',letterSpacing:'.04em',marginBottom:2}}>📍 Delivery Address</div>
+                        <div style={{fontSize:12,fontWeight:600,color:'var(--text)',lineHeight:1.5}}>{selected.delivery_address||selected.location||'—'}</div>
+                      </div>
                     </div>
                     {(selected.created_by_name||selected.created_by_company||selected.created_by_mobile||selected.created_by_email)&&(
                       <div style={{marginTop:10,paddingTop:10,borderTop:'1px dashed var(--border)'}}>
@@ -947,20 +1004,31 @@ export default function OrderManagement({
               </div>
 
               {/* Quantity summary strip */}
-              <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8,marginBottom:14}}>
-                {[
-                  {l:'Ordered',   v:ordQtyNum(dispatchForm),    c:'var(--text)'},
-                  {l:'Dispatched',v:ordDispatched(dispatchForm),c:'var(--primary)'},
-                  {l:'Remaining', v:ordRemaining(dispatchForm), c:'#D97706'},
-                  {l:'Packing now',v:Number(dForm.packQty)||0,  c:'var(--success)'},
-                ].map(({l,v,c})=>(
-                  <div key={l} style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 10px',textAlign:'center'}}>
-                    <div style={{fontSize:9,fontWeight:700,textTransform:'uppercase',color:'var(--text-muted)',marginBottom:3}}>{l}</div>
-                    <div style={{fontSize:16,fontWeight:800,color:c}}>{v}</div>
-                    <div style={{fontSize:9,color:'var(--text-muted)'}}>{dispatchForm.unit||'Pcs'}</div>
+              {(() => {
+                const packingNow = Number(dForm.packQty) || 0;
+                const remaining  = ordRemaining(dispatchForm);
+                const isOver     = packingNow > remaining;
+                return (
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8,marginBottom:14}}>
+                    {[
+                      {l:'Ordered',    v:ordQtyNum(dispatchForm),    c:'var(--text)'},
+                      {l:'Dispatched', v:ordDispatched(dispatchForm), c:'var(--primary)'},
+                      {l:'Remaining',  v:remaining,                   c:'#D97706'},
+                      {l:'Packing now',v:packingNow,                  c: isOver ? 'var(--danger)' : 'var(--success)'},
+                    ].map(({l,v,c})=>(
+                      <div key={l} style={{
+                        background: l==='Packing now' && isOver ? 'var(--danger-soft,#FDECEC)' : 'var(--surface)',
+                        border: `1px solid ${l==='Packing now' && isOver ? 'var(--danger)' : 'var(--border)'}`,
+                        borderRadius:8, padding:'8px 10px', textAlign:'center',
+                      }}>
+                        <div style={{fontSize:9,fontWeight:700,textTransform:'uppercase',color:'var(--text-muted)',marginBottom:3}}>{l}</div>
+                        <div style={{fontSize:16,fontWeight:800,color:c}}>{v}</div>
+                        <div style={{fontSize:9,color:'var(--text-muted)'}}>{dispatchForm.unit||'Pcs'}</div>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                );
+              })()}
 
               {/* Pack quantity input */}
               <div className="form-group">
@@ -968,7 +1036,16 @@ export default function OrderManagement({
                 <div style={{display:'flex',gap:8,alignItems:'center'}}>
                   <input className="form-control" type="number" min="1" max={ordRemaining(dispatchForm)}
                     placeholder={`e.g. ${ordRemaining(dispatchForm)}`} value={dForm.packQty}
-                    onChange={e=>setDForm(f=>({...f,packQty:e.target.value}))} style={{maxWidth:180}}/>
+                    onChange={e=>{
+                      const raw = e.target.value;
+                      // Allow clearing the field, but clamp to max remaining on valid input
+                      if(raw === '' || raw === '-'){setDForm(f=>({...f,packQty:raw}));return;}
+                      const num = Number(raw);
+                      const max = ordRemaining(dispatchForm);
+                      const clamped = isNaN(num) ? raw : String(Math.min(Math.max(num, 0), max));
+                      setDForm(f=>({...f,packQty:clamped}));
+                    }}
+                    style={{maxWidth:180}}/>
                   <button type="button" className="btn btn-secondary btn-sm"
                     onClick={()=>setDForm(f=>({...f,packQty:String(ordRemaining(dispatchForm))}))}>
                     Pack all remaining
@@ -976,6 +1053,12 @@ export default function OrderManagement({
                 </div>
                 {(() => {
                   const pq=Number(dForm.packQty)||0
+                  const remaining=ordRemaining(dispatchForm)
+                  if(pq > remaining) return (
+                    <div style={{marginTop:6,fontSize:12,color:'var(--danger)',fontWeight:600}}>
+                      ⚠ Cannot pack more than remaining quantity ({remaining} {dispatchForm.unit||'Pcs'})
+                    </div>
+                  )
                   const amt=pq*(Number(dispatchForm.rate)||0)
                   const gst=Math.round(amt*(Number(dispatchForm.gst_percent)||0)/100)
                   return pq>0?(
@@ -1031,8 +1114,9 @@ export default function OrderManagement({
               </div>
               <div className="form-row">
                 <div className="form-group">
-                  <label className="form-label">Delivery in Days</label>
+                  <label className="form-label">Delivery in Days *</label>
                   <select className="form-control" value={dForm.expectedDays}
+                    style={!dForm.expectedDelivery && !dForm.expectedDays ? {borderColor:'var(--danger)'} : {}}
                     onChange={e=>{
                       const days=e.target.value
                       let auto=''
@@ -1044,15 +1128,27 @@ export default function OrderManagement({
                   </select>
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Expected Delivery Date</label>
-                  <input className="form-control" type="date" value={dForm.expectedDelivery} onChange={e=>setDForm(f=>({...f,expectedDelivery:e.target.value,expectedDays:''}))}/>
+                  <label className="form-label">Expected Delivery Date *</label>
+                  <input className="form-control" type="date" value={dForm.expectedDelivery}
+                    style={!dForm.expectedDelivery && !dForm.expectedDays ? {borderColor:'var(--danger)'} : {}}
+                    onChange={e=>setDForm(f=>({...f,expectedDelivery:e.target.value,expectedDays:''}))}/>
+                  {!dForm.expectedDelivery && !dForm.expectedDays ? (
+                    <small style={{color:'var(--danger)',fontSize:11}}>Required — enter a date or select delivery days</small>
+                  ) : null}
                 </div>
               </div>
               <div className="alert alert-info" style={{fontSize:12}}>ℹ️ This creates an invoice for the packed quantity and dispatches it. Any remaining quantity stays open so you can pack it later.</div>
             </div>
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={()=>setDispatchForm(null)}>Cancel</button>
-              <button className="btn btn-primary" disabled={busyId===(dispatchForm._id||dispatchForm.id)} onClick={handleDispatch}>
+              <button className="btn btn-primary"
+                disabled={
+                  busyId===(dispatchForm._id||dispatchForm.id) ||
+                  Number(dForm.packQty) > ordRemaining(dispatchForm) ||
+                  !Number(dForm.packQty) ||
+                  (!dForm.expectedDelivery && !dForm.expectedDays)
+                }
+                onClick={handleDispatch}>
                 <FileText style={{width:14}}/>{busyId===(dispatchForm._id||dispatchForm.id)?'Processing…':'Create Invoice & Dispatch'}
               </button>
             </div>

@@ -71,8 +71,8 @@ const NAV_CONFIG = [
       { to: '/finance/invoice-management', icon: Receipt,    label: 'Invoice Management',      moduleKey: MODULES.INVOICES },
       { to: '/finance/sales-management',   icon: TrendingUp, label: 'Sales Management',        moduleKey: MODULES.SALES },
       { to: '/finance/expense-management', icon: Receipt,    label: 'Expense Management',      moduleKey: MODULES.EXPENSES },
-      { to: '/finance/payment-management', icon: CreditCard, label: 'Payment Management',      moduleKey: MODULES.PAYMENTS, badgeKey: 'payments' },
-      { to: '/finance/accounts-management',icon: BookOpen,   label: 'Accounts Management',     moduleKey: MODULES.ACCOUNTS },
+      { to: '/finance/payment-management', icon: CreditCard,   label: 'Payment Management',      moduleKey: MODULES.PAYMENTS, badgeKey: 'payments' },
+      { to: '/finance/accounts-management',icon: BookOpen,     label: 'Accounts Management',      moduleKey: MODULES.ACCOUNTS },
       { to: '/finance/profit-loss',        icon: LineChart,  label: 'Profit & Loss Management', moduleKey: MODULES.PROFIT_LOSS },
     ],
   },
@@ -223,8 +223,8 @@ export default function Layout({
   /* badge counts from live ERP state */
   const unreadNotifs   = notifications.filter(n => !n.read).length
   const newEnquiries   = enquiries.filter(e => e.status === 'New').length
-  const pendingOrders  = orders.filter(o => ['Accepted', 'Processing'].includes(o.status)).length
-  const pendingDisp    = orders.filter(o => o.status === 'Ready').length
+  const pendingOrders  = orders.filter(o => ['New', 'Accepted', 'Packing'].includes(o.status)).length
+  const pendingDisp    = orders.filter(o => o.status === 'Dispatched').length
   const pendingPay     = Array.isArray(payments?.receivables)
     ? payments.receivables.filter(r => r.status === 'Pending').length : 0
 
