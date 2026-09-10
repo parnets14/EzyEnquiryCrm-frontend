@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Building2, FileText, Upload, CheckCircle, Clock, XCircle,
   Phone, Mail, RefreshCw, Save, X, Eye, Crown, Edit2,
-  Trash2, Download, Pencil, AlertCircle, Plus, Search
+  Trash2, Download, Pencil, AlertCircle, Plus, Search, Ban, RotateCcw
 } from 'lucide-react'
 import { companyApi } from '../api/companyApi'
 import jsPDF from 'jspdf'
@@ -20,9 +20,10 @@ const PLAN_COLORS = {
   Free: 'badge-gray', Silver: 'badge-cyan', Gold: 'badge-yellow', Platinum: 'badge-purple',
 }
 const statusMeta = {
-  Approved: { color: 'badge-green',  icon: <CheckCircle style={{ width: 13 }} /> },
-  Pending:  { color: 'badge-yellow', icon: <Clock       style={{ width: 13 }} /> },
-  Rejected: { color: 'badge-red',    icon: <XCircle     style={{ width: 13 }} /> },
+  Approved:  { color: 'badge-green',  icon: <CheckCircle style={{ width: 13 }} /> },
+  Pending:   { color: 'badge-yellow', icon: <Clock       style={{ width: 13 }} /> },
+  Rejected:  { color: 'badge-red',    icon: <XCircle     style={{ width: 13 }} /> },
+  Suspended: { color: 'badge-red',    icon: <Ban         style={{ width: 13 }} /> },
 }
 
 // Blank company template — no static/mock data. Real records come from the API.
@@ -77,6 +78,8 @@ export default function CompanyRegistration() {
   const [viewCompany, setViewCompany] = useState(null)
   const [rejectReason, setRejectReason] = useState('')
   const [showRejectModal, setShowRejectModal] = useState(null)
+  const [suspendReason, setSuspendReason] = useState('')
+  const [showSuspendModal, setShowSuspendModal] = useState(null)
   const [editCompany, setEditCompany] = useState(null)
   const [editForm, setEditForm] = useState({})
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(null)
@@ -294,6 +297,30 @@ export default function CompanyRegistration() {
     }
     setShowRejectModal(null)
     setRejectReason('')
+  }
+
+  const suspendCompany = async (id, reason) => {
+    const company = allCompanies.find(c => c.id === id || c._id === id)
+    const dbId = company?._id || id
+    try {
+      await companyApi.suspend(dbId, reason)
+      await fetchApprovalQueue()
+    } catch (err) {
+      setApiError(err?.response?.data?.message || 'Failed to suspend the company. Please try again.')
+    }
+    setShowSuspendModal(null)
+    setSuspendReason('')
+  }
+
+  const reactivateCompany = async (id) => {
+    const company = allCompanies.find(c => c.id === id || c._id === id)
+    const dbId = company?._id || id
+    try {
+      await companyApi.reactivate(dbId)
+      await fetchApprovalQueue()
+    } catch (err) {
+      setApiError(err?.response?.data?.message || 'Failed to reactivate the company. Please try again.')
+    }
   }
 
   const approveDocuments = async (company) => {
@@ -1626,6 +1653,26 @@ export default function CompanyRegistration() {
                               onClick={() => approveCompany(c.id)}
                             ><RefreshCw style={{ width: 13 }} /></button>
                           )}
+
+                          {/* Suspend — approved company; instantly blocks app access */}
+                          {c.status === 'Approved' && (
+                            <button
+                              title="Suspend"
+                              className="btn btn-danger btn-xs"
+                              style={{ padding: '4px 7px', minWidth: 0 }}
+                              onClick={() => setShowSuspendModal(c.id)}
+                            ><Ban style={{ width: 13 }} /></button>
+                          )}
+
+                          {/* Reactivate — suspended company */}
+                          {c.status === 'Suspended' && (
+                            <button
+                              title="Reactivate"
+                              className="btn btn-success btn-xs"
+                              style={{ padding: '4px 7px', minWidth: 0 }}
+                              onClick={() => reactivateCompany(c.id)}
+                            ><RotateCcw style={{ width: 13 }} /></button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -2024,6 +2071,33 @@ export default function CompanyRegistration() {
                   <button className="btn btn-danger btn-sm" disabled={!rejectReason.trim()} style={{ opacity: rejectReason.trim() ? 1 : 0.5 }}
                     onClick={() => rejectCompany(showRejectModal, rejectReason)}>
                     <XCircle style={{ width: 13 }} />Confirm Reject
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Suspend Reason Modal */}
+          {showSuspendModal && (
+            <div className="modal-overlay" onClick={() => setShowSuspendModal(null)}>
+              <div className="modal" style={{ maxWidth: 400 }} onClick={e => e.stopPropagation()}>
+                <div className="modal-header">
+                  <span className="modal-title">Suspend Company</span>
+                  <button className="modal-close" onClick={() => setShowSuspendModal(null)}><X /></button>
+                </div>
+                <div className="modal-body">
+                  <div className="alert alert-warning" style={{ marginBottom: 12 }}>
+                    <AlertCircle style={{ width: 15 }} /><span>The wholesaler will lose app access immediately.</span>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Suspension Reason</label>
+                    <textarea className="form-control" rows={3} placeholder="Reason (shown to the wholesaler)…" value={suspendReason} onChange={e => setSuspendReason(e.target.value)} />
+                  </div>
+                </div>
+                <div className="modal-footer">
+                  <button className="btn btn-secondary btn-sm" onClick={() => setShowSuspendModal(null)}>Cancel</button>
+                  <button className="btn btn-danger btn-sm" onClick={() => suspendCompany(showSuspendModal, suspendReason)}>
+                    <Ban style={{ width: 13 }} />Confirm Suspend
                   </button>
                 </div>
               </div>

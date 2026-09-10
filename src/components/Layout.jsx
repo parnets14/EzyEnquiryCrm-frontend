@@ -10,7 +10,7 @@ import {
   UserCog,
   FileBarChart, PieChart,
   Bell, FolderOpen, Settings, UserCircle, LogOut,
-  ChevronDown, Menu, X, Layers,
+  ChevronDown, Menu, X, Layers, ScrollText,
 } from 'lucide-react'
 import { useState, useEffect, useMemo } from 'react'
 import logoImg from '/logo.png'
@@ -61,6 +61,7 @@ const NAV_CONFIG = [
       { to: '/wholesaler/products',         icon: Package,      label: 'Wholesaler Products' },
       { to: '/wholesaler/purchase-orders',  icon: ShoppingCart, label: 'Purchase Orders' },
       { to: '/wholesaler/product-requests', icon: FileEdit,     label: 'Product Requests' },
+      { to: '/wholesaler/activity',         icon: BarChart3,    label: 'Platform Activity' },
     ],
   },
   {
@@ -103,6 +104,7 @@ const NAV_CONFIG = [
       { to: '/system/notification-management', icon: Bell,       label: 'Notification Management', moduleKey: MODULES.NOTIFICATIONS, badgeKey: 'notifs' },
       { to: '/system/document-management',     icon: FolderOpen, label: 'Document Management',     moduleKey: MODULES.DOCUMENTS },
       { to: '/system/subscription',            icon: CreditCard, label: 'Subscription',            moduleKey: MODULES.SUBSCRIPTION },
+      { to: '/system/audit-log',               icon: ScrollText, label: 'Audit Log',               moduleKey: MODULES.AUDIT },
       { to: '/system/profile',                 icon: UserCircle, label: 'My Account',              moduleKey: MODULES.PROFILE },
     ],
   },

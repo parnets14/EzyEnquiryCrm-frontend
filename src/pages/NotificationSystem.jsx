@@ -1,5 +1,7 @@
-import { useState } from 'react'
-import { Bell, CheckCircle, Package, ShoppingCart, Truck, CreditCard, MessageSquare } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Bell, CheckCircle, Package, ShoppingCart, Truck, CreditCard, MessageSquare, Send, X, Megaphone } from 'lucide-react'
+import { notificationApi } from '../api/systemApi'
+import { companyApi } from '../api/companyApi'
 
 const TYPE_CONFIG = {
   enquiry:  { Icon: MessageSquare, color: '#4F46E5', bg: '#eef2ff',  badgeCls: 'badge-blue'   },
@@ -30,6 +32,53 @@ const TYPE_FILTERS = [
 
 export default function NotificationSystem({ notifications = [], markNotifRead, markAllNotifsRead, deleteNotif }) {
   const [filter, setFilter] = useState('all')
+
+  // ── Compose / broadcast (Super Admin) ──────────────────────
+  const isSuperAdmin = (() => {
+    try { return JSON.parse(localStorage.getItem('user') || '{}')?.role === 'Super Admin' } catch { return false }
+  })()
+  const [showCompose, setShowCompose] = useState(false)
+  const [companies, setCompanies] = useState([])
+  const [composeMode, setComposeMode] = useState('single') // 'single' | 'broadcast'
+  const [compose, setCompose] = useState({ company_id: '', title: '', message: '', type: 'info', status: 'Approved' })
+  const [sending, setSending] = useState(false)
+  const [composeMsg, setComposeMsg] = useState(null)
+
+  useEffect(() => {
+    if (!showCompose || companies.length > 0 || !isSuperAdmin) return
+    companyApi.list({ limit: 500 })
+      .then(res => setCompanies(res?.data?.companies || res?.companies || res?.data || []))
+      .catch(() => {})
+  }, [showCompose, isSuperAdmin]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const submitCompose = async () => {
+    setComposeMsg(null)
+    if (!compose.title.trim() || !compose.message.trim()) {
+      setComposeMsg({ ok: false, text: 'Title and message are required.' }); return
+    }
+    if (composeMode === 'single' && !compose.company_id) {
+      setComposeMsg({ ok: false, text: 'Please select a company.' }); return
+    }
+    setSending(true)
+    try {
+      if (composeMode === 'broadcast') {
+        const r = await notificationApi.broadcast({
+          title: compose.title.trim(), message: compose.message.trim(), type: compose.type, status: compose.status,
+        })
+        setComposeMsg({ ok: true, text: r?.message || 'Broadcast sent.' })
+      } else {
+        const r = await notificationApi.send({
+          company_id: compose.company_id, title: compose.title.trim(), message: compose.message.trim(), type: compose.type,
+        })
+        setComposeMsg({ ok: true, text: r?.message || 'Notification sent.' })
+      }
+      setCompose(c => ({ ...c, title: '', message: '' }))
+    } catch (e) {
+      setComposeMsg({ ok: false, text: e?.response?.data?.message || e?.message || 'Failed to send.' })
+    } finally {
+      setSending(false)
+    }
+  }
 
   // Normalize both old (read/msg/time) and new (is_read/message/created_at) shapes
   const normalize = (n) => ({
@@ -97,6 +146,11 @@ export default function NotificationSystem({ notifications = [], markNotifRead, 
         <div className="card-header">
           <span className="card-title">Notifications ({filtered.length})</span>
           <div className="header-actions">
+            {isSuperAdmin && (
+              <button className="btn btn-primary btn-sm" onClick={() => { setShowCompose(true); setComposeMsg(null) }}>
+                <Send style={{ width: 13 }} />Send Notification
+              </button>
+            )}
             {unreadCount > 0 && (
               <button className="btn btn-secondary btn-sm" onClick={handleMarkAllRead}>
                 <CheckCircle style={{ width: 13 }} />Mark All Read
@@ -174,6 +228,99 @@ export default function NotificationSystem({ notifications = [], markNotifRead, 
           })}
         </div>
       </div>
+
+      {/* ── Compose / Broadcast modal (Super Admin) ────────────── */}
+      {showCompose && (
+        <div className="modal-overlay" onClick={() => !sending && setShowCompose(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div className="card" onClick={e => e.stopPropagation()}
+            style={{ width: 'min(520px, 94vw)', maxHeight: '90vh', overflowY: 'auto', margin: 0 }}>
+            <div className="card-header">
+              <span className="card-title">Send Notification</span>
+              <button onClick={() => !sending && setShowCompose(false)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
+                <X style={{ width: 16 }} />
+              </button>
+            </div>
+            <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {/* Mode toggle */}
+              <div className="tabs" style={{ borderBottom: '1px solid var(--border)' }}>
+                <button className={`tab-btn${composeMode === 'single' ? ' active' : ''}`} onClick={() => setComposeMode('single')}>
+                  <Send style={{ width: 12, marginRight: 4 }} />One Company
+                </button>
+                <button className={`tab-btn${composeMode === 'broadcast' ? ' active' : ''}`} onClick={() => setComposeMode('broadcast')}>
+                  <Megaphone style={{ width: 12, marginRight: 4 }} />Broadcast
+                </button>
+              </div>
+
+              {composeMode === 'single' ? (
+                <div>
+                  <label className="form-label">Company *</label>
+                  <select className="form-input" value={compose.company_id}
+                    onChange={e => setCompose(c => ({ ...c, company_id: e.target.value }))}>
+                    <option value="">— Select a company —</option>
+                    {companies.map(c => (
+                      <option key={c._id || c.id} value={c._id || c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div>
+                  <label className="form-label">Send to companies with status</label>
+                  <select className="form-input" value={compose.status}
+                    onChange={e => setCompose(c => ({ ...c, status: e.target.value }))}>
+                    <option value="Approved">Approved only</option>
+                    <option value="All">All companies</option>
+                    <option value="Pending">Pending</option>
+                    <option value="Suspended">Suspended</option>
+                  </select>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: 12 }}>
+                <div style={{ flex: 1 }}>
+                  <label className="form-label">Title *</label>
+                  <input className="form-input" value={compose.title} maxLength={120}
+                    onChange={e => setCompose(c => ({ ...c, title: e.target.value }))} placeholder="e.g. Scheduled maintenance" />
+                </div>
+                <div style={{ width: 130 }}>
+                  <label className="form-label">Type</label>
+                  <select className="form-input" value={compose.type}
+                    onChange={e => setCompose(c => ({ ...c, type: e.target.value }))}>
+                    <option value="info">Info</option>
+                    <option value="payment">Payment</option>
+                    <option value="order">Order</option>
+                    <option value="enquiry">Enquiry</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="form-label">Message *</label>
+                <textarea className="form-input" rows={4} value={compose.message} maxLength={600}
+                  onChange={e => setCompose(c => ({ ...c, message: e.target.value }))}
+                  placeholder="Write the message the wholesalers will receive…" />
+              </div>
+
+              {composeMsg && (
+                <div style={{
+                  fontSize: 12.5, padding: '8px 12px', borderRadius: 8,
+                  background: composeMsg.ok ? '#f0fdf4' : '#fef2f2',
+                  color: composeMsg.ok ? '#15803d' : '#b91c1c',
+                  border: `1px solid ${composeMsg.ok ? '#bbf7d0' : '#fecaca'}`,
+                }}>{composeMsg.text}</div>
+              )}
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                <button className="btn btn-secondary btn-sm" disabled={sending} onClick={() => setShowCompose(false)}>Close</button>
+                <button className="btn btn-primary btn-sm" disabled={sending} onClick={submitCompose}>
+                  {sending ? 'Sending…' : composeMode === 'broadcast' ? 'Send Broadcast' : 'Send'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   )

@@ -38,6 +38,17 @@ Object.assign(wholesalerApi, {
   deleteProduct: (id) =>
     api.delete(`/wholesaler/all-products/${id}`).then(r => r.data),
 
+  // ── Cross-company visibility (Super Admin) ──
+  listOrders:       (params = {}) => api.get('/wholesaler/all-orders',       { params: { limit: 200, ...params } }).then(r => r.data),
+  listEnquiries:    (params = {}) => api.get('/wholesaler/all-enquiries',    { params: { limit: 200, ...params } }).then(r => r.data),
+  listUsers:        (params = {}) => api.get('/wholesaler/all-users',        { params: { limit: 200, ...params } }).then(r => r.data),
+  listTransactions: (params = {}) => api.get('/wholesaler/all-transactions', { params: { limit: 200, ...params } }).then(r => r.data),
+
+  // Subscriptions (Super Admin): per-company plans, revenue, set plan
+  listSubscriptions: ()          => api.get('/subscriptions/admin/all').then(r => r.data),
+  revenue:           ()          => api.get('/subscriptions/admin/revenue').then(r => r.data),
+  setCompanyPlan:    (companyId, data) => api.patch(`/subscriptions/company/${companyId}`, data).then(r => r.data),
+
   // Purchase-order approve/reject (Super Admin). Approve → Order Management + Invoice.
   getPurchase: (id) =>
     api.get(`/wholesaler/all-purchases/${id}`).then(r => r.data),
