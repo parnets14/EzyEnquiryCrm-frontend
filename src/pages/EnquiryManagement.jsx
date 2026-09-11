@@ -213,12 +213,12 @@ export default function EnquiryManagement({
       const result = await updateEnquiry?.(eid(editEnquiry), payload)
       setSaving(false)
       if (result?.success === false) { toast(`Error: ${result.message}`); return }
-      toast(`✓ Enquiry ${enqCode(editEnquiry)} updated`)
+      toast(`✓ Quotation ${enqCode(editEnquiry)} updated`)
     } else {
       // CREATE new enquiry
       await addEnquiry?.(payload)
       setSaving(false)
-      toast('✓ Enquiry submitted successfully')
+      toast('✓ Quotation submitted successfully')
     }
 
     setShowNewModal(false)
@@ -237,7 +237,7 @@ export default function EnquiryManagement({
     if (result?.success === false) {
       toast(`Error: ${result.message}`)
     } else {
-      toast(`✓ Enquiry ${deleteConfirm.code} deleted`)
+      toast(`✓ Quotation ${deleteConfirm.code} deleted`)
       setDeleteConfirm(null)
       if (selected && eid(selected) === deleteConfirm.id) setSelected(null)
     }
@@ -299,7 +299,7 @@ export default function EnquiryManagement({
     <>
       <div className="breadcrumb">
         <span>Marketplace</span><span className="breadcrumb-sep">›</span>
-        <span className="breadcrumb-active">Enquiry Management</span>
+        <span className="breadcrumb-active">Quotation Management</span>
       </div>
 
       {/* Toast */}
@@ -371,7 +371,7 @@ export default function EnquiryManagement({
       <div className="card" style={{ width: '100%' }}>
         <div className="card-header">
           <span className="card-title">
-            {isRetailer ? 'My Enquiries' : 'Enquiries'} ({filtered.length})
+            {isRetailer ? 'My Quotations' : 'Quotations'} ({filtered.length})
           </span>
           <div className="header-actions">
             <div className="search-bar">
@@ -389,7 +389,7 @@ export default function EnquiryManagement({
             {/* Only Retailers / Sales staff can raise new enquiries */}
             {!isRetailer || userRole === 'Retailer' ? (
               <button className="btn btn-primary" onClick={() => { setShowNewModal(true); setNewForm(EMPTY_FORM); setSelectedProduct(null); setEnqErrors({}) }}>
-                <Plus />New Enquiry
+                <Plus />New Quotation
               </button>
             ) : null}
             {/* Wholesalers see a role badge instead */}
@@ -405,7 +405,7 @@ export default function EnquiryManagement({
           <table>
             <thead>
               <tr>
-                <th>Enq ID</th><th>Retailer</th><th>Product</th>
+                <th>Quot. ID</th><th>Retailer</th><th>Product</th>
                 <th>Qty</th><th>Location</th><th>Offered ₹</th><th>Date</th>
                 <th>Status</th><th>Actions</th>
               </tr>
@@ -435,11 +435,11 @@ export default function EnquiryManagement({
                         <Eye style={{ width: 13 }} />
                       </button>
                       {/* Edit button */}
-                      <button className="btn btn-ghost btn-xs" title="Edit Enquiry" onClick={() => openEdit(e)}>
+                      <button className="btn btn-ghost btn-xs" title="Edit Quotation" onClick={() => openEdit(e)}>
                         <Edit2 style={{ width: 13 }} />
                       </button>
                       {/* Delete button */}
-                      <button className="btn btn-ghost btn-xs" title="Delete Enquiry"
+                      <button className="btn btn-ghost btn-xs" title="Delete Quotation"
                         style={{ color: 'var(--danger)' }}
                         onClick={() => setDeleteConfirm({ id: eid(e), code: enqCode(e) })}>
                         <Trash2 style={{ width: 13 }} />
@@ -469,7 +469,7 @@ export default function EnquiryManagement({
               {filtered.length === 0 && (
                 <tr>
                   <td colSpan={9} style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}>
-                    No enquiries found
+                    No quotations found
                   </td>
                 </tr>
               )}
@@ -489,7 +489,7 @@ export default function EnquiryManagement({
             {/* Header */}
             <div className="modal-header">
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span className="modal-title">Enquiry — {enqCode(selected)}</span>
+                <span className="modal-title">Quotation — {enqCode(selected)}</span>
                 <span className={`badge ${STATUS_META[selected.status]?.color || 'badge-gray'}`}>
                   {selected.status}
                 </span>
@@ -805,7 +805,7 @@ export default function EnquiryManagement({
         <div className="modal-overlay" onClick={() => setShowNewModal(false)}>
           <div className="modal" style={{ maxWidth: 640 }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <span className="modal-title">{editEnquiry ? `Edit Enquiry — ${enqCode(editEnquiry)}` : 'Raise New Enquiry'}</span>
+              <span className="modal-title">{editEnquiry ? `Edit Quotation — ${enqCode(editEnquiry)}` : 'Raise New Quotation'}</span>
               <button className="btn-ghost" onClick={() => { setShowNewModal(false); setEditEnquiry(null) }}><X style={{ width: 16 }} /></button>
             </div>
             <div className="modal-body">
@@ -1039,7 +1039,7 @@ export default function EnquiryManagement({
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => { setShowNewModal(false); setEditEnquiry(null) }}>Cancel</button>
               <button className="btn btn-primary" disabled={saving} onClick={handleNewEnquiry}>
-                {saving ? (editEnquiry ? 'Updating…' : 'Submitting…') : (editEnquiry ? 'Update Enquiry' : 'Submit Enquiry')}
+                {saving ? (editEnquiry ? 'Updating…' : 'Submitting…') : (editEnquiry ? 'Update Quotation' : 'Submit Quotation')}
               </button>
             </div>
           </div>
@@ -1051,14 +1051,14 @@ export default function EnquiryManagement({
         <div className="modal-overlay" onClick={() => setDeleteConfirm(null)}>
           <div className="modal" style={{ maxWidth: 400 }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <span className="modal-title">Delete Enquiry</span>
+              <span className="modal-title">Delete Quotation</span>
               <button className="btn-ghost" onClick={() => setDeleteConfirm(null)}>✕</button>
             </div>
             <div className="modal-body">
               <div className="alert alert-danger" style={{ marginBottom: 0 }}>
                 <Trash2 style={{ width: 16, flexShrink: 0 }} />
                 <span>
-                  Delete enquiry <strong>{deleteConfirm.code}</strong>?
+                  Delete quotation <strong>{deleteConfirm.code}</strong>?
                   This cannot be undone. Any linked order will remain.
                 </span>
               </div>
@@ -1066,7 +1066,7 @@ export default function EnquiryManagement({
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setDeleteConfirm(null)}>Cancel</button>
               <button className="btn btn-danger" disabled={deleting} onClick={handleDelete}>
-                {deleting ? 'Deleting…' : 'Delete Enquiry'}
+                {deleting ? 'Deleting…' : 'Delete Quotation'}
               </button>
             </div>
           </div>

@@ -50,7 +50,7 @@ const NAV_CONFIG = [
   {
     type: 'section', key: 'b2b', label: 'Marketplace Management', icon: ShoppingCart,
     items: [
-      { to: '/marketplace/enquiry-management',icon: MessageSquare, label: 'Enquiry Management',  moduleKey: MODULES.ENQUIRIES, badgeKey: 'enquiries' },
+      { to: '/marketplace/enquiry-management',icon: MessageSquare, label: 'Quotation Management',  moduleKey: MODULES.ENQUIRIES, badgeKey: 'enquiries' },
       { to: '/marketplace/order-management',  icon: ShoppingCart,  label: 'Order Management',    moduleKey: MODULES.ORDERS,    badgeKey: 'orders' },
       { to: '/marketplace/dispatch-management',icon: Truck,        label: 'Dispatch Management', moduleKey: MODULES.DISPATCHES, badgeKey: 'dispatch' },
     ],

@@ -221,7 +221,17 @@ export default function AccountsModule({
       {/* ══════════ COMPANY LEDGER ══════════ */}
       {tab === 'company' && (
         <div className="card">
-          <div className="card-header"><span className="card-title">Company Ledger — all transactions</span></div>
+          <div className="card-header" style={{ justifyContent:'space-between' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+              <span className="card-title">Company Ledger — all transactions</span>
+              <span style={{ fontSize:10, fontWeight:800, background:'#ecfdf5', color:'#059669', border:'1px solid #a7f3d0', borderRadius:20, padding:'2px 8px' }}>● Live</span>
+            </div>
+            <button className="btn btn-secondary btn-sm" onClick={fetchCompany} disabled={compLoading}
+              style={{ display:'flex', alignItems:'center', gap:6 }}>
+              <RefreshCw size={13} style={{ animation: compLoading ? 'spin 1s linear infinite' : 'none' }}/>
+              Refresh
+            </button>
+          </div>
           <div className="card-body">
             <DateRange from={compFrom} setFrom={setCompFrom} to={compTo} setTo={setCompTo} loading={compLoading} onApply={fetchCompany} />
             {company && (
