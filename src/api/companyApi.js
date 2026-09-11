@@ -38,6 +38,18 @@ export const companyApi = {
   reject: (id, reject_reason = '') =>
     api.patch(`/companies/${id}/reject`, { reject_reason }).then(r => r.data),
 
+  // ── Request document resubmission (Super Admin) ──────────
+  requestResubmit: (id, reason = '', docs = []) =>
+    api.patch(`/companies/${id}/request-resubmit`, { reason, docs }).then(r => r.data),
+
+  // ── Suspend company — blocks app access in real time (Super Admin) ──
+  suspend: (id, reason = '') =>
+    api.patch(`/companies/${id}/suspend`, { reason }).then(r => r.data),
+
+  // ── Reactivate a suspended company (Super Admin) ─────────
+  reactivate: (id) =>
+    api.patch(`/companies/${id}/reactivate`).then(r => r.data),
+
   // ── Update document status ────────────────────────────────
   updateDocs: (id, docs) =>
     api.patch(`/companies/${id}/docs`, docs).then(r => r.data),

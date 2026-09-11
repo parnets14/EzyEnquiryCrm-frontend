@@ -17,7 +17,7 @@ export const MODULES = {
   QUOTATIONS: 'quotations', INVOICES: 'invoices', SALES: 'sales', EXPENSES: 'expenses', PAYMENTS: 'payments', ACCOUNTS: 'accounts', PROFIT_LOSS: 'profit_loss',
   EMPLOYEE_MASTER: 'employee_master', EMPLOYEE_MANAGEMENT: 'employees', ATTENDANCE: 'attendance', SALARY: 'salary',
   DASHBOARD_ANALYTICS: 'reports', REPORT_CENTER: 'reports',
-  DOCUMENTS: 'documents', SUBSCRIPTION: 'subscriptions',
+  DOCUMENTS: 'documents', SUBSCRIPTION: 'subscriptions', AUDIT: 'audit',
 }
 
 export const ACTIONS = {

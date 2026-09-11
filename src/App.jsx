@@ -16,6 +16,7 @@ import ProductManagement from './pages/ProductManagement'
 import WholesalerProducts from './pages/WholesalerProducts'
 import WholesalerPurchaseOrders from './pages/WholesalerPurchaseOrders'
 import WholesalerProductRequests from './pages/WholesalerProductRequests'
+import WholesalerActivity from './pages/WholesalerActivity'
 import InventoryManagement from './pages/InventoryManagement'
 import StockTransfer from './pages/StockTransfer'
 
@@ -36,6 +37,7 @@ import EmployeeManagement from './pages/EmployeeManagement'
 import EmployeeMasterManagement from './pages/EmployeeMasterManagement'
 import RolePermissions from './pages/RolePermissions'
 import NotificationSystem from './pages/NotificationSystem'
+import AuditLog from './pages/AuditLog'
 import ReportCenter from './pages/ReportCenter'
 import DashboardAnalytics from './pages/DashboardAnalytics'
 import WarehouseManagement from './pages/WarehouseManagement'
@@ -116,6 +118,7 @@ function AppRoutes() {
         <Route path="wholesaler/products"        element={<WholesalerProducts />} />
         <Route path="wholesaler/purchase-orders" element={<WholesalerPurchaseOrders />} />
         <Route path="wholesaler/product-requests" element={<WholesalerProductRequests />} />
+        <Route path="wholesaler/activity"          element={<WholesalerActivity />} />
         {/* Back-compat: old single page → redirect to products */}
         <Route path="wholesaler-items" element={<Navigate to="/wholesaler/products" replace />} />
 
@@ -182,6 +185,7 @@ function AppRoutes() {
         <Route path="system/document-management"
           element={<RequireAccess module={MODULES.DOCUMENTS}><DocumentManagement /></RequireAccess>} />
         <Route path="system/subscription"   element={<RequireAccess module={MODULES.SUBSCRIPTION}><SubscriptionSystem /></RequireAccess>} />
+        <Route path="system/audit-log"      element={<AuditLog />} />
         <Route path="system/profile"        element={<RequireAccess module={MODULES.PROFILE}><Profile /></RequireAccess>} />
         <Route path="subscription"          element={<RequireAccess module={MODULES.SUBSCRIPTION}><SubscriptionSystem /></RequireAccess>} />
       </Route>

@@ -22,6 +22,21 @@ export const notificationApi = {
 
   delete: (id) =>
     api.delete(`/notifications/${id}`).then(r => r.data),
+
+  // Super Admin — send to a single company. Body: { company_id, title, message, type? }
+  send: (data) =>
+    api.post('/notifications', data).then(r => r.data),
+
+  // Super Admin — broadcast to all companies. Body: { title, message, type?, status? }
+  broadcast: (data) =>
+    api.post('/notifications/broadcast', data).then(r => r.data),
+}
+
+// ── Audit Logs ────────────────────────────────────────────────
+export const auditLogApi = {
+  // params: { module, action, user_id, from_date, to_date, page, limit }
+  list: (params = {}) =>
+    api.get('/audit-logs', { params }).then(r => r.data),
 }
 
 // ── Documents ─────────────────────────────────────────────────
