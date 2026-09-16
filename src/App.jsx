@@ -46,6 +46,7 @@ import Profile from './pages/Profile'
 import SubscriptionSystem from './pages/SubscriptionSystem'
 import QuotationManager from './pages/QuotationManager'
 import InvoiceManagement from './pages/InvoiceManagement'
+import GradientCalculation from './pages/GradientCalculation'
 
 import './index.css'
 
@@ -188,6 +189,10 @@ function AppRoutes() {
         <Route path="system/audit-log"      element={<AuditLog />} />
         <Route path="system/profile"        element={<RequireAccess module={MODULES.PROFILE}><Profile /></RequireAccess>} />
         <Route path="subscription"          element={<RequireAccess module={MODULES.SUBSCRIPTION}><SubscriptionSystem /></RequireAccess>} />
+
+        {/* ── Tools ────────────────────────────────────── */}
+        <Route path="tools/gradient-calculation"
+          element={<RequireAccess module={MODULES.GRADIENT_CALC}><GradientCalculation /></RequireAccess>} />
       </Route>
 
       <Route path="*" element={<Navigate to="/dashboard" replace />} />

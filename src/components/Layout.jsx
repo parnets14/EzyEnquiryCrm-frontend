@@ -10,7 +10,7 @@ import {
   UserCog,
   FileBarChart, PieChart,
   Bell, FolderOpen, Settings, UserCircle, LogOut,
-  ChevronDown, Menu, X, Layers, ScrollText,
+  ChevronDown, Menu, X, Layers, ScrollText, Calculator,
 } from 'lucide-react'
 import { useState, useEffect, useMemo } from 'react'
 import logoImg from '/logo.png'
@@ -96,6 +96,12 @@ const NAV_CONFIG = [
     items: [
       { to: '/reports/dashboard-analytics', icon: PieChart,     label: 'Dashboard Analytics', moduleKey: MODULES.DASHBOARD_ANALYTICS },
       { to: '/reports/report-center',       icon: FileBarChart, label: 'Report Center',       moduleKey: MODULES.REPORT_CENTER },
+    ],
+  },
+  {
+    type: 'section', key: 'tools', label: 'Tools', icon: Calculator,
+    items: [
+      { to: '/tools/gradient-calculation', icon: Calculator, label: 'Gradient Calculation', moduleKey: MODULES.GRADIENT_CALC },
     ],
   },
   {
