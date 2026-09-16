@@ -738,8 +738,8 @@ function QuotationModal({ editData, products: propProducts, enquiries, onSave, o
 
   const validate = () => {
     const e = {}
-    if (!(form.enquiry_id || (form.customer_name||'').trim()))
-      e.customer_name = 'Customer / Retailer is required (select enquiry or type name)'
+    if (!(form.customer_name||'').trim())
+      e.customer_name = 'Customer / Retailer name is required'
     if (!form.quotation_date) e.quotation_date = 'Quotation date is required'
     if (!form.items.some(r => r.product_name || r.product_id)) e.items = 'Add at least one product'
     if (!(form.delivery_no||'').trim()) e.delivery_no = 'Delivery address is required'
@@ -833,16 +833,6 @@ function QuotationModal({ editData, products: propProducts, enquiries, onSave, o
             </div>
 
             <div>
-              <label className="form-label">Enquiry <span style={{ color:'var(--danger)' }}>*</span></label>
-              <EnquirySelect value={form.enquiry_id} onChange={pickEnquiry} enquiries={enquiries} />
-              {form.enquiry_id && (
-                <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:3 }}>
-                  Ref: <span style={{ fontWeight:700, color:'#FD5C02', fontFamily:'monospace' }}>{form.enquiry_no}</span>
-                </div>
-              )}
-            </div>
-
-            <div>
               <label className="form-label">Quotation Date <span style={{ color:'var(--danger)' }}>*</span></label>
               <input {...fc(errors.quotation_date ? { borderColor:'var(--danger)' } : {})}
                 type="date" value={form.quotation_date}
@@ -878,36 +868,21 @@ function QuotationModal({ editData, products: propProducts, enquiries, onSave, o
               <label className="form-label">Customer / Retailer <span style={{ color:'var(--danger)' }}>*</span></label>
               <input {...fc()} value={form.customer_name}
                 onChange={e => set('customer_name', e.target.value)}
-                placeholder="Auto-filled from enquiry or type name"
+                placeholder="Customer or retailer name"
                 className={`form-control${errors.customer_name ? ' error' : ''}`} />
               {errors.customer_name && <div className="form-error">{errors.customer_name}</div>}
-              {form.enquiry_id && form.customer_name && (
-                <div style={{ fontSize:11, color:'var(--success)', marginTop:3, display:'flex', gap:4, alignItems:'center' }}>
-                  <CheckCircle size={11}/> Auto-filled from enquiry
-                </div>
-              )}
             </div>
             <div>
               <label className="form-label">Mobile</label>
               <input {...fc()} type="tel" value={form.customer_phone}
                 onChange={e => set('customer_phone', e.target.value)}
-                placeholder="Auto-filled from enquiry" />
-              {form.enquiry_id && form.customer_phone && (
-                <div style={{ fontSize:11, color:'var(--success)', marginTop:3, display:'flex', gap:4, alignItems:'center' }}>
-                  <CheckCircle size={11}/> Auto-filled
-                </div>
-              )}
+                placeholder="Mobile number" />
             </div>
             <div>
               <label className="form-label">Email</label>
               <input {...fc()} type="email" value={form.customer_email}
                 onChange={e => set('customer_email', e.target.value)}
-                placeholder="Auto-filled from enquiry" />
-              {form.enquiry_id && form.customer_email && (
-                <div style={{ fontSize:11, color:'var(--success)', marginTop:3, display:'flex', gap:4, alignItems:'center' }}>
-                  <CheckCircle size={11}/> Auto-filled
-                </div>
-              )}
+                placeholder="Email address" />
             </div>
           </div>
           </div>
@@ -1090,12 +1065,6 @@ function ViewModal({ q, onClose, onPrint }) {
                 {sm.label}
               </span>
             </div>
-            {q.enquiry_no && (
-              <div style={{ fontSize:12, color:'var(--text-muted)', marginTop:4 }}>
-                Enquiry Ref:&nbsp;
-                <span style={{ fontFamily:'monospace', fontWeight:700, color:'#FD5C02' }}>{q.enquiry_no}</span>
-              </div>
-            )}
           </div>
           <div style={{ display:'flex', gap:8, flexShrink:0 }}>
             <button className="btn btn-secondary btn-sm" onClick={onPrint}>
@@ -1115,9 +1084,8 @@ function ViewModal({ q, onClose, onPrint }) {
             color:'#FD5C02', marginBottom:12, paddingBottom:6, borderBottom:'2px solid #FFF3EC' }}>
             Quotation Information
           </div>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10, marginBottom:20 }}>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:20 }}>
             <InfoCard label="Quotation #"    value={q.quotation_no}       accent="#FD5C02"/>
-            <InfoCard label="Enquiry Ref"    value={q.enquiry_no}         accent="#FD5C02"/>
             <InfoCard label="Quotation Date" value={fmtDate(q.quotation_date)}/>
             <InfoCard label="Valid Until"    value={fmtDate(q.valid_until)}/>
           </div>

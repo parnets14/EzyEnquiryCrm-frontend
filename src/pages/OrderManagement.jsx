@@ -83,9 +83,6 @@ const ordDate     = o => {
   const d = o.order_date || o.created_at
   return d ? new Date(d).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}) : ''
 }
-const ordEnqCode    = o => o.enquiry_code || ''
-const ordHasEnqLink = o => !!(o.enquiry_id)
-const ordEnqLabel   = o => o.enquiry_code || (o.enquiry_id ? String(o.enquiry_id).slice(-8) : '')
 const fmtDate    = d => d ? new Date(d).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}) : '—'
 
 // Partial-fulfillment quantity accessors
@@ -118,9 +115,6 @@ export default function OrderManagement({
   const [errorMsg,     setErrorMsg]    = useState('')
   const [busyId,       setBusyId]      = useState(null)
   const [deleteConfirm,setDeleteConfirm]=useState(null)
-
-  // Enquiry detail popup state
-  const [selectedEnquiry, setSelectedEnquiry] = useState(null)
 
   const [form,       setForm]      = useState(EMPTY_FORM)
   const [formErrors, setFormErrors]= useState({})
@@ -310,7 +304,6 @@ export default function OrderManagement({
       ordCustomer(o).toLowerCase().includes(q)||
       ordCode(o).toLowerCase().includes(q)||
       ordProduct(o).toLowerCase().includes(q)||
-      ordEnqCode(o).toLowerCase().includes(q)||
       (o.branch_name||'').toLowerCase().includes(q)
     return matchStatus&&matchBranch&&matchSearch
   })
@@ -368,8 +361,8 @@ export default function OrderManagement({
           </>
         )}
 
-        {/* Pack (remaining) — show for Accepted/Packing when quantity still left to dispatch */}
-        {o.status!=='New'&&o.status!=='Cancelled'&&o.status!=='Dispatched'&&o.status!=='Out for Delivery'&&o.status!=='Delivered'&&ordRemaining(o)>0&&(
+        {/* Pack (remaining) — show whenever quantity still left to dispatch, even if status is Delivered (partial delivery) */}
+        {o.status!=='New'&&o.status!=='Cancelled'&&ordRemaining(o)>0&&(
           <button className="btn btn-primary btn-xs" disabled={busy} onClick={()=>openPacking(o)}>
             <Package style={{width:12}}/>{ordDispatched(o)>0?`Pack (${ordRemaining(o)} left)`:'Packing'}
           </button>
@@ -479,7 +472,7 @@ export default function OrderManagement({
           <table>
             <thead>
               <tr>
-                <th>Order No.</th><th>Enq. Ref</th><th>Customer</th><th>Product</th>
+                <th>Order No.</th><th>Customer</th><th>Product</th>
                 <th>Ordered</th><th>Dispatched</th><th>Remaining</th><th>Total ₹</th><th>Assigned To</th><th>Invoice No.</th><th>Vehicle / Driver</th><th>Date</th><th>Status</th><th>Actions</th>
               </tr>
             </thead>
@@ -493,22 +486,6 @@ export default function OrderManagement({
                 return (
                 <tr key={ordId(o)}>
                   <td style={{color:'var(--primary)',fontWeight:700,whiteSpace:'nowrap'}}>{ordCode(o)}</td>
-                  <td style={{fontSize:11}}>
-                    {ordEnqCode(o)
-                      ? (
-                        <button
-                          className="btn btn-ghost btn-xs"
-                          style={{color:'var(--primary)',fontWeight:700,fontSize:11,padding:'2px 6px',fontFamily:'monospace'}}
-                          onClick={()=>{
-                            const enq = enquiries.find(e=>(e.enq_code===ordEnqCode(o))||(e._id||e.id)===o.enquiry_id)
-                            if(enq) setSelectedEnquiry(enq)
-                          }}
-                          title="Click to view enquiry details">
-                          🔗 {ordEnqCode(o)}
-                        </button>
-                      )
-                      : <span style={{color:'var(--text-muted)'}}>—</span>}
-                  </td>
                   <td>
                     <div className="user-name">{ordCustomer(o)}</div>
                     <div className="user-role">{o.customer_mobile||''}</div>
@@ -576,10 +553,17 @@ export default function OrderManagement({
                   </td>
                   <td style={{fontSize:11,whiteSpace:'nowrap'}}>{ordDate(o)}</td>
                   <td>
-                    {/* Status badge — read only, no buttons here */}
+                    {/* Status badge — show "Partial" when some qty dispatched but more remains */}
                     <span className={`badge ${STATUS_COLOR[toDisplay(o.status)]||'badge-gray'}`} style={{fontSize:11,whiteSpace:'nowrap'}}>
                       {toDisplay(o.status)}
                     </span>
+                    {ordDispatched(o) > 0 && ordRemaining(o) > 0 && (
+                      <div style={{marginTop:4}}>
+                        <span style={{fontSize:10,fontWeight:800,background:'#fff7ed',color:'#c2410c',border:'1px solid #fed7aa',borderRadius:20,padding:'2px 7px',whiteSpace:'nowrap'}}>
+                          ⚠ {ordRemaining(o)} {o.unit||''} remaining
+                        </span>
+                      </div>
+                    )}
                   </td>
                   <td><ActionBtns o={o}/></td>
                 </tr>
@@ -1156,46 +1140,6 @@ export default function OrderManagement({
         </div>
       )}
 
-      {/* ══ ENQUIRY DETAIL POPUP ══ */}
-      {selectedEnquiry&&(
-        <div className="modal-overlay" onClick={()=>setSelectedEnquiry(null)}>
-          <div className="modal" style={{maxWidth:520}} onClick={e=>e.stopPropagation()}>
-            <div className="modal-header">
-              <span className="modal-title">Enquiry — {selectedEnquiry.enq_code||selectedEnquiry._id}</span>
-              <button className="btn-ghost" onClick={()=>setSelectedEnquiry(null)}>✕</button>
-            </div>
-            <div className="modal-body">
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:12}}>
-                <div><div style={{fontSize:10,color:'var(--text-muted)',fontWeight:700,textTransform:'uppercase',marginBottom:2}}>Retailer</div><div style={{fontWeight:700}}>{selectedEnquiry.retailer_name||'—'}</div></div>
-                <div><div style={{fontSize:10,color:'var(--text-muted)',fontWeight:700,textTransform:'uppercase',marginBottom:2}}>Mobile</div><div style={{fontWeight:600}}>{selectedEnquiry.retailer_mobile||'—'}</div></div>
-                <div><div style={{fontSize:10,color:'var(--text-muted)',fontWeight:700,textTransform:'uppercase',marginBottom:2}}>Product</div><div style={{fontWeight:600}}>{selectedEnquiry.product_name||'—'}</div></div>
-                <div><div style={{fontSize:10,color:'var(--text-muted)',fontWeight:700,textTransform:'uppercase',marginBottom:2}}>Quantity</div><div style={{fontWeight:700}}>{selectedEnquiry.qty} {selectedEnquiry.unit||'Sq Ft'}</div></div>
-                <div><div style={{fontSize:10,color:'var(--text-muted)',fontWeight:700,textTransform:'uppercase',marginBottom:2}}>Offered Price</div><div style={{fontWeight:700,color:'var(--success)'}}>₹{(selectedEnquiry.offered_price||0).toLocaleString()}</div></div>
-                <div><div style={{fontSize:10,color:'var(--text-muted)',fontWeight:700,textTransform:'uppercase',marginBottom:2}}>Location</div><div style={{fontWeight:600}}>{selectedEnquiry.location||'—'}</div></div>
-                <div><div style={{fontSize:10,color:'var(--text-muted)',fontWeight:700,textTransform:'uppercase',marginBottom:2}}>Status</div>
-                  <span className={`badge ${selectedEnquiry.status==='Confirmed'?'badge-green':selectedEnquiry.status==='Cancelled'?'badge-red':'badge-blue'}`}>{selectedEnquiry.status}</span>
-                </div>
-                <div><div style={{fontSize:10,color:'var(--text-muted)',fontWeight:700,textTransform:'uppercase',marginBottom:2}}>Date</div>
-                  <div style={{fontSize:12}}>{selectedEnquiry.created_at?new Date(selectedEnquiry.created_at).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}):'—'}</div>
-                </div>
-              </div>
-              {selectedEnquiry.remarks&&(
-                <div style={{padding:'8px 12px',background:'var(--bg)',borderRadius:8,fontSize:12,color:'var(--text-muted)',borderLeft:'3px solid var(--primary)'}}>
-                  <strong>Remarks:</strong> {selectedEnquiry.remarks}
-                </div>
-              )}
-              {selectedEnquiry.distributor_reply&&(
-                <div style={{marginTop:8,padding:'8px 12px',background:'#f0fdf4',borderRadius:8,fontSize:12,color:'#065f46',borderLeft:'3px solid #10b981'}}>
-                  <strong>Reply:</strong> {selectedEnquiry.distributor_reply}
-                </div>
-              )}
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={()=>setSelectedEnquiry(null)}>Close</button>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   )
 }
