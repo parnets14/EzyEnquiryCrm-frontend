@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import {
   Search, Eye, Truck, Package, CheckCircle, ClipboardList,
   Layers, Send, ShieldCheck, XCircle, FileText, Box, AlertCircle,
@@ -98,10 +98,46 @@ const EMPTY_FORM = {
 }
 
 export default function OrderManagement({
-  branches=[], orders=[], inventory=[], products=[], customers=[], dispatches=[], enquiries=[], employees=[],
+  branches=[], orders=[], inventory=[], products=[], customers=[], dispatches=[], enquiries=[], employees=[], users=[],
   updateOrderStatus, createDispatch, markDelivered, markInTransit, addOrder, deleteOrder, packOrder, assignOrder,
 }) {
   const branchNames = branches.map(b=>b.name||b).filter(Boolean)
+
+  // ── Assignable staff list ──────────────────────────────────
+  // Orders can be assigned to a login-capable staff member. We merge TWO
+  // sources so it works regardless of how the staff was created:
+  //   1. HR Employees that have a linked user_id (created via HR module)
+  //   2. Users with a staff role (created via Staff Management page)
+  // Each entry is normalised to { _id, name, designation, user_id } where
+  // user_id is the User._id used as the assignment target.
+  const STAFF_ROLES = ['Manager', 'Accountant', 'Sales Executive', 'Warehouse Staff']
+  const assignableStaff = useMemo(() => {
+    const out = []
+    const seen = new Set()
+
+    // 1. HR employees with a linked user account
+    ;(employees || []).forEach(emp => {
+      if (!emp.user_id || emp.is_active === false) return
+      const uid = typeof emp.user_id === 'object' && emp.user_id
+        ? String(emp.user_id._id || emp.user_id)
+        : String(emp.user_id || '')
+      if (!uid || seen.has(uid)) return
+      seen.add(uid)
+      out.push({ _id: emp._id || uid, name: emp.name, designation: emp.designation || '', user_id: uid })
+    })
+
+    // 2. Users added via Staff Management (staff roles, active)
+    ;(users || []).forEach(u => {
+      if (u.is_active === false) return
+      if (!STAFF_ROLES.includes(u.role)) return
+      const uid = String(u._id || '')
+      if (!uid || seen.has(uid)) return
+      seen.add(uid)
+      out.push({ _id: uid, name: u.name, designation: u.role || '', user_id: uid })
+    })
+
+    return out.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+  }, [employees, users])
 
   const [search,       setSearch]      = useState('')
   const [statusFilter, setStatusFilter]= useState('All')
@@ -228,9 +264,8 @@ export default function OrderManagement({
   // updates the orders list in-place so the row refreshes immediately.
   const handleAssignStaff = async (orderId, staffId) => {
     if (!staffId) return
-    // staffId is always a plain string (User._id) coming from the dropdown value
-    const resolveUid = u => typeof u.user_id === 'object' && u.user_id ? String(u.user_id._id || u.user_id) : String(u.user_id || '')
-    const staffName = employees.find(u => resolveUid(u) === String(staffId))?.name || ''
+    // staffId is a plain User._id from the dropdown; resolve the name from the merged list.
+    const staffName = assignableStaff.find(s => String(s.user_id) === String(staffId))?.name || ''
     setBusyId(orderId)
     const res = await assignOrder(orderId, staffId, staffName)
     setBusyId(null)
@@ -518,16 +553,11 @@ export default function OrderManagement({
                       disabled={busyId===ordId(o)}
                     >
                       <option value="">{o.assigned_to_name ? '— Reassign —' : '— Assign Staff —'}</option>
-                      {employees
-                        .filter(emp => emp.user_id && emp.is_active !== false)
-                        .map(emp => {
-                          const uid = typeof emp.user_id === 'object' && emp.user_id ? String(emp.user_id._id || emp.user_id) : String(emp.user_id || '')
-                          return (
-                            <option key={emp._id || emp.id} value={uid}>
-                              {emp.name} {emp.designation ? `(${emp.designation})` : ''}
-                            </option>
-                          )
-                        })}
+                      {assignableStaff.map(s => (
+                        <option key={s.user_id} value={s.user_id}>
+                          {s.name} {s.designation ? `(${s.designation})` : ''}
+                        </option>
+                      ))}
                     </select>
                   </td>
                   <td style={{fontSize:11}}>
@@ -786,9 +816,9 @@ export default function OrderManagement({
                           disabled={!!busyId}
                         >
                           <option value="">— Reassign —</option>
-                          {employees.filter(emp => emp.user_id && emp.is_active !== false).map(emp => {
-                            const uid = typeof emp.user_id === 'object' && emp.user_id ? String(emp.user_id._id||emp.user_id) : String(emp.user_id||'')
-                            return <option key={emp._id||emp.id} value={uid}>{emp.name}{emp.designation?` (${emp.designation})`:''}</option>
+                          {assignableStaff.map(s => {
+                            const uid = s.user_id
+                            return <option key={uid} value={uid}>{s.name}{s.designation?` (${s.designation})`:''}</option>
                           })}
                         </select>
                       </div>
@@ -803,9 +833,9 @@ export default function OrderManagement({
                           disabled={!!busyId}
                         >
                           <option value="">— Assign Staff —</option>
-                          {employees.filter(emp => emp.user_id && emp.is_active !== false).map(emp => {
-                            const uid = typeof emp.user_id === 'object' && emp.user_id ? String(emp.user_id._id||emp.user_id) : String(emp.user_id||'')
-                            return <option key={emp._id||emp.id} value={uid}>{emp.name}{emp.designation?` (${emp.designation})`:''}</option>
+                          {assignableStaff.map(s => {
+                            const uid = s.user_id
+                            return <option key={uid} value={uid}>{s.name}{s.designation?` (${s.designation})`:''}</option>
                           })}
                         </select>
                       </div>
