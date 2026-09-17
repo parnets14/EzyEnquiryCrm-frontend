@@ -17,6 +17,9 @@ import WholesalerProducts from './pages/WholesalerProducts'
 import WholesalerPurchaseOrders from './pages/WholesalerPurchaseOrders'
 import WholesalerProductRequests from './pages/WholesalerProductRequests'
 import WholesalerActivity from './pages/WholesalerActivity'
+import WholesalerManagement from './pages/WholesalerManagement'
+import RetailerManagement from './pages/RetailerManagement'
+import StaffManagement from './pages/StaffManagement'
 import InventoryManagement from './pages/InventoryManagement'
 import StockTransfer from './pages/StockTransfer'
 
@@ -115,13 +118,23 @@ function AppRoutes() {
         <Route path="product-management/products"
           element={<RequireAccess module={MODULES.PRODUCTS}><ProductManagement products={products} categories={categories} subCategories={subCategories} brands={brands} {...erpCtx} /></RequireAccess>} />
 
-        {/* ── Wholesaler ───────────────────────────────── */}
-        <Route path="wholesaler/products"        element={<WholesalerProducts />} />
-        <Route path="wholesaler/purchase-orders" element={<WholesalerPurchaseOrders />} />
-        <Route path="wholesaler/product-requests" element={<WholesalerProductRequests />} />
-        <Route path="wholesaler/activity"          element={<WholesalerActivity />} />
-        {/* Back-compat: old single page → redirect to products */}
-        <Route path="wholesaler-items" element={<Navigate to="/wholesaler/products" replace />} />
+        {/* ── Wholesaler (new unified hub) ─────────────── */}
+        <Route path="wholesaler-management"
+          element={<RequireAccess module={MODULES.WHOLESALER_MGMT}><WholesalerManagement /></RequireAccess>} />
+        {/* Back-compat: old sub-pages → redirect to unified hub */}
+        <Route path="wholesaler/products"         element={<Navigate to="/wholesaler-management" replace />} />
+        <Route path="wholesaler/purchase-orders"  element={<Navigate to="/wholesaler-management" replace />} />
+        <Route path="wholesaler/product-requests" element={<Navigate to="/wholesaler-management" replace />} />
+        <Route path="wholesaler/activity"         element={<Navigate to="/wholesaler-management" replace />} />
+        <Route path="wholesaler-items"            element={<Navigate to="/wholesaler-management" replace />} />
+
+        {/* ── Retailer Management ──────────────────────── */}
+        <Route path="retailer-management"
+          element={<RequireAccess module={MODULES.RETAILER_MGMT}><RetailerManagement /></RequireAccess>} />
+
+        {/* ── Staff Management ─────────────────────────── */}
+        <Route path="staff/staff-management"
+          element={<RequireAccess module={MODULES.STAFF_MGMT}><StaffManagement /></RequireAccess>} />
 
         {/* ── Purchase & Inventory ─────────────────────── */}
         <Route path="purchase-inventory/supplier-management"

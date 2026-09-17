@@ -7,7 +7,7 @@ import {
   MessageSquare, ShoppingCart, Truck,
   UserCheck, Target, CalendarClock,
   TrendingUp, Receipt, CreditCard, BookOpen, LineChart, FileEdit,
-  UserCog,
+  UserCog, UserPlus, Store,
   FileBarChart, PieChart,
   Bell, FolderOpen, Settings, UserCircle, LogOut,
   ChevronDown, Menu, X, Layers, ScrollText, Calculator,
@@ -21,97 +21,132 @@ const BRAND = { orange: '#F26522', blue: '#1E2D4A', navy: '#1E2D4A' }
 
 const NAV_CONFIG = [
   { type: 'item', to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', moduleKey: MODULES.DASHBOARD },
+
+  // ── Company ───────────────────────────────────────────────
   {
     type: 'section', key: 'company', label: 'Company Management', icon: Building2,
     items: [
-      { to: '/company-management/company-registration', icon: Building2, label: 'Company Registration', moduleKey: MODULES.COMPANY_REGISTRATION },
+      { to: '/company-management/company-registration', icon: Building2, label: 'Company Registration',  moduleKey: MODULES.COMPANY_REGISTRATION },
       { to: '/company-management/branch-management',    icon: GitBranch, label: 'Branch Management',     moduleKey: MODULES.BRANCH_MANAGEMENT },
       { to: '/company-management/user-management',      icon: Users,     label: 'User & Role Management', moduleKey: MODULES.USER_MANAGEMENT },
     ],
   },
+
+  // ── Staff Management (mobile OTP login for Staff App) ────
+  {
+    type: 'section', key: 'staff', label: 'Staff Management', icon: UserPlus,
+    items: [
+      { to: '/staff/staff-management', icon: UserPlus, label: 'Staff Members', moduleKey: MODULES.STAFF_MGMT },
+    ],
+  },
+
+  // ── Wholesaler App connections ────────────────────────────
+  {
+    type: 'section', key: 'wholesaler-mgmt', label: 'Wholesaler Management', icon: Warehouse,
+    items: [
+      { to: '/wholesaler-management', icon: Warehouse, label: 'Wholesaler Dashboard', moduleKey: MODULES.WHOLESALER_MGMT },
+    ],
+  },
+
+  // ── Retailer App connections ──────────────────────────────
+  {
+    type: 'section', key: 'retailer-mgmt', label: 'Retailer Management', icon: Store,
+    items: [
+      { to: '/retailer-management', icon: Store, label: 'Retailer Dashboard', moduleKey: MODULES.RETAILER_MGMT },
+    ],
+  },
+
+  // ── Products ──────────────────────────────────────────────
   {
     type: 'section', key: 'product-setup', label: 'Product Management', icon: Package,
     items: [
-      { to: '/product-management/categories',  icon: Tag,     label: 'Categories',          moduleKey: MODULES.CATEGORIES },
-      { to: '/product-management/brands',      icon: Tag,     label: 'Brands',              moduleKey: MODULES.BRANDS },
-      { to: '/product-management/products',    icon: Package, label: 'Products Management', moduleKey: MODULES.PRODUCTS },
+      { to: '/product-management/categories', icon: Tag,     label: 'Categories',          moduleKey: MODULES.CATEGORIES },
+      { to: '/product-management/brands',     icon: Tag,     label: 'Brands',              moduleKey: MODULES.BRANDS },
+      { to: '/product-management/products',   icon: Package, label: 'Products Management', moduleKey: MODULES.PRODUCTS },
     ],
   },
+
+  // ── Purchase & Inventory ──────────────────────────────────
   {
-    type: 'section', key: 'purchase-inventory', label: 'Purchase & Inventory Management', icon: ShoppingBag,
+    type: 'section', key: 'purchase-inventory', label: 'Purchase & Inventory', icon: ShoppingBag,
     items: [
-      { to: '/purchase-inventory/supplier-management',    icon: Building2,      label: 'Supplier Management',       moduleKey: MODULES.SUPPLIERS },
-      { to: '/purchase-inventory/purchase-management',    icon: PackagePlus,    label: 'Purchase Management',       moduleKey: MODULES.PURCHASES },
-      { to: '/purchase-inventory/warehouse-management',   icon: Warehouse,      label: 'Warehouse Management',      moduleKey: MODULES.WAREHOUSES },
-      { to: '/purchase-inventory/inventory-management',   icon: BarChart3,      label: 'Inventory Management',      moduleKey: MODULES.INVENTORY },
-      { to: '/purchase-inventory/stock-transfer',         icon: ArrowLeftRight, label: 'Stock Transfer Management', moduleKey: MODULES.STOCK_TRANSFER },
+      { to: '/purchase-inventory/supplier-management',  icon: Building2,      label: 'Supplier Management',       moduleKey: MODULES.SUPPLIERS },
+      { to: '/purchase-inventory/purchase-management',  icon: PackagePlus,    label: 'Purchase Management',       moduleKey: MODULES.PURCHASES },
+      { to: '/purchase-inventory/warehouse-management', icon: Warehouse,      label: 'Warehouse Management',      moduleKey: MODULES.WAREHOUSES },
+      { to: '/purchase-inventory/inventory-management', icon: BarChart3,      label: 'Inventory Management',      moduleKey: MODULES.INVENTORY },
+      { to: '/purchase-inventory/stock-transfer',       icon: ArrowLeftRight, label: 'Stock Transfer',            moduleKey: MODULES.STOCK_TRANSFER },
     ],
   },
+
+  // ── Marketplace ───────────────────────────────────────────
   {
     type: 'section', key: 'b2b', label: 'Marketplace Management', icon: ShoppingCart,
     items: [
-      { to: '/marketplace/enquiry-management',icon: MessageSquare, label: 'Quotation Management',  moduleKey: MODULES.ENQUIRIES, badgeKey: 'enquiries' },
-      { to: '/marketplace/order-management',  icon: ShoppingCart,  label: 'Order Management',    moduleKey: MODULES.ORDERS,    badgeKey: 'orders' },
-      { to: '/marketplace/dispatch-management',icon: Truck,        label: 'Dispatch Management', moduleKey: MODULES.DISPATCHES, badgeKey: 'dispatch' },
+      { to: '/marketplace/enquiry-management',  icon: MessageSquare, label: 'Quotation Management', moduleKey: MODULES.ENQUIRIES,  badgeKey: 'enquiries' },
+      { to: '/marketplace/order-management',    icon: ShoppingCart,  label: 'Order Management',     moduleKey: MODULES.ORDERS,    badgeKey: 'orders' },
+      { to: '/marketplace/dispatch-management', icon: Truck,         label: 'Dispatch Management',  moduleKey: MODULES.DISPATCHES, badgeKey: 'dispatch' },
     ],
   },
-  {
-    type: 'section', key: 'wholesaler', label: 'Wholesaler Management', icon: Warehouse,
-    items: [
-      { to: '/wholesaler/products',         icon: Package,      label: 'Wholesaler Products' },
-      { to: '/wholesaler/purchase-orders',  icon: ShoppingCart, label: 'Purchase Orders' },
-      { to: '/wholesaler/product-requests', icon: FileEdit,     label: 'Product Requests' },
-      { to: '/wholesaler/activity',         icon: BarChart3,    label: 'Platform Activity' },
-    ],
-  },
+
+  // ── Finance ───────────────────────────────────────────────
   {
     type: 'section', key: 'finance', label: 'Finance Management', icon: TrendingUp,
     items: [
-      { to: '/finance/quotation-manager',  icon: FileEdit,   label: 'Quotation Manager',       moduleKey: MODULES.QUOTATIONS },
-      { to: '/finance/invoice-management', icon: Receipt,    label: 'Invoice Management',      moduleKey: MODULES.INVOICES },
-      { to: '/finance/sales-management',   icon: TrendingUp, label: 'Sales Management',        moduleKey: MODULES.SALES },
-      { to: '/finance/expense-management', icon: Receipt,    label: 'Expense Management',      moduleKey: MODULES.EXPENSES },
-      { to: '/finance/payment-management', icon: CreditCard,   label: 'Payment Management',      moduleKey: MODULES.PAYMENTS, badgeKey: 'payments' },
-      { to: '/finance/accounts-management',icon: BookOpen,     label: 'Accounts Management',      moduleKey: MODULES.ACCOUNTS },
-      { to: '/finance/profit-loss',        icon: LineChart,  label: 'Profit & Loss Management', moduleKey: MODULES.PROFIT_LOSS },
+      { to: '/finance/quotation-manager',   icon: FileEdit,  label: 'Quotation Manager',        moduleKey: MODULES.QUOTATIONS },
+      { to: '/finance/invoice-management',  icon: Receipt,   label: 'Invoice Management',       moduleKey: MODULES.INVOICES },
+      { to: '/finance/sales-management',    icon: TrendingUp,label: 'Sales Management',         moduleKey: MODULES.SALES },
+      { to: '/finance/expense-management',  icon: Receipt,   label: 'Expense Management',       moduleKey: MODULES.EXPENSES },
+      { to: '/finance/payment-management',  icon: CreditCard,label: 'Payment Management',       moduleKey: MODULES.PAYMENTS, badgeKey: 'payments' },
+      { to: '/finance/accounts-management', icon: BookOpen,  label: 'Accounts Management',      moduleKey: MODULES.ACCOUNTS },
+      { to: '/finance/profit-loss',         icon: LineChart, label: 'Profit & Loss',            moduleKey: MODULES.PROFIT_LOSS },
     ],
   },
+
+  // ── CRM ───────────────────────────────────────────────────
   {
     type: 'section', key: 'crm', label: 'CRM Management', icon: UserCheck,
     items: [
-      { to: '/crm/customer-management', icon: UserCheck,     label: 'Customer Management', moduleKey: MODULES.CUSTOMERS },
-      { to: '/crm/lead-management',     icon: Target,        label: 'Lead Management',     moduleKey: MODULES.LEADS },
+      { to: '/crm/customer-management', icon: UserCheck,     label: 'Customer Management',  moduleKey: MODULES.CUSTOMERS },
+      { to: '/crm/lead-management',     icon: Target,        label: 'Lead Management',      moduleKey: MODULES.LEADS },
       { to: '/crm/followup-management', icon: CalendarClock, label: 'Follow-up Management', moduleKey: MODULES.FOLLOWUPS },
     ],
   },
+
+  // ── HR ────────────────────────────────────────────────────
   {
     type: 'section', key: 'hr', label: 'HR Management', icon: UserCog,
     items: [
-      { to: '/hr/employee-master',     icon: Layers,   label: 'Employee Master Management', moduleKey: MODULES.EMPLOYEE_MASTER },
-      { to: '/hr/employee-management', icon: UserCog,  label: 'Employee Management',        moduleKey: MODULES.EMPLOYEE_MANAGEMENT },
+      { to: '/hr/employee-master',     icon: Layers,  label: 'Employee Master',    moduleKey: MODULES.EMPLOYEE_MASTER },
+      { to: '/hr/employee-management', icon: UserCog, label: 'Employee Management', moduleKey: MODULES.EMPLOYEE_MANAGEMENT },
     ],
   },
+
+  // ── Reports ───────────────────────────────────────────────
   {
-    type: 'section', key: 'reports', label: 'Reports Management', icon: FileBarChart,
+    type: 'section', key: 'reports', label: 'Reports', icon: FileBarChart,
     items: [
       { to: '/reports/dashboard-analytics', icon: PieChart,     label: 'Dashboard Analytics', moduleKey: MODULES.DASHBOARD_ANALYTICS },
       { to: '/reports/report-center',       icon: FileBarChart, label: 'Report Center',       moduleKey: MODULES.REPORT_CENTER },
     ],
   },
+
+  // ── Tools ─────────────────────────────────────────────────
   {
     type: 'section', key: 'tools', label: 'Tools', icon: Calculator,
     items: [
       { to: '/tools/gradient-calculation', icon: Calculator, label: 'Gradient Calculation', moduleKey: MODULES.GRADIENT_CALC },
     ],
   },
+
+  // ── System ────────────────────────────────────────────────
   {
     type: 'section', key: 'system', label: 'System Management', icon: Settings,
     items: [
-      { to: '/system/notification-management', icon: Bell,       label: 'Notification Management', moduleKey: MODULES.NOTIFICATIONS, badgeKey: 'notifs' },
-      { to: '/system/document-management',     icon: FolderOpen, label: 'Document Management',     moduleKey: MODULES.DOCUMENTS },
-      { to: '/system/subscription',            icon: CreditCard, label: 'Subscription',            moduleKey: MODULES.SUBSCRIPTION },
-      { to: '/system/audit-log',               icon: ScrollText, label: 'Audit Log',               moduleKey: MODULES.AUDIT },
-      { to: '/system/profile',                 icon: UserCircle, label: 'My Account',              moduleKey: MODULES.PROFILE },
+      { to: '/system/notification-management', icon: Bell,       label: 'Notifications',       moduleKey: MODULES.NOTIFICATIONS, badgeKey: 'notifs' },
+      { to: '/system/document-management',     icon: FolderOpen, label: 'Document Management', moduleKey: MODULES.DOCUMENTS },
+      { to: '/system/subscription',            icon: CreditCard, label: 'Subscription',        moduleKey: MODULES.SUBSCRIPTION },
+      { to: '/system/audit-log',               icon: ScrollText, label: 'Audit Log',           moduleKey: MODULES.AUDIT },
+      { to: '/system/profile',                 icon: UserCircle, label: 'My Account',          moduleKey: MODULES.PROFILE },
     ],
   },
 ]

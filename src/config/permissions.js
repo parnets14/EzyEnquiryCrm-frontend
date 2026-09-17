@@ -19,6 +19,10 @@ export const MODULES = {
   DASHBOARD_ANALYTICS: 'reports', REPORT_CENTER: 'reports',
   DOCUMENTS: 'documents', SUBSCRIPTION: 'subscriptions', AUDIT: 'audit',
   GRADIENT_CALC: 'gradient_calc',
+  // App-connection management sections (Super Admin / Company Owner only)
+  WHOLESALER_MGMT: 'wholesaler_mgmt',
+  RETAILER_MGMT: 'retailer_mgmt',
+  STAFF_MGMT: 'staff_mgmt',
 }
 
 export const ACTIONS = {
@@ -37,7 +41,7 @@ const COMMON = [M.DASHBOARD, M.PROFILE, M.NOTIFICATIONS]
 export const ROLE_VIEW_MODULES = {
   'Super Admin': '*',
   'Company Owner': '*',
-  'Manager': [...COMMON, M.CATEGORIES, M.BRANDS, M.PRODUCTS, M.SUPPLIERS, M.WAREHOUSES, M.INVENTORY, M.STOCK_TRANSFER, M.PRODUCT_SEARCH, M.ENQUIRIES, M.ORDERS, M.DISPATCHES, M.CUSTOMERS, M.LEADS, M.FOLLOWUPS, M.EMPLOYEE_MANAGEMENT, M.ATTENDANCE, M.REPORT_CENTER, M.GRADIENT_CALC],
+  'Manager': [...COMMON, M.CATEGORIES, M.BRANDS, M.PRODUCTS, M.SUPPLIERS, M.WAREHOUSES, M.INVENTORY, M.STOCK_TRANSFER, M.PRODUCT_SEARCH, M.ENQUIRIES, M.ORDERS, M.DISPATCHES, M.CUSTOMERS, M.LEADS, M.FOLLOWUPS, M.EMPLOYEE_MANAGEMENT, M.ATTENDANCE, M.REPORT_CENTER, M.GRADIENT_CALC, M.STAFF_MGMT],
   'Accountant': [...COMMON, M.SUPPLIERS, M.PURCHASES, M.CUSTOMERS, M.QUOTATIONS, M.INVOICES, M.SALES, M.EXPENSES, M.PAYMENTS, M.ACCOUNTS, M.PROFIT_LOSS, M.REPORT_CENTER, M.DOCUMENTS, M.GRADIENT_CALC],
   'Sales Executive': [...COMMON, M.PRODUCT_SEARCH, M.ENQUIRIES, M.ORDERS, M.CUSTOMERS, M.LEADS, M.FOLLOWUPS, M.QUOTATIONS, M.GRADIENT_CALC],
   'Warehouse Staff': [...COMMON, M.PRODUCT_SEARCH, M.WAREHOUSES, M.INVENTORY, M.STOCK_TRANSFER, M.ORDERS, M.DISPATCHES, M.GRADIENT_CALC],
@@ -132,4 +136,8 @@ export const PERMISSION_CATALOG = [
   { key: 'reports', label: 'Report Center', category: 'Reports', actions: [a('view', 'View'), a('export', 'PDF / Excel Export')] },
   { key: 'documents', label: 'Document Management', category: 'System', actions: [a('view', 'View'), a('upload', 'Upload'), a('download', 'Download'), a('delete', 'Delete')] },
   { key: 'subscriptions', label: 'Subscription System', category: 'System', actions: [a('view', 'View'), a('change_plan', 'Upgrade / Change Plan'), a('cancel', 'Cancel')] },
+  // App-connection management
+  { key: 'wholesaler_mgmt', label: 'Wholesaler Management', category: 'App Management', actions: [a('view', 'View'), a('create', 'Add Wholesaler'), a('edit', 'Edit'), a('delete', 'Delete'), a('approve', 'Approve'), a('reject', 'Reject')] },
+  { key: 'retailer_mgmt',   label: 'Retailer Management',   category: 'App Management', actions: [a('view', 'View'), a('create', 'Add Retailer'),  a('edit', 'Edit'), a('delete', 'Delete'), a('approve', 'Approve'), a('reject', 'Reject')] },
+  { key: 'staff_mgmt',      label: 'Staff Management',      category: 'App Management', actions: [a('view', 'View'), a('create', 'Add Staff'),     a('edit', 'Edit'), a('delete', 'Delete'), a('reset_password', 'Reset Password')] },
 ]
