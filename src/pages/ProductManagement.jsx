@@ -1,9 +1,14 @@
 ﻿import { useState, useRef, useEffect, useCallback } from 'react'
-import { Plus, Search, Trash2, Package, Eye, Edit2, X, ChevronDown, RotateCcw, Layers, Box, DollarSign, Info, Image as ImageIcon, CheckCircle, XCircle, ChevronLeft, ChevronRight, Download } from 'lucide-react'
+import { Plus, Search, Trash2, Package, Eye, Edit2, X, ChevronDown, RotateCcw, Layers, Box, DollarSign, Info, Image as ImageIcon, CheckCircle, XCircle, ChevronLeft, ChevronRight, Download, Lock, Users, Globe } from 'lucide-react'
 import usePermissions from '../hooks/usePermissions'
 import { useAuth } from '../context/AuthContext'
 import { productApi } from '../api/productApi'
+import { companyApi } from '../api/companyApi'
 import { MODULES } from '../config/permissions'
+import {
+  fieldsForType, matchCategoryType, labelForType, humanizeKey,
+  CATEGORY_DEFAULT_UNIT, PRODUCT_FIELD_SCHEMA,
+} from '../config/productFieldSchema'
 
 // â”€â”€ Constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const SIZES = [
@@ -79,6 +84,8 @@ const EMPTY_FORM = {
   min_stock_level:'', reorder_level:'',
   status:'Active', sales_type:'Regular Sale', product_type:'Regular Product',
   new_arrival: false, featured: false,
+  // Category-specific dynamic values keyed by field key (from productFieldSchema).
+  attributes: {},
 }
 
 function imgUrl(p) {
@@ -373,6 +380,160 @@ function SearchableSelect({ label, required, placeholder, value, onChange, optio
   )
 }
 
+// â”€â”€ Custom-option store (persists admin-added dropdown values) â”€â”€
+// Options the admin adds for a spec field are saved per field key in
+// localStorage so they survive reloads without a backend change.
+const CUSTOM_OPTS_KEY = 'pm_custom_field_options_v1'
+function loadCustomOptions() {
+  try { return JSON.parse(localStorage.getItem(CUSTOM_OPTS_KEY)) || {} }
+  catch { return {} }
+}
+function saveCustomOptions(map) {
+  try { localStorage.setItem(CUSTOM_OPTS_KEY, JSON.stringify(map)) } catch { /* ignore quota */ }
+}
+
+// â”€â”€ Editable searchable dropdown (add + delete custom options) â”€â”€
+// Same UX as SearchableSelect, plus:
+//   • an "Add new" row to append a custom value
+//   • a delete (Ã—) icon on custom (admin-added) options
+// `fieldKey` scopes the persisted custom options.
+function EditableSelect({ label, required, placeholder, value, onChange, baseOptions = [], fieldKey }) {
+  const [open, setOpen] = useState(false)
+  const [q, setQ]       = useState('')
+  const [adding, setAdding] = useState('')
+  const [custom, setCustom] = useState(() => loadCustomOptions()[fieldKey] || [])
+  const ref = useRef()
+
+  // Merge base (schema) options with admin-added custom ones (deduped).
+  const baseValues = baseOptions.map(o => (typeof o === 'string' ? o : o.value))
+  const merged = [
+    ...baseOptions.map(o => (typeof o === 'string' ? { value: o, label: o, custom: false } : { ...o, custom: false })),
+    ...custom.filter(c => !baseValues.includes(c)).map(c => ({ value: c, label: c, custom: true })),
+  ]
+  // Ensure the current value is always present/selectable.
+  if (value && !merged.some(o => o.value === value)) merged.unshift({ value, label: value, custom: false })
+
+  const filtered = merged.filter(o => (o.label || '').toLowerCase().includes(q.toLowerCase()))
+  const selected = merged.find(o => o.value === value)
+
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const persist = (nextCustom) => {
+    setCustom(nextCustom)
+    const map = loadCustomOptions()
+    map[fieldKey] = nextCustom
+    saveCustomOptions(map)
+  }
+
+  const addOption = () => {
+    const val = adding.trim()
+    if (!val) return
+    if (!custom.includes(val) && !baseValues.includes(val)) persist([...custom, val])
+    onChange(val)
+    setAdding(''); setOpen(false); setQ('')
+  }
+
+  const deleteOption = (val, e) => {
+    e.stopPropagation()
+    persist(custom.filter(c => c !== val))
+    if (value === val) onChange('')
+  }
+
+  const pick = (val) => { onChange(val); setOpen(false); setQ('') }
+
+  return (
+    <div ref={ref} style={{ position:'relative' }}>
+      {label && (
+        <label className="form-label">
+          {label}{required && <span style={{ color:'var(--danger)' }}> *</span>}
+        </label>
+      )}
+      <button
+        type="button"
+        onClick={() => { setOpen(o => !o); setQ('') }}
+        style={{
+          width:'100%', display:'flex', alignItems:'center', justifyContent:'space-between',
+          padding:'8px 11px', border:'1px solid var(--border)', borderRadius:7,
+          background:'var(--surface)', fontSize:13,
+          color: selected ? 'var(--text)' : 'var(--text-muted)', cursor:'pointer',
+          outline:'none', transition:'border-color .15s',
+          ...(open && { borderColor:'#FD5C02', boxShadow:'0 0 0 3px rgba(253,92,2,.12)' }),
+        }}
+      >
+        <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1, textAlign:'left' }}>
+          {selected ? selected.label : (placeholder || `Select ${label || ''}...`)}
+        </span>
+        <ChevronDown size={14} style={{ flexShrink:0, marginLeft:6, color:'var(--text-muted)',
+          transform: open ? 'rotate(180deg)' : 'none', transition:'transform .15s' }} />
+      </button>
+      {open && (
+        <div style={{
+          position:'absolute', top:'100%', left:0, right:0, zIndex:999, marginTop:2,
+          background:'var(--surface)', border:'1px solid var(--border)', borderRadius:8,
+          boxShadow:'0 8px 24px rgba(0,0,0,.12)', overflow:'hidden',
+        }}>
+          <div style={{ padding:'8px 8px 4px' }}>
+            <input
+              autoFocus className="form-control" style={{ fontSize:12, padding:'6px 9px' }}
+              placeholder="Type to search..." value={q}
+              onChange={e => setQ(e.target.value)} onClick={e => e.stopPropagation()}
+            />
+          </div>
+          <div style={{ maxHeight:180, overflowY:'auto' }}>
+            <div style={{ padding:'7px 14px', fontSize:13, color:'var(--text-muted)', cursor:'pointer' }}
+              onMouseDown={() => pick('')}>â€” None â€”</div>
+            {filtered.length === 0 && (
+              <div style={{ padding:'10px 14px', fontSize:12, color:'var(--text-muted)' }}>No results</div>
+            )}
+            {filtered.map(o => (
+              <div key={o.value}
+                onMouseDown={() => pick(o.value)}
+                style={{
+                  display:'flex', alignItems:'center', justifyContent:'space-between', gap:6,
+                  padding:'7px 10px 7px 14px', fontSize:13, cursor:'pointer',
+                  background: o.value === value ? 'var(--primary-light)' : 'transparent',
+                  color: o.value === value ? 'var(--primary)' : 'var(--text)',
+                  fontWeight: o.value === value ? 600 : 400,
+                }}
+                onMouseEnter={e => { if (o.value !== value) e.currentTarget.style.background='var(--bg)' }}
+                onMouseLeave={e => { if (o.value !== value) e.currentTarget.style.background='transparent' }}
+              >
+                <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{o.label}</span>
+                {o.custom && (
+                  <span title="Delete this option" onMouseDown={(e) => deleteOption(o.value, e)}
+                    style={{ flexShrink:0, display:'inline-flex', alignItems:'center', justifyContent:'center',
+                      width:18, height:18, borderRadius:4, color:'var(--danger)' }}>
+                    <Trash2 size={12}/>
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+          {/* Add new option */}
+          <div style={{ display:'flex', gap:6, padding:8, borderTop:'1px solid var(--border)', background:'var(--bg)' }}
+            onMouseDown={e => e.stopPropagation()}>
+            <input
+              className="form-control" style={{ fontSize:12, padding:'6px 9px', flex:1 }}
+              placeholder="Add new option..." value={adding}
+              onChange={e => setAdding(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addOption() } }}
+              onClick={e => e.stopPropagation()}
+            />
+            <button type="button" className="btn btn-primary btn-sm" style={{ padding:'4px 10px' }}
+              onClick={addOption} disabled={!adding.trim()}>
+              <Plus size={13}/>
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // â”€â”€ Simple dropdown (native select styled) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function SelectField({ label, required, value, onChange, options, placeholder, disabled }) {
   return (
@@ -606,6 +767,53 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
     return pid === form.category_id
   })
 
+  // Resolve the selected category / sub-category names, then infer the
+  // category "type" that decides which dynamic fields to show.
+  const selectedCatName = (() => {
+    const c = categories.find(x => String(x._id || x.id) === String(form.category_id))
+    return c?.name || editProduct?.category_id?.name || editProduct?.category_name || ''
+  })()
+  const selectedSubName = (() => {
+    const s = subCategories.find(x => String(x._id || x.id) === String(form.sub_category_id))
+    return s?.name || editProduct?.sub_category_id?.name || editProduct?.sub_category_name || ''
+  })()
+  const categoryType = matchCategoryType(selectedCatName, selectedSubName)
+  const dynamicFields = fieldsForType(categoryType)
+
+  // A category must be picked before the spec fields are meaningful.
+  const categoryChosen = !!form.category_id
+
+  // Gate: the rest of the form only appears once Category, Sub-Category and Brand
+  // are chosen. Sub-Category is only required when the picked category actually
+  // has sub-categories defined.
+  const categoryHasSubs = !!form.category_id && filteredSubs.length > 0
+  const selectionComplete =
+    !!form.category_id &&
+    !!form.brand_id &&
+    (!categoryHasSubs || !!form.sub_category_id)
+
+  // Set a dynamic field's value. Column-backed fields live on form[key];
+  // attributes-backed fields live on form.attributes[key].
+  const setDynamic = useCallback((field, val) => {
+    if (field.storeIn === 'attributes') {
+      setForm(f => ({ ...f, attributes: { ...(f.attributes || {}), [field.key]: val } }))
+    } else {
+      // reuse `set` semantics (auto sqft/box) by routing through setForm
+      setForm(f => {
+        const next = { ...f, [field.key]: val }
+        if (field.key === 'size' || field.key === 'pcs_per_box') {
+          next.sqft_per_box = calcSqftPerBox(next.size, next.pcs_per_box)
+        }
+        return next
+      })
+    }
+  }, [])
+
+  const getDynamic = (field) =>
+    field.storeIn === 'attributes'
+      ? (form.attributes?.[field.key] ?? '')
+      : (form[field.key] ?? '')
+
   // Populate form on edit
   useEffect(() => {
     if (editProduct) {
@@ -656,6 +864,7 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
         product_type:      editProduct.product_type      || 'Regular Product',
         new_arrival:       !!editProduct.new_arrival,
         featured:          !!editProduct.featured,
+        attributes:        (editProduct.attributes && typeof editProduct.attributes === 'object') ? { ...editProduct.attributes } : {},
       })
       setExistingImages(editProduct.image_urls || [])
     } else {
@@ -707,7 +916,15 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
     if (!form.name.trim()) e.name = 'Product name is required'
     if (!form.brand_id)    e.brand_id = 'Brand is required'
     if (!form.category_id) e.category_id = 'Category is required'
+    if (categoryHasSubs && !form.sub_category_id) e.sub_category_id = 'Sub-category is required'
     if (!form.unit)        e.unit = 'Unit is required'
+
+    // Required category-specific fields.
+    dynamicFields.forEach(f => {
+      if (!f.required) return
+      const val = getDynamic(f)
+      if (val === '' || val == null) e[`dyn_${f.key}`] = `${f.label} is required`
+    })
 
     const minStock = form.min_stock_level
     if (minStock === '' || minStock === null || minStock === undefined) {
@@ -717,6 +934,19 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
     }
 
     return e
+  }
+
+  // Collect the attributes-backed dynamic fields for the current category type.
+  // Numeric fields are stored as numbers; empty values are dropped.
+  const buildAttributesPayload = () => {
+    const out = {}
+    dynamicFields.forEach(f => {
+      if (f.storeIn !== 'attributes') return
+      const raw = form.attributes?.[f.key]
+      if (raw === '' || raw == null) return
+      out[f.key] = f.type === 'number' ? (parseFloat(raw) || 0) : raw
+    })
+    return out
   }
 
   const handleSave = async () => {
@@ -771,6 +1001,9 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
       product_type:    form.product_type,
       new_arrival:     form.new_arrival,
       featured:        form.featured,
+      // Category-specific extras that are NOT model columns go into attributes.
+      category_type:   categoryType,
+      attributes:      buildAttributesPayload(),
       // For update: kept existing image URLs
       image_urls:      existingImages,
       // imageFiles is the key productApi looks for - File[] array, field name 'file' for multer
@@ -784,15 +1017,7 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
     await onSave(payload)
   }
 
-  // Ensure the currently-saved value is always selectable, even if it's not in
-  // the predefined option list (e.g. legacy data or values entered elsewhere).
-  // This guarantees "what was chosen is what you see" in the edit form.
-  const withCurrent = (opts, current) => {
-    const cur = (current ?? '').toString().trim()
-    if (!cur) return opts
-    return opts.some(o => o.value === cur) ? opts : [{ value: cur, label: cur }, ...opts]
-  }
-
+  // Ensure the currently-saved category/brand ref stays selectable in edit mode.
   const withCurrentReference = (opts, reference, current) => {
     const value = String(current || reference?._id || reference?.id || '').trim()
     if (!value || opts.some(option => String(option.value) === value)) return opts
@@ -815,14 +1040,8 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
     editProduct?.sub_category_id,
     form.sub_category_id
   )
-  const sizeOpts     = withCurrent(SIZES.map(s => ({ value: s, label: s + ' MM' })), form.size)
-  const finishOpts   = withCurrent(FINISHES.map(s => ({ value: s, label: s })), form.finish)
-  const surfaceOpts  = withCurrent(SURFACES.map(s => ({ value: s, label: s })), form.surface)
-  const gradeOpts    = withCurrent(GRADES.map(s => ({ value: s, label: s })), form.grade)
-  const tileTypeOpts = withCurrent(TILE_TYPES.map(s => ({ value: s, label: s })), form.tile_type)
-  const areaOpts     = withCurrent(AREAS.map(s => ({ value: s, label: s })), form.application)
-  const antiSkidOpts = withCurrent(ANTI_SKIDS.map(s => ({ value: s, label: s })), form.anti_skid)
-  const originOpts   = withCurrent(ORIGINS.map(s => ({ value: s, label: s })), form.origin)
+  // (Category-specific spec option lists are now generated dynamically from
+  // productFieldSchema; the old static option variables were removed.)
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -848,9 +1067,42 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
 
         <div className="modal-body">
 
-          {/* â”€â”€ BASIC INFO â”€â”€ */}
-          <FormSection title="Basic Information" />
+          {/* â”€â”€ STEP 1: CATEGORY â†’ SUB-CATEGORY â†’ BRAND (required first) â”€â”€ */}
+          <FormSection title="Step 1 · Select Category, Sub-Category & Brand" />
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:14 }}>
+            {/* Category */}
+            <div>
+              <SearchableSelect
+                label="Category" required
+                placeholder="Search categories..."
+                value={form.category_id}
+                onChange={v => {
+                  const c = categories.find(x => String(x._id || x.id) === String(v))
+                  const t = matchCategoryType(c?.name)
+                  setForm(f => ({
+                    ...f,
+                    category_id: v,
+                    sub_category_id: '',
+                    // Preselect a sensible unit for this category (only when adding).
+                    unit: editProduct ? f.unit : (CATEGORY_DEFAULT_UNIT[t] || f.unit),
+                  }))
+                }}
+                options={catOpts}
+              />
+              {errors.category_id && <span className="form-error">{errors.category_id}</span>}
+            </div>
+            {/* Subcategory */}
+            <div>
+              <SearchableSelect
+                label={`Sub-Category${categoryHasSubs ? ' *' : ''}`}
+                placeholder={form.category_id ? (categoryHasSubs ? 'Search subcategories...' : 'No sub-categories') : 'Select a category first'}
+                value={form.sub_category_id}
+                onChange={v => set('sub_category_id', v)}
+                options={subCatOpts}
+                disabled={!form.category_id || !categoryHasSubs}
+              />
+              {errors.sub_category_id && <span className="form-error">{errors.sub_category_id}</span>}
+            </div>
             {/* Brand */}
             <div>
               <SearchableSelect
@@ -862,29 +1114,22 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
               />
               {errors.brand_id && <span className="form-error">{errors.brand_id}</span>}
             </div>
-            {/* Category */}
-            <div>
-              <SearchableSelect
-                label="Category" required
-                placeholder="Search categories..."
-                value={form.category_id}
-                onChange={v => { set('category_id', v); set('sub_category_id', '') }}
-                options={catOpts}
-              />
-              {errors.category_id && <span className="form-error">{errors.category_id}</span>}
-            </div>
-            {/* Subcategory */}
-            <SearchableSelect
-              label="Subcategory"
-              placeholder="Search subcategories..."
-              value={form.sub_category_id}
-              onChange={v => set('sub_category_id', v)}
-              options={subCatOpts}
-              disabled={!form.category_id}
-            />
           </div>
 
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:14, marginTop:14 }}>
+          {!selectionComplete && (
+            <div style={{
+              marginTop:16, padding:'16px 18px', background:'var(--bg)',
+              border:'1px dashed var(--border)', borderRadius:8, fontSize:13, color:'var(--text-muted)',
+            }}>
+              Please select <strong>Category</strong>{categoryHasSubs ? <>, <strong>Sub-Category</strong></> : ''} and <strong>Brand</strong> to continue adding the product details.
+            </div>
+          )}
+
+          {selectionComplete && (<>
+
+          {/* â”€â”€ STEP 2: PRODUCT DETAILS â”€â”€ */}
+          <FormSection title="Step 2 · Product Details" />
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:14, marginTop:0 }}>
             {/* Product Code */}
             <div>
               <label className="form-label">Product Code</label>
@@ -938,61 +1183,73 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
             />
           </div>
 
-          {/* â”€â”€ TILE SPECIFICATIONS â”€â”€ */}
-          <FormSection title="Tile Specifications" />
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(6,1fr)', gap:12 }}>
-            <SearchableSelect label="Tile Size"  placeholder="Size"    value={form.size}        onChange={v=>set('size',v)}        options={sizeOpts} />
-            <SearchableSelect label="Finish"     placeholder="Finish"  value={form.finish}      onChange={v=>set('finish',v)}      options={finishOpts} />
-            <div>
-              <label className="form-label">Colour</label>
-              <input className="form-control" placeholder="Colour" value={form.color} onChange={e=>set('color',e.target.value)} />
+          {/* â”€â”€ DYNAMIC CATEGORY-SPECIFIC SPECIFICATIONS â”€â”€ */}
+          <FormSection title={categoryChosen ? `${labelForType(categoryType)} Specifications` : 'Specifications'} />
+          {!categoryChosen ? (
+            <div style={{
+              padding:'16px 18px', background:'var(--bg)', border:'1px dashed var(--border)',
+              borderRadius:8, fontSize:13, color:'var(--text-muted)',
+            }}>
+              Select a <strong>Category</strong> above to load the relevant specification fields for this product.
             </div>
-            <SearchableSelect label="Surface"    placeholder="Surface" value={form.surface}     onChange={v=>set('surface',v)}     options={surfaceOpts} />
-            <div>
-              <label className="form-label">Thickness</label>
-              <input className="form-control" placeholder="e.g. 10mm" value={form.thickness} onChange={e=>set('thickness',e.target.value)} />
-            </div>
-            <SearchableSelect label="Grade"      placeholder="Grade"   value={form.grade}       onChange={v=>set('grade',v)}       options={gradeOpts} />
-          </div>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(6,1fr)', gap:12, marginTop:12 }}>
-            <SearchableSelect label="Tile Type"   placeholder="Type"    value={form.tile_type}   onChange={v=>set('tile_type',v)}   options={tileTypeOpts} />
-            <SearchableSelect label="Application" placeholder="Area"    value={form.application} onChange={v=>set('application',v)} options={areaOpts} />
-            <SearchableSelect label="Anti Skid"   placeholder="Rating"  value={form.anti_skid}   onChange={v=>set('anti_skid',v)}   options={antiSkidOpts} />
-            <SearchableSelect label="Origin"      placeholder="Country" value={form.origin}      onChange={v=>set('origin',v)}      options={originOpts} />
-            <div>
-              <label className="form-label">Manufacturer</label>
-              <input className="form-control" placeholder="If different from brand" value={form.manufacturer} onChange={e=>set('manufacturer',e.target.value)} />
-            </div>
-            <div>
-              <label className="form-label">Barcode</label>
-              <input className="form-control" placeholder="Barcode/EAN" value={form.barcode} onChange={e=>set('barcode',e.target.value)} />
-            </div>
-          </div>
+          ) : (
+            <>
+              <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:10 }}>
+                Fields below are tailored to <strong>{labelForType(categoryType)}</strong>. Required fields are marked *.
+              </div>
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:14 }}>
+                {dynamicFields.map(f => {
+                  const val = getDynamic(f)
+                  const errKey = `dyn_${f.key}`
+                  if (f.type === 'select') {
+                    return (
+                      <div key={f.key}>
+                        <EditableSelect
+                          label={f.label + (f.required ? ' *' : '')}
+                          placeholder={f.placeholder || f.label}
+                          value={val}
+                          onChange={v => setDynamic(f, v)}
+                          baseOptions={f.options || []}
+                          fieldKey={`${categoryType}.${f.key}`}
+                        />
+                        {errors[errKey] && <span className="form-error">{errors[errKey]}</span>}
+                      </div>
+                    )
+                  }
+                  return (
+                    <div key={f.key}>
+                      <label className="form-label">
+                        {f.label}{f.required && <span style={{ color:'var(--danger)' }}> *</span>}
+                        {f.unit && <span style={{ fontWeight:400, color:'var(--text-muted)', fontSize:11 }}> ({f.unit})</span>}
+                      </label>
+                      <input
+                        className={`form-control${errors[errKey] ? ' error' : ''}`}
+                        type={f.type === 'number' ? 'number' : 'text'}
+                        min={f.type === 'number' ? '0' : undefined}
+                        step={f.type === 'number' ? 'any' : undefined}
+                        placeholder={f.placeholder || f.label}
+                        value={val}
+                        onChange={e => setDynamic(f, e.target.value)}
+                      />
+                      {errors[errKey] && <span className="form-error">{errors[errKey]}</span>}
+                    </div>
+                  )
+                })}
+              </div>
 
-          {/* â”€â”€ PACKING â”€â”€ */}
-          <FormSection title="Packing & Collection" />
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:12 }}>
-            <div>
-              <label className="form-label">Design</label>
-              <input className="form-control" placeholder="Design name" value={form.design} onChange={e=>set('design',e.target.value)} />
-            </div>
-            <div>
-              <label className="form-label">Collection</label>
-              <input className="form-control" placeholder="Collection" value={form.collection} onChange={e=>set('collection',e.target.value)} />
-            </div>
-            <div>
-              <label className="form-label">Pcs/Box</label>
-              <input className="form-control" type="number" min="0" placeholder="0" value={form.pcs_per_box} onChange={e=>set('pcs_per_box',e.target.value.replace(/^0+(?=\d)/,''))} />
-            </div>
-            <div>
-              <label className="form-label">Sqft/Box <span style={{ fontWeight: 400, color: 'var(--text-muted, #94a3b8)', fontSize: 11 }}>(auto)</span></label>
-              <input className="form-control" type="number" min="0" step="0.01" placeholder="0.00" value={form.sqft_per_box} onChange={e=>set('sqft_per_box',e.target.value)} />
-            </div>
-            <div>
-              <label className="form-label">Weight/Box (Kg)</label>
-              <input className="form-control" type="number" min="0" step="0.01" placeholder="0.00" value={form.weight_per_box} onChange={e=>set('weight_per_box',e.target.value)} />
-            </div>
-          </div>
+              {/* Common trade identifiers, shown for every category */}
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:14, marginTop:14 }}>
+                <div>
+                  <label className="form-label">Manufacturer</label>
+                  <input className="form-control" placeholder="If different from brand" value={form.manufacturer} onChange={e=>set('manufacturer',e.target.value)} />
+                </div>
+                <div>
+                  <label className="form-label">Barcode / EAN</label>
+                  <input className="form-control" placeholder="Barcode/EAN" value={form.barcode} onChange={e=>set('barcode',e.target.value)} />
+                </div>
+              </div>
+            </>
+          )}
 
           {/* â”€â”€ PRICING â”€â”€ */}
           <FormSection title="Pricing" />
@@ -1060,13 +1317,15 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
             resetKey={imgResetKey}
           />
 
+          </>)}
+
         </div>
 
         {/* Footer */}
         <div className="modal-footer" style={{ position:'sticky', bottom:0, background:'var(--surface)', zIndex:10 }}>
           <button className="btn btn-secondary" type="button" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" type="button" disabled={saving} onClick={handleSave}
-            style={{ minWidth:120 }}>
+          <button className="btn btn-primary" type="button" disabled={saving || !selectionComplete} onClick={handleSave}
+            style={{ minWidth:120 }} title={!selectionComplete ? 'Select Category, Sub-Category and Brand first' : ''}>
             {saving ? 'Saving...' : 'Preview & Save'}
           </button>
         </div>
@@ -1091,6 +1350,16 @@ function ProductViewModal({ product: p, loading, onClose, onEdit, canEdit, canEx
     return num > 0 ? `₹${num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : null
   }
   const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }) : null
+
+  // Map an attribute key to a friendly label using the schema, with a unit suffix
+  // when defined; falls back to a humanized key.
+  const attrLabel = (key) => {
+    for (const list of Object.values(PRODUCT_FIELD_SCHEMA)) {
+      const def = list.find(f => f.key === key)
+      if (def) return def.unit ? `${def.label} (${def.unit})` : def.label
+    }
+    return humanizeKey(key)
+  }
 
   // ── helpers ──
   const SectionTitle = ({ icon, title }) => (
@@ -1312,6 +1581,20 @@ function ProductViewModal({ product: p, loading, onClose, onEdit, canEdit, canEx
             </div>
           )}
 
+          {/* ── Additional (category-specific) Specifications from attributes ── */}
+          {p.attributes && typeof p.attributes === 'object' && Object.keys(p.attributes).filter(k => v(p.attributes[k])).length > 0 && (
+            <div>
+              <SectionTitle icon="🧩" title={`${labelForType(p.category_type || matchCategoryType(p.category_name || p.category_id?.name))} Specifications`} />
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'10px 16px' }}>
+                {Object.entries(p.attributes)
+                  .filter(([, val]) => v(val))
+                  .map(([key, val]) => (
+                    <Field key={key} label={attrLabel(key)} value={String(val)} />
+                  ))}
+              </div>
+            </div>
+          )}
+
           {/* ── Pricing ── */}
           {prices.length > 0 && (
             <div>
@@ -1516,11 +1799,185 @@ function RecycleBinModal({ onClose, onRestored, canRestore }) {
 }
 
 // ══════════════════════════════════════════════════════════════
+// PRODUCT ACCESS MODAL — assign product visibility by company code
+// ══════════════════════════════════════════════════════════════
+function ProductAccessModal({ product, onClose, onSaved, onError }) {
+  const [companies, setCompanies] = useState([])
+  const [loading, setLoading]     = useState(true)
+  const [saving, setSaving]       = useState(false)
+  const [search, setSearch]       = useState('')
+  const [sharedWithAll, setSharedWithAll] = useState(product?.shared_with_all !== false)
+  // Set of allowed company codes (UPPERCASE).
+  const [selected, setSelected]   = useState(() => {
+    const codes = Array.isArray(product?.allowed_company_codes) ? product.allowed_company_codes : []
+    return new Set(codes.map(c => String(c || '').trim().toUpperCase()).filter(Boolean))
+  })
+
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      try {
+        // Only wholesalers/retailers can be granted access.
+        const res = await companyApi.list({ limit: 500 })
+        const list = res?.data?.companies || res?.companies || []
+        const eligible = list.filter(c => {
+          const t = String(c.biz_type || '').toLowerCase()
+          return t.includes('wholesaler') || t.includes('retailer')
+        })
+        if (alive) setCompanies(eligible)
+      } catch (e) {
+        if (alive) onError?.(e?.response?.data?.message || 'Failed to load companies.')
+      } finally {
+        if (alive) setLoading(false)
+      }
+    })()
+    return () => { alive = false }
+  }, [onError])
+
+  const toggle = (code) => {
+    const upper = String(code || '').trim().toUpperCase()
+    if (!upper) return
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(upper)) next.delete(upper)
+      else next.add(upper)
+      return next
+    })
+  }
+
+  const filtered = companies.filter(c => {
+    if (!search.trim()) return true
+    const q = search.trim().toLowerCase()
+    return (
+      String(c.company_code || '').toLowerCase().includes(q) ||
+      String(c.name || '').toLowerCase().includes(q) ||
+      String(c.biz_type || '').toLowerCase().includes(q)
+    )
+  })
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      await productApi.updateAccess(product._id || product.id, {
+        shared_with_all: sharedWithAll,
+        allowed_company_codes: sharedWithAll ? [] : Array.from(selected),
+      })
+      onSaved?.()
+    } catch (e) {
+      onError?.(e?.response?.data?.message || 'Failed to update access.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 560, width:'100%' }} onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            <div style={{ width:36, height:36, borderRadius:'50%', background:'#EFF6FF', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+              <Lock size={18} style={{ color:'#3B82F6' }}/>
+            </div>
+            <div>
+              <span className="modal-title">Manage Product Access</span>
+              <div style={{ fontSize:11, color:'var(--text-muted)' }}>
+                {product?.name} {product?.code ? `· ${product.code}` : ''}
+              </div>
+            </div>
+          </div>
+          <button className="modal-close" onClick={onClose}><X size={16}/></button>
+        </div>
+
+        <div className="modal-body" style={{ paddingTop:14 }}>
+          {/* Visibility mode */}
+          <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:14 }}>
+            <label style={{ display:'flex', alignItems:'flex-start', gap:10, cursor:'pointer', padding:'10px 12px', border:`1px solid ${sharedWithAll ? '#3B82F6' : 'var(--border)'}`, borderRadius:8, background: sharedWithAll ? '#EFF6FF' : '#fff' }}>
+              <input type="radio" name="access_mode" checked={sharedWithAll} onChange={() => setSharedWithAll(true)} style={{ marginTop:2 }}/>
+              <span style={{ display:'flex', gap:8, alignItems:'flex-start' }}>
+                <Globe size={16} style={{ color:'#3B82F6', marginTop:1 }}/>
+                <span>
+                  <span style={{ fontSize:13, fontWeight:700, color:'var(--text)' }}>Visible to everyone</span>
+                  <span style={{ display:'block', fontSize:11, color:'var(--text-muted)' }}>All wholesalers and retailers can see this product.</span>
+                </span>
+              </span>
+            </label>
+            <label style={{ display:'flex', alignItems:'flex-start', gap:10, cursor:'pointer', padding:'10px 12px', border:`1px solid ${!sharedWithAll ? '#3B82F6' : 'var(--border)'}`, borderRadius:8, background: !sharedWithAll ? '#EFF6FF' : '#fff' }}>
+              <input type="radio" name="access_mode" checked={!sharedWithAll} onChange={() => setSharedWithAll(false)} style={{ marginTop:2 }}/>
+              <span style={{ display:'flex', gap:8, alignItems:'flex-start' }}>
+                <Users size={16} style={{ color:'#3B82F6', marginTop:1 }}/>
+                <span>
+                  <span style={{ fontSize:13, fontWeight:700, color:'var(--text)' }}>Only selected companies</span>
+                  <span style={{ display:'block', fontSize:11, color:'var(--text-muted)' }}>Only companies whose unique code you select below can see this product.</span>
+                </span>
+              </span>
+            </label>
+          </div>
+
+          {!sharedWithAll && (
+            <>
+              <div style={{ position:'relative', marginBottom:10 }}>
+                <Search size={14} style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', color:'var(--text-muted)' }}/>
+                <input
+                  className="input"
+                  placeholder="Search by code, name or type…"
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  style={{ paddingLeft:30, width:'100%' }}
+                />
+              </div>
+
+              <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:6 }}>
+                {selected.size} company{selected.size === 1 ? '' : 'ies'} selected
+              </div>
+
+              <div style={{ maxHeight:280, overflowY:'auto', border:'1px solid var(--border)', borderRadius:8 }}>
+                {loading ? (
+                  <div style={{ padding:20, textAlign:'center', fontSize:12, color:'var(--text-muted)' }}>Loading companies…</div>
+                ) : filtered.length === 0 ? (
+                  <div style={{ padding:20, textAlign:'center', fontSize:12, color:'var(--text-muted)' }}>No wholesalers or retailers found.</div>
+                ) : (
+                  filtered.map(c => {
+                    const code = String(c.company_code || '').trim().toUpperCase()
+                    const checked = code && selected.has(code)
+                    return (
+                      <label key={c._id} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', borderBottom:'1px solid var(--border)', cursor: code ? 'pointer' : 'not-allowed', background: checked ? '#F0F9FF' : '#fff' }}>
+                        <input type="checkbox" checked={!!checked} disabled={!code} onChange={() => toggle(code)}/>
+                        <span style={{ flex:1, minWidth:0 }}>
+                          <span style={{ display:'flex', alignItems:'center', gap:8 }}>
+                            <span style={{ fontSize:12, fontWeight:700, color:'var(--text)', fontFamily:'monospace' }}>{code || '— no code —'}</span>
+                            <span style={{ fontSize:10, padding:'1px 6px', borderRadius:4, background:'#F1F5F9', color:'#475569', fontWeight:700 }}>{c.biz_type}</span>
+                          </span>
+                          <span style={{ display:'block', fontSize:11, color:'var(--text-muted)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{c.name}</span>
+                        </span>
+                      </label>
+                    )
+                  })
+                )}
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
+          <button className="btn btn-primary" onClick={save} disabled={saving}>
+            {saving ? 'Saving…' : 'Save Access'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════
 // MAIN PAGE
 // ══════════════════════════════════════════════════════════════
 export default function ProductManagement({
   products = [], categories = [], subCategories = [], brands = [], warehouses = [],
   addProduct, updateProduct, deleteProduct, loadingData,
+  // mode: 'admin' (default) shows only Admin-created products.
+  //       'external' shows only Wholesaler/Retailer-created products (read-only view).
+  mode = 'admin',
 }) {
   const { canPerform } = usePermissions()
   const { user } = useAuth()
@@ -1553,6 +2010,7 @@ export default function ProductManagement({
   const [adminLoading,  setAdminLoading]  = useState(false)
   const [adminError,    setAdminError]    = useState('')
   const [editTaxonomy,  setEditTaxonomy]  = useState(null)
+  const [accessTarget,  setAccessTarget]  = useState(null)  // product whose access is being managed
 
   const loadAdminProducts = useCallback(async () => {
     if (!isSuperAdmin) {
@@ -1585,9 +2043,17 @@ export default function ProductManagement({
 
   useEffect(() => { loadAdminProducts() }, [loadAdminProducts])
 
-  const catalogProducts = isSuperAdmin
+  const rawCatalog = isSuperAdmin
     ? (Array.isArray(adminProducts) ? adminProducts : [])
     : products
+  // Split the catalogue by who created each product:
+  //   'admin'    → Admin-created products only (this is the main Products page)
+  //   'external' → Wholesaler / Retailer app products only (separate page)
+  const catalogProducts = rawCatalog.filter(p => {
+    const t = creatorTypeOf(p)
+    const isExternal = t === 'Wholesaler' || t === 'Retailer'
+    return mode === 'external' ? isExternal : !isExternal
+  })
   const productTableLoading = isSuperAdmin ? adminLoading : loadingData
   const currentCompanyId = user?.company_id?._id || user?.company_id || ''
   const isOwnedProduct = (product) => {
@@ -1813,16 +2279,20 @@ export default function ProductManagement({
       {/* Page Header */}
       <div className="page-header">
         <div className="page-header-left">
-          <div className="page-title">Product Management</div>
-          <div className="page-desc">Manage your complete product catalogue with pricing and specifications</div>
+          <div className="page-title">{mode === 'external' ? 'Wholesaler / Retailer Products' : 'Product Management'}</div>
+          <div className="page-desc">
+            {mode === 'external'
+              ? 'Products added by wholesalers and retailers from their apps (read-only)'
+              : 'Manage your complete product catalogue with pricing and specifications'}
+          </div>
         </div>
         <div className="page-header-actions">
-          {mayViewDeleted && (
+          {mode !== 'external' && mayViewDeleted && (
             <button className="btn btn-secondary" onClick={openRecycleBin} style={{ gap:6 }}>
               <Trash2 size={14} style={{ color:'var(--danger)' }}/> Recycle Bin
             </button>
           )}
-          {mayCreate && (
+          {mode !== 'external' && mayCreate && (
             <button className="btn btn-primary" onClick={openAdd}>
               <Plus size={14}/> New Product
             </button>
@@ -2156,9 +2626,27 @@ export default function ProductManagement({
                         <button className="btn btn-ghost btn-xs" title="View Full Details" onClick={()=>openView(p)} style={{ color:'#059669' }}>
                           <Eye size={13}/>
                         </button>
-                        {mayEdit && canManage && (
+                        {mode !== 'external' && mayEdit && canManage && (
                           <button className="btn btn-ghost btn-xs" title="Edit" onClick={()=>openEdit(p)} style={{ color:'#3B82F6' }}>
                             <Edit2 size={13}/>
+                          </button>
+                        )}
+                        {mode !== 'external' && isSuperAdmin && addedBy !== 'Wholesaler' && addedBy !== 'Retailer' && (
+                          <button
+                            className="btn btn-xs"
+                            title={p.shared_with_all === false ? `Access restricted to ${(p.allowed_company_codes || []).length} company code(s)` : 'Visible to everyone — click to restrict'}
+                            onClick={()=>setAccessTarget(p)}
+                            style={{
+                              display:'inline-flex', alignItems:'center', gap:4,
+                              padding:'3px 8px', borderRadius:6, fontSize:11, fontWeight:700,
+                              border:'1px solid ' + (p.shared_with_all === false ? '#7C3AED' : '#CBD5E1'),
+                              background: p.shared_with_all === false ? '#7C3AED' : '#F1F5F9',
+                              color: p.shared_with_all === false ? '#fff' : '#475569',
+                              whiteSpace:'nowrap',
+                            }}
+                          >
+                            <Lock size={12}/>
+                            {p.shared_with_all === false ? `Access (${(p.allowed_company_codes || []).length})` : 'Access'}
                           </button>
                         )}
                         {mayExport && (
@@ -2167,7 +2655,7 @@ export default function ProductManagement({
                             <Download size={13}/>
                           </button>
                         )}
-                        {mayDelete && canManage && (
+                        {mode !== 'external' && mayDelete && canManage && (
                           <button className="btn btn-ghost btn-xs" title="Move to Recycle Bin"
                             style={{ color:'var(--danger)' }} onClick={()=>handleDelete(p)}>
                             <Trash2 size={13}/>
@@ -2227,6 +2715,19 @@ export default function ProductManagement({
           onEdit={(p) => { closeView(); openEdit(p) }}
           canEdit={mayEdit && canManageProduct(viewItem)}
           canExport={mayExport}
+        />
+      )}
+
+      {accessTarget && (
+        <ProductAccessModal
+          product={accessTarget}
+          onClose={() => setAccessTarget(null)}
+          onSaved={async () => {
+            setAccessTarget(null)
+            fire('Product access updated')
+            if (isSuperAdmin) await loadAdminProducts()
+          }}
+          onError={(msg) => fire(msg, 'error')}
         />
       )}
 

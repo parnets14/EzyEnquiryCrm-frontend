@@ -15,6 +15,10 @@ export const hrApi = {
   listEmployees: (params = {}) =>
     api.get('/employees', { params }).then(r => r.data),
 
+  // Super Admin — all staff across every company, joined with company biz_type.
+  listAllEmployees: (params = {}) =>
+    api.get('/employees/admin/all', { params }).then(r => r.data),
+
   // Returns employee + last 30 attendance records
   getEmployee: (id) =>
     api.get(`/employees/${id}`).then(r => r.data),

@@ -63,6 +63,7 @@ const NAV_CONFIG = [
       { to: '/product-management/categories', icon: Tag,     label: 'Categories',          moduleKey: MODULES.CATEGORIES },
       { to: '/product-management/brands',     icon: Tag,     label: 'Brands',              moduleKey: MODULES.BRANDS },
       { to: '/product-management/products',   icon: Package, label: 'Products Management', moduleKey: MODULES.PRODUCTS },
+      { to: '/product-management/external-products', icon: Store, label: 'Wholesaler/Retailer Products', moduleKey: MODULES.PRODUCTS },
     ],
   },
 
@@ -134,7 +135,7 @@ const NAV_CONFIG = [
   {
     type: 'section', key: 'tools', label: 'Tools', icon: Calculator,
     items: [
-      { to: '/tools/gradient-calculation', icon: Calculator, label: 'Gradient Calculation', moduleKey: MODULES.GRADIENT_CALC },
+      { to: '/tools/stone-calculation', icon: Calculator, label: 'Stone Calculation', moduleKey: MODULES.STONE_CALC },
     ],
   },
 

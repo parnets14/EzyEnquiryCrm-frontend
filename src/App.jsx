@@ -49,7 +49,7 @@ import Profile from './pages/Profile'
 import SubscriptionSystem from './pages/SubscriptionSystem'
 import QuotationManager from './pages/QuotationManager'
 import InvoiceManagement from './pages/InvoiceManagement'
-import GradientCalculation from './pages/GradientCalculation'
+import StoneCalculation from './pages/StoneCalculation'
 
 import './index.css'
 
@@ -116,7 +116,9 @@ function AppRoutes() {
         <Route path="product-management/brands"
           element={<RequireAccess module={MODULES.BRANDS}><Brands brands={brands} {...erpCtx} /></RequireAccess>} />
         <Route path="product-management/products"
-          element={<RequireAccess module={MODULES.PRODUCTS}><ProductManagement products={products} categories={categories} subCategories={subCategories} brands={brands} {...erpCtx} /></RequireAccess>} />
+          element={<RequireAccess module={MODULES.PRODUCTS}><ProductManagement mode="admin" products={products} categories={categories} subCategories={subCategories} brands={brands} {...erpCtx} /></RequireAccess>} />
+        <Route path="product-management/external-products"
+          element={<RequireAccess module={MODULES.PRODUCTS}><ProductManagement mode="external" products={products} categories={categories} subCategories={subCategories} brands={brands} {...erpCtx} /></RequireAccess>} />
 
         {/* ── Wholesaler (new unified hub) ─────────────── */}
         <Route path="wholesaler-management"
@@ -204,8 +206,10 @@ function AppRoutes() {
         <Route path="subscription"          element={<RequireAccess module={MODULES.SUBSCRIPTION}><SubscriptionSystem /></RequireAccess>} />
 
         {/* ── Tools ────────────────────────────────────── */}
-        <Route path="tools/gradient-calculation"
-          element={<RequireAccess module={MODULES.GRADIENT_CALC}><GradientCalculation /></RequireAccess>} />
+        <Route path="tools/stone-calculation"
+          element={<RequireAccess module={MODULES.STONE_CALC}><StoneCalculation /></RequireAccess>} />
+        {/* Back-compat: old gradient path → stone calculation */}
+        <Route path="tools/gradient-calculation" element={<Navigate to="/tools/stone-calculation" replace />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/dashboard" replace />} />

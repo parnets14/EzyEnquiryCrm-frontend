@@ -129,6 +129,8 @@ export default function CompanyRegistration() {
     return {
       id: c.company_code || c._id,
       _id: c._id,
+      // Unique wholesaler/company code (EZY001, ...) generated at registration.
+      code: c.company_code || '—',
       name: c.name,
       owner: c.owner_name || c.owner_user?.name || '—',
       bizType: c.biz_type || '—',
@@ -187,7 +189,7 @@ export default function CompanyRegistration() {
     const matchStatus = statusFilter === 'All' || c.status === statusFilter
     const q = search.trim().toLowerCase()
     if (!q) return matchStatus
-    const haystack = [c.id, c.name, c.owner, c.email, c.mobile, c.city, c.state, c.gst, c.pan, c.bizType]
+    const haystack = [c.id, c.code, c.name, c.owner, c.email, c.mobile, c.city, c.state, c.gst, c.pan, c.bizType]
       .map(v => (v || '').toString().toLowerCase())
       .join(' ')
     return matchStatus && haystack.includes(q)
@@ -348,14 +350,32 @@ export default function CompanyRegistration() {
   }
 
   // ── Delete handler ──
+  // The list is real backend data, so a "delete" must succeed on the server —
+  // otherwise the record simply reloads on the next fetch. We therefore call the
+  // API, and only remove it from local state when the server confirms deletion.
   const deleteCompany = async (id) => {
     const company = allCompanies.find(c => c.id === id || c._id === id)
-    const dbId = company?._id || id
+    const dbId = company?._id || (typeof id === 'string' && id.length === 24 ? id : null)
+
+    if (!dbId) {
+      setApiError('Cannot delete: this record has no valid database id.')
+      setShowDeleteConfirm(null)
+      return
+    }
+
     try {
-      if (dbId && dbId.length === 24) {
-        await companyApi.delete(dbId)
-      }
-    } catch (_) {}
+      await companyApi.delete(dbId)
+    } catch (err) {
+      // Surface the real reason instead of silently faking a delete.
+      const msg = err?.response?.status === 403
+        ? 'You do not have permission to delete companies (Super Admin only).'
+        : err?.response?.data?.message || 'Failed to delete on the server. Please try again.'
+      setApiError(msg)
+      setShowDeleteConfirm(null)
+      return
+    }
+
+    // Server confirmed — now it is safe to drop it locally.
     setCompanies(prev => prev.filter(c => c.id !== id))
     setApprovalList(prev => prev.filter(c => c.id !== id))
     setShowDeleteConfirm(null)
@@ -1395,6 +1415,7 @@ export default function CompanyRegistration() {
                 <thead>
                   <tr>
                     <th style={{ width: 90 }}>ID</th>
+                    <th style={{ width: 120 }}>Unique Code</th>
                     <th>Company</th>
                     <th>Owner &amp; Contact</th>
                     <th>Business Type</th>
@@ -1408,7 +1429,7 @@ export default function CompanyRegistration() {
                 <tbody>
                   {apiLoading && filtered.length === 0 && (
                     <tr>
-                      <td colSpan={9}>
+                      <td colSpan={10}>
                         <div className="table-empty">
                           <div className="table-empty-icon">
                             <RefreshCw style={{ width: 20, animation: 'spin 1s linear infinite' }} />
@@ -1421,7 +1442,7 @@ export default function CompanyRegistration() {
 
                   {!apiLoading && filtered.length === 0 && (
                     <tr>
-                      <td colSpan={9}>
+                      <td colSpan={10}>
                         <div className="table-empty">
                           <div className="table-empty-icon">
                             <Building2 style={{ width: 20 }} />
@@ -1448,6 +1469,21 @@ export default function CompanyRegistration() {
                           color: 'var(--primary)', fontWeight: 800, fontSize: 12,
                           fontFamily: 'monospace', letterSpacing: '0.3px', whiteSpace: 'nowrap',
                         }}>{c.id}</span>
+                      </td>
+
+                      {/* Unique Code */}
+                      <td>
+                        {c.code && c.code !== '—' ? (
+                          <span style={{
+                            display: 'inline-block',
+                            background: '#FFF3EC', color: '#F26522',
+                            fontWeight: 800, fontSize: 12, fontFamily: 'monospace',
+                            letterSpacing: '0.5px', padding: '3px 9px', borderRadius: 6,
+                            whiteSpace: 'nowrap',
+                          }}>{c.code}</span>
+                        ) : (
+                          <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>—</span>
+                        )}
                       </td>
 
                       {/* Company */}
@@ -1694,6 +1730,7 @@ export default function CompanyRegistration() {
                   {/* Company Info Grid */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 20px' }}>
                     {[
+                      { label: 'Unique Code',   value: viewCompany.code || '—', mono: true },
                       { label: 'Company Name',  value: viewCompany.name },
                       { label: 'Owner',         value: viewCompany.owner },
                       { label: 'Business Type', value: viewCompany.bizType || '—' },

@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { userApi } from '../api/userApi'
 import { invoiceApi } from '../api/financeApi'
+import { hrApi } from '../api/hrApi'
 
 // ─── constants ───────────────────────────────────────────────
 const STAFF_ROLES = ['Manager', 'Accountant', 'Sales Executive', 'Warehouse Staff']
@@ -191,6 +192,105 @@ function CollectionCard({ entry, onSendOtp, onVerify, busyId }) {
 
 // ═══════════════════════════════════════════════════════════════
 // MAIN PAGE
+// ─── Business Staff view — grouped by business type → company ────
+function BusinessStaffView({ staff, loading, search, onRefresh }) {
+  const q = (search || '').trim().toLowerCase()
+  const filtered = !q ? staff : staff.filter(e =>
+    [e.name, e.mobile, e.email, e.role_access, e.designation, e.company_name, e.biz_type]
+      .map(v => (v || '').toString().toLowerCase()).join(' ').includes(q)
+  )
+
+  // Group: biz_type → company_name → [staff]
+  const byType = {}
+  filtered.forEach(e => {
+    const type = e.biz_type || 'Other'
+    const comp = e.company_name || '—'
+    byType[type] = byType[type] || {}
+    byType[type][comp] = byType[type][comp] || []
+    byType[type][comp].push(e)
+  })
+
+  const typeMeta = {
+    Wholesaler: { color: '#2563EB', bg: '#EFF6FF' },
+    Retailer:   { color: '#059669', bg: '#ECFDF5' },
+    Other:      { color: '#64748B', bg: '#F4F6F9' },
+  }
+
+  if (loading) {
+    return <div className="card" style={{ padding: 48, textAlign: 'center', color: '#94A3B8' }}>Loading business staff…</div>
+  }
+  if (filtered.length === 0) {
+    return (
+      <div className="card" style={{ padding: 48, textAlign: 'center' }}>
+        <Users size={36} color="#E2E8F0" style={{ display: 'block', margin: '0 auto 10px' }} />
+        <div style={{ fontWeight: 700, fontSize: 14, color: '#64748B', marginBottom: 4 }}>No business staff found</div>
+        <div style={{ fontSize: 13, color: '#94A3B8', marginBottom: 16 }}>Staff added from the Wholesaler/Retailer apps appear here.</div>
+        <button onClick={onRefresh} style={{ padding: '8px 16px', background: '#fff', color: '#64748B', border: '1.5px solid #E2E8F0', borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Refresh</button>
+      </div>
+    )
+  }
+
+  const fmtMoney = n => '₹' + (parseFloat(n) || 0).toLocaleString('en-IN')
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 22 }}>
+      {Object.entries(byType).map(([type, companies]) => {
+        const tm = typeMeta[type] || typeMeta.Other
+        return (
+          <div key={type}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <span style={{ padding: '4px 12px', borderRadius: 20, background: tm.bg, color: tm.color, fontSize: 12, fontWeight: 800 }}>
+                {type} Staff
+              </span>
+              <span style={{ fontSize: 12, color: '#94A3B8' }}>
+                {Object.values(companies).reduce((a, arr) => a + arr.length, 0)} member(s)
+              </span>
+            </div>
+
+            {Object.entries(companies).map(([company, members]) => (
+              <div key={company} className="card" style={{ marginBottom: 12 }}>
+                <div className="card-header" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: tm.color }} />
+                  <span className="card-title">{company}</span>
+                  {members[0]?.company_code && (
+                    <span style={{ fontSize: 11, fontWeight: 800, fontFamily: 'monospace', color: tm.color, background: tm.bg, padding: '2px 8px', borderRadius: 6 }}>{members[0].company_code}</span>
+                  )}
+                  <span style={{ marginLeft: 'auto', fontSize: 12, color: '#94A3B8' }}>{members.length} staff</span>
+                </div>
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr><th>#</th><th>Name</th><th>Mobile</th><th>Email</th><th>Role Access</th><th>Salary</th><th>Incentive</th><th>Status</th></tr>
+                    </thead>
+                    <tbody>
+                      {members.map((e, i) => (
+                        <tr key={e._id}>
+                          <td>{i + 1}</td>
+                          <td style={{ fontWeight: 700, color: '#01152D' }}>{e.name}</td>
+                          <td style={{ fontFamily: 'monospace' }}>{e.mobile || '—'}</td>
+                          <td>{e.email || '—'}</td>
+                          <td>{e.role_access || e.designation || '—'}</td>
+                          <td>{Number(e.salary) > 0 ? fmtMoney(e.salary) : '—'}</td>
+                          <td>{Array.isArray(e.incentive_slabs) && e.incentive_slabs.length ? `${e.incentive_slabs.length} slab(s)` : '—'}</td>
+                          <td>
+                            <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 20, background: e.is_active ? '#ECFDF5' : '#FEF2F2', color: e.is_active ? '#059669' : '#DC2626' }}>
+                              {e.is_active ? 'Active' : 'Inactive'}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ═══════════════════════════════════════════════════════════════
 export default function StaffManagement() {
   const [tab, setTab]         = useState('list')
@@ -221,6 +321,10 @@ export default function StaffManagement() {
   const [collFilter, setCollFilter]       = useState('pending')
   const [busyId, setBusyId]               = useState(null)
 
+  // business staff (Employee records from Wholesaler/Retailer apps, all companies)
+  const [bizStaff, setBizStaff]           = useState([])
+  const [bizLoading, setBizLoading]       = useState(false)
+
   const showToast = (msg, ok = true) => { setToast({ msg, ok }); setTimeout(() => setToast({ msg: '', ok: true }), 3500) }
 
   const setField = (name, val) => { setForm(f => ({ ...f, [name]: val })); setErrors(e => ({ ...e, [name]: '' })) }
@@ -237,6 +341,21 @@ export default function StaffManagement() {
   }, [])
 
   useEffect(() => { loadStaff() }, [loadStaff])
+
+  // ── Load business staff (all companies, from Wholesaler/Retailer apps) ──
+  const loadBizStaff = useCallback(async () => {
+    setBizLoading(true)
+    try {
+      const res = await hrApi.listAllEmployees()
+      setBizStaff(res?.employees || res?.data?.employees || [])
+    } catch {
+      setBizStaff([])
+    } finally {
+      setBizLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { if (tab === 'business') loadBizStaff() }, [tab, loadBizStaff])
 
   // ── Load collections ───────────────────────────────────────
   const loadCollections = useCallback(async () => {
@@ -373,6 +492,7 @@ export default function StaffManagement() {
 
   const TABS = [
     { key: 'list',        label: `Staff List (${staff.length})` },
+    { key: 'business',    label: `Business Staff (${bizStaff.length})` },
     { key: 'collections', label: `Collections (${pendingColl + otpColl} pending)` },
   ]
 
@@ -564,6 +684,14 @@ export default function StaffManagement() {
             </table>
           </div>
         </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════════
+          BUSINESS STAFF TAB — staff added from Wholesaler/Retailer apps,
+          grouped by business type → company.
+      ══════════════════════════════════════════════════════ */}
+      {tab === 'business' && (
+        <BusinessStaffView staff={bizStaff} loading={bizLoading} search={search} onRefresh={loadBizStaff} />
       )}
 
       {/* ══════════════════════════════════════════════════════

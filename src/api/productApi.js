@@ -86,6 +86,7 @@ export const productApi = {
       if (v === null || v === undefined) return
       if (typeof v === 'boolean') { fd.append(k, v ? 'true' : 'false'); return }
       if (Array.isArray(v))       { fd.append(k, JSON.stringify(v));     return }
+      if (typeof v === 'object')  { fd.append(k, JSON.stringify(v));     return } // e.g. attributes {}
       fd.append(k, v)
     })
     if (hasImages) imageFiles.forEach(f => fd.append('file', f))
@@ -103,6 +104,7 @@ export const productApi = {
       if (v === null || v === undefined) return
       if (typeof v === 'boolean') { fd.append(k, v ? 'true' : 'false'); return }
       if (Array.isArray(v))       { fd.append(k, JSON.stringify(v));     return }
+      if (typeof v === 'object')  { fd.append(k, JSON.stringify(v));     return } // e.g. attributes {}
       fd.append(k, v)
     })
     fd.append('image_urls', JSON.stringify(Array.isArray(image_urls) ? image_urls : []))
@@ -114,6 +116,19 @@ export const productApi = {
 
   delete: (id) =>
     api.delete(`/products/${id}`).then(r => r.data),
+
+  // Update per-company access control (unique-code visibility).
+  // payload: { shared_with_all: boolean, allowed_company_codes: string[] }
+  // Sent as multipart/form-data so the existing product-update pipeline
+  // (multer + normaliseBody) parses it the same way as create/update.
+  updateAccess: (id, { shared_with_all, allowed_company_codes }) => {
+    const fd = new FormData()
+    fd.append('shared_with_all', shared_with_all ? 'true' : 'false')
+    fd.append('allowed_company_codes', JSON.stringify(allowed_company_codes || []))
+    return api.put(`/products/${id}`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then(r => r.data)
+  },
 
   // ── Recycle Bin ───────────────────────────────────────────
   // GET /products/recycle-bin — list soft-deleted products
