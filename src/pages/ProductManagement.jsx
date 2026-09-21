@@ -760,6 +760,8 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
   const [imageFiles, setImageFiles]         = useState([])
   const [existingImages, setExistingImages] = useState([])
   const [imgResetKey, setImgResetKey]       = useState(0)
+  // Admin-defined extra specifications (label + value) beyond the schema fields.
+  const [customSpecs, setCustomSpecs]       = useState([])
 
   // Filter subcategories based on selected category
   const filteredSubs = subCategories.filter(s => {
@@ -867,9 +869,23 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
         attributes:        (editProduct.attributes && typeof editProduct.attributes === 'object') ? { ...editProduct.attributes } : {},
       })
       setExistingImages(editProduct.image_urls || [])
+      // Reconstruct custom specs = attributes whose key isn't a schema field for
+      // this product's category type.
+      const attrs = (editProduct.attributes && typeof editProduct.attributes === 'object') ? editProduct.attributes : {}
+      const type = matchCategoryType(
+        editProduct.category_type || editProduct.category_id?.name || editProduct.category_name,
+        editProduct.sub_category_id?.name || editProduct.sub_category_name,
+      )
+      const schemaKeys = new Set(fieldsForType(type).map(f => f.key))
+      setCustomSpecs(
+        Object.entries(attrs)
+          .filter(([k]) => !schemaKeys.has(k))
+          .map(([k, v]) => ({ label: humanizeKey(k), value: String(v ?? '') }))
+      )
     } else {
       setForm(EMPTY_FORM)
       setExistingImages([])
+      setCustomSpecs([])
     }
     setErrors({})
     setImageFiles([])
@@ -936,8 +952,8 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
     return e
   }
 
-  // Collect the attributes-backed dynamic fields for the current category type.
-  // Numeric fields are stored as numbers; empty values are dropped.
+  // Collect the attributes-backed dynamic fields for the current category type,
+  // plus any admin-added custom specifications. Empty values are dropped.
   const buildAttributesPayload = () => {
     const out = {}
     dynamicFields.forEach(f => {
@@ -945,6 +961,12 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
       const raw = form.attributes?.[f.key]
       if (raw === '' || raw == null) return
       out[f.key] = f.type === 'number' ? (parseFloat(raw) || 0) : raw
+    })
+    // Custom specs — label becomes a snake_case key.
+    customSpecs.forEach(({ label, value }) => {
+      const key = String(label || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+      if (!key || value === '' || value == null) return
+      out[key] = value
     })
     return out
   }
@@ -1058,7 +1080,7 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
           </div>
           <div style={{ display:'flex', gap:8 }}>
             <button className="btn btn-secondary btn-sm" type="button"
-              onClick={() => { setForm(EMPTY_FORM); setErrors({}); setImgResetKey(k=>k+1); setImageFiles([]); setExistingImages([]) }}>
+              onClick={() => { setForm(EMPTY_FORM); setErrors({}); setImgResetKey(k=>k+1); setImageFiles([]); setExistingImages([]); setCustomSpecs([]) }}>
               Clear Form
             </button>
             <button className="modal-close" onClick={onClose}><X size={16} /></button>
@@ -1201,7 +1223,10 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
                 {dynamicFields.map(f => {
                   const val = getDynamic(f)
                   const errKey = `dyn_${f.key}`
-                  if (f.type === 'select') {
+                  // Number fields stay as plain inputs (each product has its own
+                  // value). Everything else (select + text) becomes an editable
+                  // dropdown so admin can Add / delete options and pick one.
+                  if (f.type !== 'number') {
                     return (
                       <div key={f.key}>
                         <EditableSelect
@@ -1224,9 +1249,9 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
                       </label>
                       <input
                         className={`form-control${errors[errKey] ? ' error' : ''}`}
-                        type={f.type === 'number' ? 'number' : 'text'}
-                        min={f.type === 'number' ? '0' : undefined}
-                        step={f.type === 'number' ? 'any' : undefined}
+                        type="number"
+                        min="0"
+                        step="any"
                         placeholder={f.placeholder || f.label}
                         value={val}
                         onChange={e => setDynamic(f, e.target.value)}
@@ -1247,6 +1272,40 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
                   <label className="form-label">Barcode / EAN</label>
                   <input className="form-control" placeholder="Barcode/EAN" value={form.barcode} onChange={e=>set('barcode',e.target.value)} />
                 </div>
+              </div>
+
+              {/* â”€â”€ ADMIN-ADDED CUSTOM SPECIFICATIONS â”€â”€ */}
+              <div style={{ marginTop:18 }}>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8 }}>
+                  <span style={{ fontSize:12, fontWeight:700, color:'var(--text)' }}>Additional Specifications</span>
+                  <button type="button" className="btn btn-secondary btn-sm" style={{ gap:6 }}
+                    onClick={() => setCustomSpecs(list => [...list, { label:'', value:'' }])}>
+                    <Plus size={13}/> Add Specification
+                  </button>
+                </div>
+                {customSpecs.length === 0 ? (
+                  <div style={{ fontSize:12, color:'var(--text-muted)' }}>
+                    Need a field that isn't listed above? Click <strong>Add Specification</strong> to add your own (e.g. Batch No, Shade, Warranty).
+                  </div>
+                ) : (
+                  <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                    {customSpecs.map((spec, idx) => (
+                      <div key={idx} style={{ display:'grid', gridTemplateColumns:'1fr 1fr auto', gap:10, alignItems:'center' }}>
+                        <input className="form-control" placeholder="Specification name (e.g. Shade)"
+                          value={spec.label}
+                          onChange={e => setCustomSpecs(list => list.map((s,i) => i===idx ? { ...s, label:e.target.value } : s))} />
+                        <input className="form-control" placeholder="Value (e.g. Dark)"
+                          value={spec.value}
+                          onChange={e => setCustomSpecs(list => list.map((s,i) => i===idx ? { ...s, value:e.target.value } : s))} />
+                        <button type="button" title="Remove specification"
+                          className="btn btn-ghost btn-xs" style={{ color:'var(--danger)' }}
+                          onClick={() => setCustomSpecs(list => list.filter((_,i) => i!==idx))}>
+                          <Trash2 size={14}/>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </>
           )}
@@ -1279,33 +1338,6 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
               <label className="form-label">Reorder Level</label>
               <input className="form-control" type="number" min="0" placeholder="0" value={form.reorder_level} onChange={e=>set('reorder_level',e.target.value)} />
             </div>
-          </div>
-
-          {/* â”€â”€ STATUS & TYPE â”€â”€ */}
-          <FormSection title="Status & Type" />
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12 }}>
-            <SelectField
-              label="Status"
-              value={form.status}
-              onChange={v=>set('status',v)}
-              options={['Active','Inactive']}
-            />
-            <SelectField
-              label="Sales Type"
-              value={form.sales_type}
-              onChange={v=>set('sales_type',v)}
-              options={SALE_TYPES}
-            />
-            <SelectField
-              label="Product Type"
-              value={form.product_type}
-              onChange={v=>set('product_type',v)}
-              options={PROD_TYPES}
-            />
-          </div>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:20, marginTop:16 }}>
-            <Toggle label="New Arrival" checked={form.new_arrival} onChange={v=>set('new_arrival',v)} />
-            <Toggle label="Featured"    checked={form.featured}    onChange={v=>set('featured',v)} />
           </div>
 
           {/* â”€â”€ IMAGES â”€â”€ */}

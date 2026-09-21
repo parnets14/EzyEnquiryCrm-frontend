@@ -41,6 +41,12 @@ const TILE_SIZES = [
   '600x600', '600x1200', '800x800', '800x1600',
   '1000x1000', '1200x1200', '1200x2400',
 ]
+// Slab / stone sizes (feet & mm) for granite & marble.
+const SLAB_SIZES = [
+  '2x2 ft', '2x4 ft', '3x7 ft', '4x2 ft', '5x2 ft',
+  '6x3 ft', '7x4 ft', '8x4 ft', '9x5 ft', '10x5 ft',
+  '600x600 mm', '800x800 mm', '1200x600 mm', 'Custom',
+]
 const TILE_FINISHES  = ['Glossy', 'Matt', 'Satin', 'Polished', 'Rustic', 'Textured', 'Sugar', 'Carving', 'Natural']
 const TILE_TYPES     = ['Floor Tile', 'Wall Tile', 'Floor & Wall', 'Outdoor', 'Pool Tile', 'Parking', 'Elevation', 'Mosaic']
 const APPLICATIONS   = ['Living Room', 'Bedroom', 'Bathroom', 'Kitchen', 'Outdoor', 'Commercial', 'Parking', 'Swimming Pool']
@@ -52,6 +58,11 @@ const STONE_GRADE    = ['Grade 1 (Commercial)', 'Grade 2 (Standard)', 'Grade 3 (
 const STONE_THICK    = ['16mm', '18mm', '20mm (2cm)', '25mm', '30mm (3cm)', 'Custom']
 const ORIGINS        = ['India', 'Italy', 'Spain', 'China', 'Portugal', 'Brazil', 'Turkey', 'UAE']
 const BLOCK_TYPES    = ['AAC Block', 'Concrete Block', 'Fly Ash Brick', 'Solid Block', 'Hollow Block', 'Paver Block']
+const BLOCK_SIZES    = [
+  '600x200x100 mm', '600x200x150 mm', '600x200x200 mm', '600x200x230 mm',
+  '600x250x100 mm', '600x250x150 mm', '600x250x200 mm',
+  '400x200x100 mm', '400x200x200 mm', '230x110x75 mm', 'Custom',
+]
 const BLOCK_GRADE    = ['AAC-2', 'AAC-3', 'AAC-4', 'AAC-6', 'Grade A', 'Grade B']
 const SANITARY_TYPE  = ['Wash Basin', 'Water Closet (WC)', 'One Piece Closet', 'Urinal', 'Cistern', 'Pedestal', 'Squatting Pan', 'Bidet']
 const SANITARY_MOUNT = ['Wall Hung', 'Floor Mounted', 'One Piece', 'Counter Top', 'Under Counter', 'Table Top']
@@ -69,41 +80,37 @@ export const PRODUCT_FIELD_SCHEMA = {
     { key: 'anti_skid',   label: 'Anti-Skid Rating', type: 'select', options: ANTI_SKID,  required: false, storeIn: 'column' },
     { key: 'application', label: 'Application Area', type: 'select', options: APPLICATIONS, required: false, storeIn: 'column' },
     { key: 'surface',     label: 'Surface',          type: 'text',   required: false, storeIn: 'column' },
-    { key: 'color',       label: 'Colour',           type: 'text',   required: false, storeIn: 'column' },
-    { key: 'design',      label: 'Design / Series',  type: 'text',   required: false, storeIn: 'column' },
+    { key: 'color',       label: 'Colour',           type: 'select', options: [], required: false, storeIn: 'column' },
+    { key: 'design',      label: 'Design / Series',  type: 'select', options: [], required: false, storeIn: 'column' },
     { key: 'pcs_per_box', label: 'Pieces / Box',     type: 'number', required: false, storeIn: 'column' },
     { key: 'sqft_per_box', label: 'Sq.Ft / Box',     type: 'number', unit: 'sqft', required: false, storeIn: 'column' },
     { key: 'weight_per_box', label: 'Weight / Box',  type: 'number', unit: 'kg',   required: false, storeIn: 'column' },
   ],
 
   granite: [
-    { key: 'color',        label: 'Colour',          type: 'text',   required: true,  storeIn: 'column',    placeholder: 'e.g. Black Galaxy' },
+    { key: 'size',         label: 'Size',            type: 'select', options: SLAB_SIZES, required: true,  storeIn: 'column' },
+    { key: 'color',        label: 'Colour',          type: 'select', options: [], required: true, storeIn: 'column', placeholder: 'e.g. Black Galaxy' },
     { key: 'finish',       label: 'Finish',          type: 'select', options: STONE_FINISHES, required: true, storeIn: 'column' },
     { key: 'thickness',    label: 'Thickness',       type: 'select', options: STONE_THICK, required: true,  storeIn: 'column' },
-    { key: 'slab_length_ft', label: 'Slab Length',   type: 'number', unit: 'ft',      required: true,  storeIn: 'attributes' },
-    { key: 'slab_width_ft',  label: 'Slab Width',    type: 'number', unit: 'ft',      required: true,  storeIn: 'attributes' },
     { key: 'grade',        label: 'Grade / Quality', type: 'select', options: STONE_GRADE, required: false, storeIn: 'column' },
     { key: 'origin',       label: 'Origin',          type: 'select', options: ORIGINS, required: false, storeIn: 'column' },
-    { key: 'vein_pattern', label: 'Vein / Pattern',  type: 'text',   required: false, storeIn: 'attributes' },
+    { key: 'vein_pattern', label: 'Vein / Pattern',  type: 'select', options: [], required: false, storeIn: 'attributes' },
     { key: 'weight_per_box', label: 'Weight / Slab', type: 'number', unit: 'kg',      required: false, storeIn: 'column' },
   ],
 
   marble: [
-    { key: 'color',        label: 'Colour',          type: 'text',   required: true,  storeIn: 'column',    placeholder: 'e.g. Makrana White' },
+    { key: 'size',         label: 'Size',            type: 'select', options: SLAB_SIZES, required: true,  storeIn: 'column' },
+    { key: 'color',        label: 'Colour',          type: 'select', options: [], required: true, storeIn: 'column', placeholder: 'e.g. Makrana White' },
     { key: 'finish',       label: 'Finish',          type: 'select', options: STONE_FINISHES, required: true, storeIn: 'column' },
     { key: 'thickness',    label: 'Thickness',       type: 'select', options: STONE_THICK, required: true,  storeIn: 'column' },
-    { key: 'slab_length_ft', label: 'Slab Length',   type: 'number', unit: 'ft',      required: true,  storeIn: 'attributes' },
-    { key: 'slab_width_ft',  label: 'Slab Width',    type: 'number', unit: 'ft',      required: true,  storeIn: 'attributes' },
     { key: 'grade',        label: 'Grade / Quality', type: 'select', options: STONE_GRADE, required: false, storeIn: 'column' },
     { key: 'origin',       label: 'Origin',          type: 'select', options: ORIGINS, required: false, storeIn: 'column' },
-    { key: 'vein_pattern', label: 'Vein / Pattern',  type: 'text',   required: false, storeIn: 'attributes' },
+    { key: 'vein_pattern', label: 'Vein / Pattern',  type: 'select', options: [], required: false, storeIn: 'attributes' },
   ],
 
   blocks: [
     { key: 'block_type',   label: 'Block Type',      type: 'select', options: BLOCK_TYPES, required: true,  storeIn: 'attributes' },
-    { key: 'block_length_mm', label: 'Length',       type: 'number', unit: 'mm',      required: true,  storeIn: 'attributes' },
-    { key: 'block_height_mm', label: 'Height',       type: 'number', unit: 'mm',      required: true,  storeIn: 'attributes' },
-    { key: 'block_thickness_mm', label: 'Thickness / Width', type: 'number', unit: 'mm', required: true, storeIn: 'attributes' },
+    { key: 'size',         label: 'Size (LxHxW)',    type: 'select', options: BLOCK_SIZES, required: true,  storeIn: 'column' },
     { key: 'grade',        label: 'Grade / Strength Class', type: 'select', options: BLOCK_GRADE, required: false, storeIn: 'column' },
     { key: 'compressive_strength', label: 'Compressive Strength', type: 'number', unit: 'N/mm²', required: false, storeIn: 'attributes' },
     { key: 'density',      label: 'Density',         type: 'number', unit: 'kg/m³',   required: false, storeIn: 'attributes' },
@@ -113,18 +120,18 @@ export const PRODUCT_FIELD_SCHEMA = {
   sanitaryware: [
     { key: 'product_kind', label: 'Product Type',    type: 'select', options: SANITARY_TYPE, required: true,  storeIn: 'attributes' },
     { key: 'mounting',     label: 'Mounting',        type: 'select', options: SANITARY_MOUNT, required: true, storeIn: 'attributes' },
-    { key: 'color',        label: 'Colour',          type: 'text',   required: true,  storeIn: 'column',    placeholder: 'e.g. White / Ivory' },
-    { key: 'dimensions',   label: 'Dimensions (W×D×H)', type: 'text', unit: 'mm',     required: true,  storeIn: 'attributes', placeholder: 'e.g. 660x380x710' },
+    { key: 'color',        label: 'Colour',          type: 'select', options: [], required: true, storeIn: 'column', placeholder: 'e.g. White / Ivory' },
+    { key: 'dimensions',   label: 'Dimensions (W×D×H)', type: 'select', options: [], unit: 'mm', required: true, storeIn: 'attributes', placeholder: 'e.g. 660x380x710' },
     { key: 'flush_type',   label: 'Flush Type',      type: 'select', options: FLUSH_TYPES, required: false, storeIn: 'attributes' },
-    { key: 'design',       label: 'Model / Design',  type: 'text',   required: false, storeIn: 'column' },
+    { key: 'design',       label: 'Model / Design',  type: 'select', options: [], required: false, storeIn: 'column' },
   ],
 
   other: [
-    { key: 'size',      label: 'Size',      type: 'text', required: true,  storeIn: 'column' },
-    { key: 'finish',    label: 'Finish',    type: 'text', required: false, storeIn: 'column' },
-    { key: 'color',     label: 'Colour',    type: 'text', required: false, storeIn: 'column' },
-    { key: 'material',  label: 'Material',  type: 'text', required: false, storeIn: 'column' },
-    { key: 'thickness', label: 'Thickness', type: 'text', unit: 'mm', required: false, storeIn: 'column' },
+    { key: 'size',      label: 'Size',      type: 'select', options: [], required: true,  storeIn: 'column' },
+    { key: 'finish',    label: 'Finish',    type: 'select', options: [], required: false, storeIn: 'column' },
+    { key: 'color',     label: 'Colour',    type: 'select', options: [], required: false, storeIn: 'column' },
+    { key: 'material',  label: 'Material',  type: 'select', options: [], required: false, storeIn: 'column' },
+    { key: 'thickness', label: 'Thickness', type: 'select', options: [], unit: 'mm', required: false, storeIn: 'column' },
   ],
 }
 
