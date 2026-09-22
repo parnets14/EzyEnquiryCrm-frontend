@@ -789,10 +789,18 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
   // are chosen. Sub-Category is only required when the picked category actually
   // has sub-categories defined.
   const categoryHasSubs = !!form.category_id && filteredSubs.length > 0
+  // Sub-category is required only when the category actually has sub-categories.
+  // Exception: when EDITING an existing product that was saved WITHOUT a
+  // sub-category, don't block the form — otherwise such products can never be
+  // edited (the "Preview & Save" button stays disabled forever).
+  const subCategorySatisfied =
+    !categoryHasSubs ||
+    !!form.sub_category_id ||
+    (!!editProduct && !editProduct.sub_category_id)
   const selectionComplete =
     !!form.category_id &&
     !!form.brand_id &&
-    (!categoryHasSubs || !!form.sub_category_id)
+    subCategorySatisfied
 
   // Set a dynamic field's value. Column-backed fields live on form[key];
   // attributes-backed fields live on form.attributes[key].
@@ -859,8 +867,8 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
         dealer_discount:   editProduct.dealer_discount   || '',
         wholesale_discount:editProduct.wholesale_discount|| '',
         project_discount:  editProduct.project_discount  || '',
-        min_stock_level:   editProduct.min_stock_level   || '',
-        reorder_level:     editProduct.reorder_level     || '',
+        min_stock_level:   editProduct.min_stock_level != null ? String(editProduct.min_stock_level) : '',
+        reorder_level:     editProduct.reorder_level   != null ? String(editProduct.reorder_level)   : '',
         status:            editProduct.is_active !== false ? 'Active' : 'Inactive',
         sales_type:        editProduct.sales_type        || 'Regular Sale',
         product_type:      editProduct.product_type      || 'Regular Product',
@@ -932,7 +940,9 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
     if (!form.name.trim()) e.name = 'Product name is required'
     if (!form.brand_id)    e.brand_id = 'Brand is required'
     if (!form.category_id) e.category_id = 'Category is required'
-    if (categoryHasSubs && !form.sub_category_id) e.sub_category_id = 'Sub-category is required'
+    if (categoryHasSubs && !form.sub_category_id && !(editProduct && !editProduct.sub_category_id)) {
+      e.sub_category_id = 'Sub-category is required'
+    }
     if (!form.unit)        e.unit = 'Unit is required'
 
     // Required category-specific fields.
@@ -973,7 +983,20 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
 
   const handleSave = async () => {
     const e = validate()
-    if (Object.keys(e).length) { setErrors(e); return }
+    if (Object.keys(e).length) {
+      setErrors(e)
+      // Surface the block instead of failing silently. Show which required
+      // fields are missing and jump to the first one so the user can fix it.
+      const msgs = Object.values(e)
+      try {
+        const firstKey = Object.keys(e)[0]
+        const el = document.querySelector(`[name="${firstKey}"]`) ||
+                   document.getElementById(`field-${firstKey}`)
+        if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      } catch { /* ignore */ }
+      alert('Please complete these required fields:\n\n• ' + msgs.join('\n• '))
+      return
+    }
 
     // Build a plain object - productApi.create / productApi.update handle FormData internally
     // when imageFiles is present. Field name 'file' matches multer's uploadImages middleware.

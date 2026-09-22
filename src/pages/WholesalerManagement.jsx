@@ -48,6 +48,9 @@ export default function WholesalerManagement() {
   // modals
   const [viewProduct,  setViewProduct]  = useState(null)
   const [viewPurchase, setViewPurchase] = useState(null)
+  const [viewOrder,    setViewOrder]    = useState(null)
+  const [viewEnquiry,  setViewEnquiry]  = useState(null)
+  const [viewUser,     setViewUser]     = useState(null)
   const [delProduct,   setDelProduct]   = useState(null)
   const [delPurchase,  setDelPurchase]  = useState(null)
   const [rejectFor,    setRejectFor]    = useState(null)
@@ -428,10 +431,10 @@ export default function WholesalerManagement() {
           </div>
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Code</th><th>Company</th><th>Customer</th><th>Product</th><th>Qty</th><th>Total</th><th>Status</th><th>Date</th></tr></thead>
+              <thead><tr><th>Code</th><th>Company</th><th>Customer</th><th>Product</th><th>Qty</th><th>Total</th><th>Status</th><th>Date</th><th style={{ textAlign: 'center' }}>Actions</th></tr></thead>
               <tbody>
-                {loading && <tr><td colSpan={8} style={{ textAlign: 'center', padding: 30 }}>Loading…</td></tr>}
-                {!loading && fOrders.length === 0 && <tr><td colSpan={8} style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>No orders found.</td></tr>}
+                {loading && <tr><td colSpan={9} style={{ textAlign: 'center', padding: 30 }}>Loading…</td></tr>}
+                {!loading && fOrders.length === 0 && <tr><td colSpan={9} style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>No orders found.</td></tr>}
                 {!loading && fOrders.map(o => (
                   <tr key={o._id}>
                     <td style={{ fontFamily: 'monospace', fontWeight: 700, color: '#F26522', fontSize: 12 }}>{o.order_code}</td>
@@ -442,6 +445,11 @@ export default function WholesalerManagement() {
                     <td style={{ fontWeight: 700 }}>{money(o.total_amount)}</td>
                     <td><span className={`badge ${badge(o.status)}`}>{o.status}</span></td>
                     <td style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{fmtDate(o.order_date || o.created_at)}</td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+                        <button className="btn btn-sm btn-secondary" title="View" onClick={() => setViewOrder(o)}><Eye size={13} /></button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -461,10 +469,10 @@ export default function WholesalerManagement() {
           </div>
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Code</th><th>Company</th><th>Retailer</th><th>Product</th><th>Qty</th><th>Status</th><th>Date</th></tr></thead>
+              <thead><tr><th>Code</th><th>Company</th><th>Retailer</th><th>Product</th><th>Qty</th><th>Status</th><th>Date</th><th style={{ textAlign: 'center' }}>Actions</th></tr></thead>
               <tbody>
-                {loading && <tr><td colSpan={7} style={{ textAlign: 'center', padding: 30 }}>Loading…</td></tr>}
-                {!loading && fEnquiries.length === 0 && <tr><td colSpan={7} style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>No enquiries found.</td></tr>}
+                {loading && <tr><td colSpan={8} style={{ textAlign: 'center', padding: 30 }}>Loading…</td></tr>}
+                {!loading && fEnquiries.length === 0 && <tr><td colSpan={8} style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>No enquiries found.</td></tr>}
                 {!loading && fEnquiries.map(e => (
                   <tr key={e._id}>
                     <td style={{ fontFamily: 'monospace', fontWeight: 700, color: '#F26522', fontSize: 12 }}>{e.enq_code || '—'}</td>
@@ -474,6 +482,11 @@ export default function WholesalerManagement() {
                     <td>{e.qty} {e.unit || ''}</td>
                     <td><span className={`badge ${badge(e.status)}`}>{e.status}</span></td>
                     <td style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{fmtDate(e.created_at)}</td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+                        <button className="btn btn-sm btn-secondary" title="View" onClick={() => setViewEnquiry(e)}><Eye size={13} /></button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -493,10 +506,10 @@ export default function WholesalerManagement() {
           </div>
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Name</th><th>Company</th><th>Mobile</th><th>Email</th><th>Role</th><th>Status</th></tr></thead>
+              <thead><tr><th>Name</th><th>Company</th><th>Mobile</th><th>Email</th><th>Role</th><th>Status</th><th style={{ textAlign: 'center' }}>Actions</th></tr></thead>
               <tbody>
-                {loading && <tr><td colSpan={6} style={{ textAlign: 'center', padding: 30 }}>Loading…</td></tr>}
-                {!loading && fUsers.length === 0 && <tr><td colSpan={6} style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>No users found.</td></tr>}
+                {loading && <tr><td colSpan={7} style={{ textAlign: 'center', padding: 30 }}>Loading…</td></tr>}
+                {!loading && fUsers.length === 0 && <tr><td colSpan={7} style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>No users found.</td></tr>}
                 {!loading && fUsers.map(u => (
                   <tr key={u._id}>
                     <td style={{ fontWeight: 600 }}>{u.name}</td>
@@ -505,6 +518,11 @@ export default function WholesalerManagement() {
                     <td style={{ fontSize: 12 }}>{u.email || '—'}</td>
                     <td>{u.role}</td>
                     <td><span className={`badge ${u.is_active ? 'badge-green' : 'badge-red'}`}>{u.is_active ? 'Active' : 'Inactive'}</span></td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+                        <button className="btn btn-sm btn-secondary" title="View" onClick={() => setViewUser(u)}><Eye size={13} /></button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -621,6 +639,101 @@ export default function WholesalerManagement() {
                   </button>
                 </>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* View Order */}
+      {viewOrder && (
+        <div className="modal-overlay" onClick={() => setViewOrder(null)}>
+          <div className="modal" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <span className="modal-title"><ShoppingCart size={15} style={{ marginRight: 6, verticalAlign: 'middle' }} />Order — {viewOrder.order_code || '—'}</span>
+              <button className="modal-close" onClick={() => setViewOrder(null)}><X size={18} /></button>
+            </div>
+            <div className="modal-body">
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                {[
+                  ['Company', viewOrder.company_name], ['Customer', viewOrder.customer_name],
+                  ['Product', viewOrder.product_name], ['Qty', viewOrder.qty],
+                  ['Rate', money(viewOrder.rate)], ['Total', money(viewOrder.total_amount)],
+                  ['Status', viewOrder.status], ['Date', fmtDate(viewOrder.order_date || viewOrder.created_at)],
+                ].map(([label, val]) => (
+                  <div key={label}>
+                    <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-muted)', marginBottom: 2 }}>{label}</div>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>{val ?? '—'}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary btn-sm" onClick={() => setViewOrder(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* View Enquiry */}
+      {viewEnquiry && (
+        <div className="modal-overlay" onClick={() => setViewEnquiry(null)}>
+          <div className="modal" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <span className="modal-title"><MessageSquare size={15} style={{ marginRight: 6, verticalAlign: 'middle' }} />Enquiry — {viewEnquiry.enq_code || '—'}</span>
+              <button className="modal-close" onClick={() => setViewEnquiry(null)}><X size={18} /></button>
+            </div>
+            <div className="modal-body">
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                {[
+                  ['Company', viewEnquiry.company_name], ['Retailer', viewEnquiry.retailer_name],
+                  ['Product', viewEnquiry.product_name], ['Qty', `${viewEnquiry.qty ?? '—'} ${viewEnquiry.unit || ''}`],
+                  ['Status', viewEnquiry.status], ['Date', fmtDate(viewEnquiry.created_at)],
+                ].map(([label, val]) => (
+                  <div key={label}>
+                    <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-muted)', marginBottom: 2 }}>{label}</div>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>{val ?? '—'}</div>
+                  </div>
+                ))}
+              </div>
+              {viewEnquiry.note && (
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-muted)', marginBottom: 2 }}>Note</div>
+                  <div style={{ fontSize: 13 }}>{viewEnquiry.note}</div>
+                </div>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary btn-sm" onClick={() => setViewEnquiry(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* View User */}
+      {viewUser && (
+        <div className="modal-overlay" onClick={() => setViewUser(null)}>
+          <div className="modal" style={{ maxWidth: 460 }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <span className="modal-title"><Users size={15} style={{ marginRight: 6, verticalAlign: 'middle' }} />{viewUser.name}</span>
+              <button className="modal-close" onClick={() => setViewUser(null)}><X size={18} /></button>
+            </div>
+            <div className="modal-body">
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                {[
+                  ['Company', viewUser.company_name], ['Role', viewUser.role],
+                  ['Mobile', viewUser.mobile], ['Email', viewUser.email],
+                  ['Status', viewUser.is_active ? 'Active' : 'Inactive'],
+                  ['Last Login', viewUser.last_login ? fmtDate(viewUser.last_login) : '—'],
+                ].map(([label, val]) => (
+                  <div key={label}>
+                    <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-muted)', marginBottom: 2 }}>{label}</div>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>{val || '—'}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary btn-sm" onClick={() => setViewUser(null)}>Close</button>
             </div>
           </div>
         </div>
