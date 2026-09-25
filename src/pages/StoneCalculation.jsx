@@ -13,16 +13,19 @@
  * Real calc: convert Length & Width to the OUTPUT unit, then multiply.
  *   122 in × 38 in → feet  = 10.16667 × 3.16667 = 32.1944 ft²
  */
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import {
   Gem, Layers, Box, Grid3x3, Plus, Search, Copy, Save, ArrowLeft,
   Trash2, Eye, Pencil, Share2, Download, Printer, X, Calculator, Calendar,
+  FileText, ReceiptText, Send,
 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { stoneApi } from '../api/stoneApi'
 import {
-  UNITS, AREA_SYMBOL, unitLabel, rowArea, sumArea, fmtArea,
+  AREA_SYMBOL, unitLabel, rowArea, sumArea, fmtArea, allUnits, addCustomUnit,
 } from '../config/stoneUnits'
+import { companyApi } from '../api/companyApi'
+import api from '../api'
 
 // ── Products (with react-style icons from lucide) ────────────────────────────
 // Brand palette (matches the app logo / sidebar)
@@ -36,7 +39,11 @@ const PRODUCTS = [
   { key: 'block',   label: 'Block',   icon: Box,     color: ORANGE, bg: '#FFF3EC' },
   { key: 'italian', label: 'Italian', icon: Grid3x3, color: NAVY,   bg: '#EEF1F6' },
 ]
-const productMeta = (key) => PRODUCTS.find(p => p.key === key) || PRODUCTS[0]
+// Fallback meta for custom / unknown sheet types.
+const CUSTOM_META = { key: 'custom', label: 'Custom', icon: Calculator, color: ORANGE, bg: '#FFF3EC' }
+const productMeta = (key) => PRODUCTS.find(p => p.key === key) || CUSTOM_META
+// Display label for a sheet — custom sheets show their user-entered type.
+const sheetLabel = (sheet) => (sheet?.product === 'custom' && sheet?.custom_type) ? sheet.custom_type : productMeta(sheet?.product).label
 
 // ── tiny shared styles ───────────────────────────────────────────────────────
 const inputStyle = {
@@ -53,6 +60,8 @@ const fmtDate = (iso) => {
   return isNaN(d) ? iso : d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
+// (Quotation/Invoice generation moved into SendDocumentModal.)
+
 // ═══════════════════════════════════════════════════════════════════════════
 export default function StoneCalculation() {
   const [view, setView]         = useState('list')      // 'list' | 'edit' | 'view'
@@ -62,6 +71,7 @@ export default function StoneCalculation() {
 
   // modals
   const [newFor, setNewFor]     = useState(null)        // product key for New Sheet modal
+  const [docFor, setDocFor]     = useState(null)        // { kind, sheet } → Send modal
   const refresh = () => setSheets(stoneApi.list())
 
   // ── list view ──────────────────────────────────────────────────────────
@@ -120,6 +130,7 @@ export default function StoneCalculation() {
           onNew={setNewFor}
           onView={openView} onEdit={openEdit}
           onDelete={handleDelete} onShare={handleShare}
+          onDoc={(kind, sheet) => setDocFor({ kind, sheet })}
         />
       )}
 
@@ -146,6 +157,16 @@ export default function StoneCalculation() {
           onCreate={(sheet) => { setNewFor(null); startNew(sheet) }}
         />
       )}
+
+      {/* Quotation / Invoice for a specific sheet */}
+      {docFor && (
+        <SendDocumentModal
+          kind={docFor.kind}
+          sheet={docFor.sheet}
+          allSheets={sheets}
+          onClose={() => setDocFor(null)}
+        />
+      )}
     </>
   )
 }
@@ -153,42 +174,79 @@ export default function StoneCalculation() {
 /* ═══════════════════════════════════════════════════════════════════════
    LIST VIEW — product select + My Sheets
 ═══════════════════════════════════════════════════════════════════════ */
-function ListView({ products, sheets, search, setSearch, onNew, onView, onEdit, onDelete, onShare }) {
+function ListView({ products, sheets, search, setSearch, onNew, onView, onEdit, onDelete, onShare, onDoc }) {
+  // Header-level quotation/invoice uses the most recent sheet (sheets[0]).
+  // If no sheets exist, show a hint instead.
+  const handleHeaderDoc = (kind) => {
+    if (!sheets || sheets.length === 0) {
+      alert('Please create a sheet first, then use Quotation or Invoice.')
+      return
+    }
+    // Open with no pre-selected sheet — user picks from the list in Step 1.
+    onDoc(kind, null)
+  }
   return (
     <>
-      <div style={{ marginBottom: 20 }}>
-        <div className="page-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Calculator size={22} color={ORANGE} /> Stone Calculation
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+        <div>
+          <div className="page-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Calculator size={22} color={ORANGE} /> Stone Calculation
+          </div>
+          <div className="page-desc">Please select a product to create a measurement sheet</div>
         </div>
-        <div className="page-desc">Please select a product to create a measurement sheet</div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button onClick={() => handleHeaderDoc('quotation')} style={btnPrimary}><FileText size={15} /> Quotation</button>
+          <button onClick={() => handleHeaderDoc('invoice')} style={btnTeal}><ReceiptText size={15} /> Invoice</button>
+        </div>
       </div>
 
       {/* Product cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(190px,1fr))', gap: 14, marginBottom: 26 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(200px,1fr))', gap: 14, marginBottom: 26 }}>
         {products.map(p => (
           <button
             key={p.key}
             onClick={() => onNew(p.key)}
-            className="card"
             style={{
-              display: 'flex', alignItems: 'center', gap: 14, padding: '18px 20px',
-              cursor: 'pointer', border: '1.5px solid #E8EDF3', background: '#fff',
-              textAlign: 'left', transition: 'all .15s',
+              display: 'flex', alignItems: 'center', gap: 14, padding: '16px 18px',
+              cursor: 'pointer', border: '1px solid #E8EDF3', borderRadius: 14,
+              background: '#fff', textAlign: 'left', transition: 'all .15s',
+              boxShadow: '0 1px 2px rgba(1,21,45,.04)', minHeight: 78,
             }}
-            onMouseEnter={e => { e.currentTarget.style.borderColor = p.color; e.currentTarget.style.transform = 'translateY(-2px)' }}
-            onMouseLeave={e => { e.currentTarget.style.borderColor = '#E8EDF3'; e.currentTarget.style.transform = 'none' }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = p.color; e.currentTarget.style.boxShadow = '0 8px 20px rgba(1,21,45,.10)'; e.currentTarget.style.transform = 'translateY(-2px)' }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = '#E8EDF3'; e.currentTarget.style.boxShadow = '0 1px 2px rgba(1,21,45,.04)'; e.currentTarget.style.transform = 'none' }}
           >
-            <div style={{ width: 48, height: 48, borderRadius: 12, background: p.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <p.icon size={24} color={p.color} />
+            <div style={{ width: 46, height: 46, borderRadius: 12, background: p.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <p.icon size={23} color={p.color} />
             </div>
             <div style={{ minWidth: 0 }}>
               <div style={{ fontSize: 15, fontWeight: 800, color: '#1E2D4A' }}>{p.label}</div>
-              <div style={{ fontSize: 12, color: '#94A3B8', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <div style={{ fontSize: 12, color: '#94A3B8', display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
                 <Plus size={11} /> New sheet
               </div>
             </div>
           </button>
         ))}
+
+        {/* Add custom sheet type — same clean look, orange accent */}
+        <button
+          onClick={() => onNew('custom')}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 14, padding: '16px 18px',
+            cursor: 'pointer', border: '1px solid #FFD9C2', borderRadius: 14,
+            background: '#fff', textAlign: 'left', transition: 'all .15s',
+            boxShadow: '0 1px 2px rgba(1,21,45,.04)', minHeight: 78,
+          }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = ORANGE; e.currentTarget.style.boxShadow = '0 8px 20px rgba(242,101,34,.14)'; e.currentTarget.style.transform = 'translateY(-2px)' }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = '#FFD9C2'; e.currentTarget.style.boxShadow = '0 1px 2px rgba(1,21,45,.04)'; e.currentTarget.style.transform = 'none' }}
+        >
+          <div style={{ width: 46, height: 46, borderRadius: 12, background: '#FFF3EC', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Plus size={23} color={ORANGE} />
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: '#1E2D4A' }}>Add</div>
+            <div style={{ fontSize: 12, color: '#94A3B8', marginTop: 2 }}>Custom sheet type</div>
+          </div>
+        </button>
       </div>
 
       {/* My Sheets */}
@@ -225,7 +283,7 @@ function ListView({ products, sheets, search, setSearch, onNew, onView, onEdit, 
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 14, fontWeight: 800, color: '#1E2D4A', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.party || '—'}</div>
-                    <div style={{ fontSize: 12, color: '#64748B' }}>{s.name ? `${s.name} ` : ''}({meta.label})</div>
+                    <div style={{ fontSize: 12, color: '#64748B' }}>{s.name ? `${s.name} ` : ''}({sheetLabel(s)})</div>
                   </div>
                   <div style={{ textAlign: 'right', flexShrink: 0 }}>
                     <div style={{ fontSize: 11, color: '#94A3B8' }}>{fmtDate(s.date)}</div>
@@ -235,6 +293,8 @@ function ListView({ products, sheets, search, setSearch, onNew, onView, onEdit, 
                   </div>
                   {/* actions */}
                   <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                    <IconBtn title="Quotation" color={ORANGE}  onClick={() => onDoc('quotation', s)}><FileText size={15} /></IconBtn>
+                    <IconBtn title="Invoice"   color={NAVY}    onClick={() => onDoc('invoice', s)}><ReceiptText size={15} /></IconBtn>
                     <IconBtn title="View"   color="#2563EB" onClick={() => onView(s)}><Eye size={15} /></IconBtn>
                     <IconBtn title="Edit"   color="#16A34A" onClick={() => onEdit(s)}><Pencil size={15} /></IconBtn>
                     <IconBtn title="Share"  color={TEAL}    onClick={() => onShare(s)}><Share2 size={15} /></IconBtn>
@@ -264,21 +324,42 @@ function IconBtn({ title, color, onClick, children }) {
    NEW SHEET MODAL
 ═══════════════════════════════════════════════════════════════════════ */
 function NewSheetModal({ product, onCancel, onCreate }) {
+  const isCustom = product === 'custom'
   const meta = productMeta(product)
+  const [customType, setCustomType] = useState('')   // custom sheet type name
   const [name, setName]   = useState('')
-  const [party, setParty] = useState('')
+  const party = ''   // party name field removed from the sheet form
   const [date, setDate]   = useState(todayISO())
   const [rows, setRows]   = useState('1')
   const [err, setErr]     = useState('')
 
+  const typeLabel = isCustom ? (customType.trim() || 'Custom') : meta.label
+
   const create = () => {
-    if (!name.trim())  return setErr(`${meta.label} name is required`)
-    if (!party.trim()) return setErr('Party name is required')
+    if (isCustom) {
+      // Custom "Add" needs only the sheet name — everything else defaults.
+      if (!customType.trim()) return setErr('Sheet name is required')
+      onCreate({
+        id: null,
+        product: 'custom',
+        custom_type: customType.trim(),
+        name: customType.trim(),
+        party: '',
+        date: todayISO(),
+        inputUnit: 'inch',
+        outputUnit: 'feet',
+        rows: [{ length: '', width: '' }],
+        total: 0,
+      })
+      return
+    }
+    if (!name.trim())  return setErr(`${typeLabel} name is required`)
     if (!date)         return setErr('Please choose a date')
     const n = Math.max(1, Math.min(200, parseInt(rows, 10) || 1))
     const sheet = {
       id: null,                       // unsaved yet
       product,
+      custom_type: '',
       name: name.trim(),
       party: party.trim(),
       date,
@@ -297,34 +378,40 @@ function NewSheetModal({ product, onCancel, onCreate }) {
           <meta.icon size={20} color={meta.color} />
         </div>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 16, fontWeight: 800, color: '#1E2D4A' }}>New {meta.label} Sheet</div>
+          <div style={{ fontSize: 16, fontWeight: 800, color: '#1E2D4A' }}>New {typeLabel} Sheet</div>
           <div style={{ fontSize: 12, color: '#94A3B8' }}>Fill the details to start</div>
         </div>
         <button onClick={onCancel} style={closeBtn}><X size={18} /></button>
       </div>
 
       <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <div>
-          <label style={lbl}>{meta.label} Name <span style={{ color: '#DC2626' }}>*</span></label>
-          <input style={inputStyle} value={name} onChange={e => { setName(e.target.value); setErr('') }} placeholder={`e.g. Kajria`} autoFocus />
-        </div>
-        <div>
-          <label style={lbl}>Party Name <span style={{ color: '#DC2626' }}>*</span></label>
-          <input style={inputStyle} value={party} onChange={e => { setParty(e.target.value); setErr('') }} placeholder="e.g. Shubham" />
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        {isCustom ? (
+          /* Custom "Add": ask ONLY for the sheet name. */
           <div>
-            <label style={lbl}>Choose Date <span style={{ color: '#DC2626' }}>*</span></label>
-            <div style={{ position: 'relative' }}>
-              <Calendar size={15} color="#94A3B8" style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
-              <input type="date" style={{ ...inputStyle, paddingLeft: 34 }} value={date} onChange={e => { setDate(e.target.value); setErr('') }} />
+            <label style={lbl}>Sheet Name <span style={{ color: '#DC2626' }}>*</span></label>
+            <input style={inputStyle} value={customType} onChange={e => { setCustomType(e.target.value); setErr('') }} placeholder="e.g. Sandstone" autoFocus />
+          </div>
+        ) : (
+          <>
+            <div>
+              <label style={lbl}>{typeLabel} Name <span style={{ color: '#DC2626' }}>*</span></label>
+              <input style={inputStyle} value={name} onChange={e => { setName(e.target.value); setErr('') }} placeholder={`e.g. Kajria`} autoFocus />
             </div>
-          </div>
-          <div>
-            <label style={lbl}>Add Rows</label>
-            <input type="number" min="1" max="200" style={inputStyle} value={rows} onChange={e => setRows(e.target.value)} placeholder="Number of rows" />
-          </div>
-        </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+              <div>
+                <label style={lbl}>Choose Date <span style={{ color: '#DC2626' }}>*</span></label>
+                <div style={{ position: 'relative' }}>
+                  <Calendar size={15} color="#94A3B8" style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }} />
+                  <input type="date" style={{ ...inputStyle, paddingLeft: 34 }} value={date} onChange={e => { setDate(e.target.value); setErr('') }} />
+                </div>
+              </div>
+              <div>
+                <label style={lbl}>Add Rows</label>
+                <input type="number" min="1" max="200" style={inputStyle} value={rows} onChange={e => setRows(e.target.value)} placeholder="Number of rows" />
+              </div>
+            </div>
+          </>
+        )}
 
         {err && <div style={{ fontSize: 13, color: '#DC2626', fontWeight: 600 }}>{err}</div>}
       </div>
@@ -346,6 +433,9 @@ function EditView({ sheet, onBack, onSaved }) {
   const [inputUnit, setInputUnit] = useState(sheet.inputUnit || 'inch')
   const [outputUnit, setOutput]   = useState(sheet.outputUnit || 'feet')
   const [saving, setSaving]       = useState(false)
+  const [units, setUnits]         = useState(() => allUnits())   // built-in + custom
+  const [addUnitOpen, setAddUnitOpen] = useState(false)
+  const [docKind, setDocKind]     = useState(null)   // 'quotation' | 'invoice' → opens SendDocumentModal
 
   const sym = AREA_SYMBOL[outputUnit]
   const total = useMemo(() => sumArea(rows, inputUnit, outputUnit), [rows, inputUnit, outputUnit])
@@ -388,18 +478,26 @@ function EditView({ sheet, onBack, onSaved }) {
             <div style={{ fontSize: 16, fontWeight: 800, color: '#1E2D4A', display: 'flex', alignItems: 'center', gap: 8 }}>
               <meta.icon size={18} color={meta.color} /> {sheet.party}
             </div>
-            <div style={{ fontSize: 12, color: '#64748B' }}>{sheet.name} ({meta.label}) · {fmtDate(sheet.date)}</div>
+            <div style={{ fontSize: 12, color: '#64748B' }}>{sheet.name} ({sheetLabel(sheet)}) · {fmtDate(sheet.date)}</div>
           </div>
         </div>
-        <button onClick={save} disabled={saving} style={{ ...btnPrimary, opacity: saving ? .7 : 1 }}>
-          <Save size={15} /> {saving ? 'Saving…' : 'Save'}
-        </button>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button onClick={() => setDocKind('quotation')} style={btnPrimary}>
+            <FileText size={15} /> Quotation
+          </button>
+          <button onClick={() => setDocKind('invoice')} style={btnTeal}>
+            <ReceiptText size={15} /> Invoice
+          </button>
+          <button onClick={save} disabled={saving} style={{ ...btnPrimary, opacity: saving ? .7 : 1 }}>
+            <Save size={15} /> {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
       </div>
 
       {/* unit selectors */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
-        <UnitSelect label="Input unit"  value={inputUnit} onChange={setInputUnit} accent={TEAL} />
-        <UnitSelect label="Output unit" value={outputUnit} onChange={setOutput} accent={ORANGE} />
+        <UnitSelect label="Input unit"  value={inputUnit} onChange={setInputUnit} accent={TEAL}   units={units} onAddUnit={() => setAddUnitOpen(true)} />
+        <UnitSelect label="Output unit" value={outputUnit} onChange={setOutput}   accent={ORANGE} units={units} onAddUnit={() => setAddUnitOpen(true)} />
       </div>
 
       {/* grid */}
@@ -452,24 +550,452 @@ function EditView({ sheet, onBack, onSaved }) {
           <Save size={15} /> {saving ? 'Saving…' : 'Save'}
         </button>
       </div>
+
+      {/* Add custom unit modal */}
+      {addUnitOpen && (
+        <AddUnitModal
+          onCancel={() => setAddUnitOpen(false)}
+          onAdded={(newUnit) => {
+            setUnits(allUnits())
+            setAddUnitOpen(false)
+            // Select the newly added unit as the output unit for convenience.
+            if (newUnit?.key) setOutput(newUnit.key)
+          }}
+        />
+      )}
+
+      {/* Quotation / Invoice — box selection, pricing & send */}
+      {docKind && (
+        <SendDocumentModal
+          kind={docKind}
+          sheet={{ ...sheet, inputUnit, outputUnit, rows, total }}
+          onClose={() => setDocKind(null)}
+        />
+      )}
     </>
   )
 }
 
-function UnitSelect({ label, value, onChange, accent }) {
+function UnitSelect({ label, value, onChange, accent, units, onAddUnit }) {
+  const ADD = '__add__'
   return (
-    <div style={{ minWidth: 160 }}>
+    <div style={{ minWidth: 170 }}>
       <label style={lbl}>{label}</label>
-      <select value={value} onChange={e => onChange(e.target.value)} style={{
-        ...inputStyle, cursor: 'pointer', fontWeight: 700, color: accent,
-        borderColor: accent + '55', background: '#fff',
-      }}>
-        {UNITS.map(u => <option key={u.key} value={u.key}>{u.label}</option>)}
+      <select
+        value={value}
+        onChange={e => { if (e.target.value === ADD) onAddUnit(); else onChange(e.target.value) }}
+        style={{
+          ...inputStyle, cursor: 'pointer', fontWeight: 700, color: accent,
+          borderColor: accent + '55', background: '#fff',
+        }}
+      >
+        {units.map(u => <option key={u.key} value={u.key}>{u.label}</option>)}
+        <option value={ADD}>➕ Add new unit…</option>
       </select>
     </div>
   )
 }
 
+/* Add-unit modal — name + how many metres = 1 unit (for area conversion). */
+function AddUnitModal({ onCancel, onAdded }) {
+  const [name, setName]     = useState('')
+  const [factor, setFactor] = useState('')
+  const [symbol, setSymbol] = useState('')
+  const [err, setErr]       = useState('')
+
+  const submit = () => {
+    try {
+      addCustomUnit({ label: name, toMetre: factor, symbol: symbol || name })
+      const key = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+      onAdded({ key })
+    } catch (e) { setErr(e.message || 'Could not add unit.') }
+  }
+
+  return (
+    <Overlay onClose={onCancel}>
+      <div style={{ padding: '20px 24px', borderBottom: '1px solid #E8EDF3', display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ width: 40, height: 40, borderRadius: 10, background: '#FFF3EC', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Plus size={20} color={ORANGE} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 16, fontWeight: 800, color: '#1E2D4A' }}>Add New Unit</div>
+          <div style={{ fontSize: 12, color: '#94A3B8' }}>It will appear in both Input & Output lists</div>
+        </div>
+        <button onClick={onCancel} style={closeBtn}><X size={18} /></button>
+      </div>
+
+      <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div>
+          <label style={lbl}>Unit Name <span style={{ color: '#DC2626' }}>*</span></label>
+          <input style={inputStyle} value={name} onChange={e => { setName(e.target.value); setErr('') }} placeholder="e.g. Yard" autoFocus />
+        </div>
+        <div>
+          <label style={lbl}>1 {name.trim() || 'unit'} = how many meters? <span style={{ color: '#DC2626' }}>*</span></label>
+          <input type="number" min="0" step="any" style={inputStyle} value={factor} onChange={e => { setFactor(e.target.value); setErr('') }} placeholder="e.g. 0.9144 for Yard" />
+          <div style={{ fontSize: 11, color: '#94A3B8', marginTop: 5 }}>
+            Needed so areas convert correctly. Examples — Inch: 0.0254 · Feet: 0.3048 · Yard: 0.9144 · Meter: 1
+          </div>
+        </div>
+        <div>
+          <label style={lbl}>Short Symbol (optional)</label>
+          <input style={inputStyle} value={symbol} onChange={e => setSymbol(e.target.value)} placeholder="e.g. yd (shown as yd²)" />
+        </div>
+        {err && <div style={{ fontSize: 13, color: '#DC2626', fontWeight: 600 }}>{err}</div>}
+      </div>
+
+      <div style={{ padding: '14px 24px 20px', borderTop: '1px solid #E8EDF3', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+        <button onClick={onCancel} style={btnGhost}>Cancel</button>
+        <button onClick={submit} style={btnPrimary}>Add Unit</button>
+      </div>
+    </Overlay>
+  )
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   SEND DOCUMENT MODAL — pick boxes, set per-box price, choose recipient, send.
+   Everything happens in this one panel.
+═══════════════════════════════════════════════════════════════════════ */
+function SendDocumentModal({ kind, sheet: initialSheet, onClose, allSheets = [] }) {
+  const title = kind === 'invoice' ? 'Invoice' : 'Quotation'
+
+  // ── ALL HOOKS FIRST (Rules of Hooks — no hooks after conditional return) ──
+
+  // Step 1 state — which sheet is selected
+  const [selectedSheet, setSelectedSheet] = useState(initialSheet || null)
+
+  // Step 2 state — boxes selection (rows of the chosen sheet)
+  const sheetRows = useMemo(
+    () => (Array.isArray(selectedSheet?.rows) ? selectedSheet.rows : []),
+    [selectedSheet]
+  )
+  const [selectedRows, setSelectedRows] = useState(() => new Set())
+  // Re-init selectedRows (select all) whenever the sheet changes
+  const prevSheetId = useMemo(() => selectedSheet?.id, [selectedSheet])
+  useEffect(() => {
+    setSelectedRows(new Set(sheetRows.map((_, i) => i)))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prevSheetId])
+
+  const toggleRow    = (i) => setSelectedRows(prev => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n })
+  const selectAll    = () => setSelectedRows(new Set(sheetRows.map((_, i) => i)))
+  const deselectAll  = () => setSelectedRows(new Set())
+
+  // Step 2 state — rate + recipient
+  const [rate, setRate]                   = useState('')
+  const [recipientType, setRecipientType] = useState(null)
+  const [companies, setCompanies]         = useState([])
+  const [loadingCos, setLC]               = useState(false)
+  const [recipient, setRecipient]         = useState(null)
+  const [sending, setSending]             = useState(false)
+
+  useEffect(() => {
+    if (!recipientType) return
+    setLC(true); setRecipient(null)
+    companyApi.list({ limit: 500 })
+      .then(r => {
+        const payload = r?.data || r
+        const list = Array.isArray(payload?.companies) ? payload.companies : Array.isArray(payload) ? payload : []
+        const wanted = recipientType.toLowerCase()
+        setCompanies(list.filter(c => String(c.biz_type || '').toLowerCase().includes(wanted)))
+      })
+      .catch(() => setCompanies([]))
+      .finally(() => setLC(false))
+  }, [recipientType])
+
+  // ── DERIVED VALUES (need selectedSheet, so computed after all hooks) ──
+  const sheet          = selectedSheet
+  const sym            = sheet ? AREA_SYMBOL[sheet.outputUnit] : 'ft²'
+  const sheetTypeLabel = sheet
+    ? ((sheet.product === 'custom' && sheet.custom_type) ? sheet.custom_type : productMeta(sheet.product).label)
+    : ''
+
+  const selectedArea = sheetRows.reduce((acc, r, i) => {
+    if (!selectedRows.has(i)) return acc
+    return acc + rowArea(r.length, r.width, sheet.inputUnit, sheet.outputUnit)
+  }, 0)
+  const totalArea = Number(fmtArea(selectedArea)) || 0
+  const rateN     = parseFloat(rate) || 0
+  const amount    = +(totalArea * rateN).toFixed(2)
+  const gstPct    = 18
+  const gstAmt    = +(amount * gstPct / 100).toFixed(2)
+  const grand     = +(amount + gstAmt).toFixed(2)
+  const inr = (n) => '₹' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })
+  const canSend   = rateN > 0 && recipient
+
+  const openDocument = () => {
+    if (!sheet) return
+    const docNo    = `${kind === 'invoice' ? 'INV' : 'QT'}-${Date.now().toString().slice(-6)}`
+    const rowsHtml = sheetRows.filter((_, i) => selectedRows.has(i)).map((r, i) => {
+      const a = rowArea(r.length, r.width, sheet.inputUnit, sheet.outputUnit)
+      return `<tr><td>${i + 1}</td><td>${r.length}</td><td>${r.width}</td><td>${fmtArea(a)} ${sym}</td></tr>`
+    }).join('')
+    const html = `
+      <html><head><title>${title} — ${recipient?.name || ''}</title>
+      <style>
+        body{font-family:Arial,sans-serif;padding:28px;color:#1E2D4A}
+        .h{display:flex;justify-content:space-between;border-bottom:2px solid #F26522;padding-bottom:12px;margin-bottom:16px}
+        .t{font-size:24px;font-weight:800;color:#F26522;letter-spacing:1px}
+        table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:14px}
+        th,td{border:1px solid #CBD5E1;padding:8px 10px;text-align:center}
+        th{background:#1E2D4A;color:#fff}
+        .totals{width:280px;margin-left:auto;font-size:14px}
+        .totals td{border:none;padding:5px 8px;text-align:right}
+        .totals .g{font-weight:800;font-size:16px;color:#F26522;border-top:2px solid #1E2D4A}
+      </style></head><body>
+        <div class="h">
+          <div><div class="t">${title}</div><div style="font-size:12px;color:#64748B;margin-top:4px">${docNo} · ${fmtDate(sheet.date)}</div></div>
+          <div style="text-align:right"><div style="font-weight:800">${sheetTypeLabel}${sheet.name ? ` · ${sheet.name}` : ''}</div>
+          <div style="font-size:12px;color:#64748B">To: ${recipient?.name || '—'} (${recipientType || ''})</div></div>
+        </div>
+        <table>
+          <thead><tr><th>No.</th><th>Length (${unitLabel(sheet.inputUnit)})</th><th>Width (${unitLabel(sheet.inputUnit)})</th><th>Area (${sym})</th></tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+        <table class="totals">
+          <tr><td>Selected Area</td><td>${fmtArea(totalArea)} ${sym}</td></tr>
+          <tr><td>Rate (per ${sym})</td><td>${inr(rateN)}</td></tr>
+          <tr><td>Amount</td><td>${inr(amount)}</td></tr>
+          <tr><td>GST (${gstPct}%)</td><td>${inr(gstAmt)}</td></tr>
+          <tr class="g"><td>Grand Total</td><td>${inr(grand)}</td></tr>
+        </table>
+      </body></html>`
+    const w = window.open('', '_blank')
+    if (!w) return
+    w.document.write(html); w.document.close(); w.focus(); w.print()
+  }
+
+  const doSend = async () => {
+    if (!canSend) return
+    setSending(true)
+    try {
+      // 1. Build items from selected sheet rows.
+      const items = sheetRows
+        .filter((_, i) => selectedRows.has(i))
+        .map((r, i) => {
+          const a = rowArea(r.length, r.width, sheet.inputUnit, sheet.outputUnit)
+          return {
+            product_name: `${sheetTypeLabel} — Box ${i + 1}`,
+            unit:         sym,
+            qty:          Number(fmtArea(a)),
+            rate:         rateN,
+            gst_percent:  gstPct,
+            total:        +(Number(fmtArea(a)) * rateN).toFixed(2),
+          }
+        })
+
+      // 2. Create quotation in DB — recipient company can see it.
+      const qtRes = await api.post('/quotations', {
+        seller_company_id: recipient._id,
+        customer_name:     recipient.name || recipient.company_code || '',
+        items,
+        subtotal:          amount,
+        gst_amount:        gstAmt,
+        grand_total:       grand,
+        remarks:           `Stone Calculation — ${sheetTypeLabel}${sheet.name ? ` · ${sheet.name}` : ''} — Total ${fmtArea(totalArea)} ${sym}`,
+        source:            'Stone Calculation',
+        created_by_type:   'Admin',
+      })
+      const qtId = qtRes?.data?.data?._id || qtRes?.data?._id
+
+      // 3. Send in-app notification — appears in recipient's app notification bell + push.
+      await api.post('/notifications', {
+        company_id:   recipient._id,
+        title:        `New ${title} from Admin`,
+        message:      `${sheetTypeLabel}${sheet.name ? ` · ${sheet.name}` : ''} — Total area ${fmtArea(totalArea)} ${sym} · Grand total ₹${grand.toLocaleString('en-IN')}`,
+        type:         'quotation',
+        reference_id: qtId || undefined,
+      })
+
+      // Print dialog removed — send silently, recipient gets notification in their app.
+      alert(`✓ ${title} sent to ${recipient.name || recipient.company_code} (${recipientType}). They will receive a notification in their app.`)
+      onClose()
+    } catch (err) {
+      alert(`Failed to send: ${err?.response?.data?.message || err?.message || 'Unknown error'}`)
+    } finally {
+      setSending(false)
+    }
+  }
+
+  // ── RENDER ──
+
+  // Step 1: no sheet selected → show sheet picker
+  if (!sheet) {
+    return (
+      <Overlay onClose={onClose}>
+        <div style={{ padding: '18px 22px', borderBottom: '1px solid #E8EDF3', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ width: 40, height: 40, borderRadius: 10, background: '#FFF3EC', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            {kind === 'invoice' ? <ReceiptText size={20} color={ORANGE} /> : <FileText size={20} color={ORANGE} />}
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 16, fontWeight: 800, color: '#1E2D4A' }}>{title}</div>
+            <div style={{ fontSize: 12, color: '#94A3B8' }}>Select a sheet to create {title.toLowerCase()} from</div>
+          </div>
+          <button onClick={onClose} style={closeBtn}><X size={18} /></button>
+        </div>
+        <div style={{ padding: '16px 22px', maxHeight: '60vh', overflowY: 'auto' }}>
+          {allSheets.length === 0
+            ? <div style={{ padding: 30, textAlign: 'center', color: '#94A3B8', fontSize: 13 }}>No sheets yet. Create a sheet first.</div>
+            : <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {allSheets.map(s => {
+                  const meta = productMeta(s.product)
+                  const ssym = AREA_SYMBOL[s.outputUnit]
+                  return (
+                    <div key={s.id} onClick={() => setSelectedSheet(s)} style={{
+                      display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px',
+                      border: '1.5px solid #E8EDF3', borderRadius: 10, background: '#fff',
+                      cursor: 'pointer', transition: 'all .12s',
+                    }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = ORANGE; e.currentTarget.style.background = '#FFF8F3' }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = '#E8EDF3'; e.currentTarget.style.background = '#fff' }}
+                    >
+                      <div style={{ width: 36, height: 36, borderRadius: 9, background: meta.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <meta.icon size={18} color={meta.color} />
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: '#1E2D4A' }}>{s.name || '—'}</div>
+                        <div style={{ fontSize: 12, color: '#94A3B8' }}>{sheetLabel(s)} · {fmtDate(s.date)}</div>
+                      </div>
+                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: ORANGE, fontFamily: 'monospace' }}>{fmtArea(s.total)} {ssym}</div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+          }
+        </div>
+        <div style={{ padding: '12px 22px 16px', borderTop: '1px solid #E8EDF3', display: 'flex', justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={btnGhost}>Cancel</button>
+        </div>
+      </Overlay>
+    )
+  }
+
+  // Step 2: sheet chosen → boxes + rate + recipient
+  return (
+    <Overlay onClose={onClose}>
+      <div style={{ padding: '18px 22px', borderBottom: '1px solid #E8EDF3', display: 'flex', alignItems: 'center', gap: 12 }}>
+        {!initialSheet && (
+          <button onClick={() => setSelectedSheet(null)} style={{ ...btnGhost, padding: '6px 10px', gap: 4, fontSize: 12 }}>
+            <ArrowLeft size={13} /> Back
+          </button>
+        )}
+        <div style={{ width: 40, height: 40, borderRadius: 10, background: '#FFF3EC', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          {kind === 'invoice' ? <ReceiptText size={20} color={ORANGE} /> : <FileText size={20} color={ORANGE} />}
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 16, fontWeight: 800, color: '#1E2D4A' }}>{title}</div>
+          <div style={{ fontSize: 12, color: '#94A3B8' }}>{sheetTypeLabel}{sheet.name ? ` · ${sheet.name}` : ''} · {fmtArea(sheet.total)} {sym}</div>
+        </div>
+        <button onClick={onClose} style={closeBtn}><X size={18} /></button>
+      </div>
+
+      <div style={{ padding: '16px 22px', display: 'flex', flexDirection: 'column', gap: 16, maxHeight: '62vh', overflowY: 'auto' }}>
+        {/* Box (row) selection */}
+        {sheetRows.length > 0 && (
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: '#1E2D4A' }}>Select Boxes</div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={selectAll}   style={{ ...btnGhost, padding: '4px 10px', fontSize: 11 }}>All</button>
+                <button onClick={deselectAll} style={{ ...btnGhost, padding: '4px 10px', fontSize: 11 }}>None</button>
+              </div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 200, overflowY: 'auto' }}>
+              {sheetRows.map((r, i) => {
+                const a = rowArea(r.length, r.width, sheet.inputUnit, sheet.outputUnit)
+                const sel = selectedRows.has(i)
+                return (
+                  <div key={i} onClick={() => toggleRow(i)} style={{
+                    display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px',
+                    border: `1.5px solid ${sel ? ORANGE : '#E8EDF3'}`, borderRadius: 9,
+                    background: sel ? '#FFF8F3' : '#fff', cursor: 'pointer',
+                  }}>
+                    <div style={{ width: 18, height: 18, borderRadius: 5, border: `2px solid ${sel ? ORANGE : '#CBD5E1'}`, background: sel ? ORANGE : '#fff', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {sel && <span style={{ color: '#fff', fontSize: 11, fontWeight: 900 }}>✓</span>}
+                    </div>
+                    <div style={{ flex: 1, fontSize: 13, color: '#1E2D4A' }}>
+                      Box {i + 1} — {r.length || 0} × {r.width || 0} {unitLabel(sheet.inputUnit)}
+                    </div>
+                    <div style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 700, color: ORANGE, flexShrink: 0 }}>
+                      {fmtArea(a)} {sym}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Rate + summary */}
+        <div style={{ background: '#F8FAFC', border: '1px solid #EEF2F7', borderRadius: 10, padding: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6 }}>
+            <span style={{ color: '#64748B' }}>Selected Area</span>
+            <b style={{ color: '#1E2D4A', fontFamily: 'monospace' }}>{fmtArea(totalArea)} {sym}</b>
+          </div>
+          <label style={lbl}>Rate (per {sym}) <span style={{ color: '#DC2626' }}>*</span></label>
+          <div style={{ position: 'relative' }}>
+            <span style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }}>₹</span>
+            <input value={rate} onChange={e => setRate(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="0" style={{ ...inputStyle, paddingLeft: 26 }} />
+          </div>
+          <div style={{ marginTop: 10, fontSize: 13, display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: '#64748B' }}>Amount</span><span>{inr(amount)}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: '#64748B' }}>GST ({gstPct}%)</span><span>{inr(gstAmt)}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #E2E8F0', paddingTop: 6, marginTop: 2 }}>
+              <b style={{ color: '#1E2D4A' }}>Grand Total</b><b style={{ color: ORANGE }}>{inr(grand)}</b>
+            </div>
+          </div>
+        </div>
+
+        {/* Recipient */}
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: '#1E2D4A', marginBottom: 8 }}>Send To</div>
+          <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
+            {['Wholesaler', 'Retailer'].map(t => (
+              <button key={t} onClick={() => setRecipientType(t)} style={{
+                ...btnBase, flex: 1, justifyContent: 'center',
+                background: recipientType === t ? NAVY : '#F1F5F9',
+                color: recipientType === t ? '#fff' : '#64748B',
+                border: recipientType === t ? 'none' : '1.5px solid #E2E8F0',
+              }}>{t}</button>
+            ))}
+          </div>
+          {recipientType && (
+            loadingCos
+              ? <div style={{ padding: 14, textAlign: 'center', color: '#94A3B8', fontSize: 13 }}>Loading…</div>
+              : companies.length === 0
+                ? <div style={{ padding: 14, textAlign: 'center', color: '#94A3B8', fontSize: 13 }}>No {recipientType.toLowerCase()}s found.</div>
+                : <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 200, overflowY: 'auto' }}>
+                    {companies.map(c => {
+                      const sel = recipient && recipient._id === c._id
+                      return (
+                        <div key={c._id} onClick={() => setRecipient(c)} style={{
+                          display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px',
+                          border: `1.5px solid ${sel ? ORANGE : '#E8EDF3'}`, borderRadius: 9,
+                          background: sel ? '#FFF8F3' : '#fff', cursor: 'pointer',
+                        }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: '#1E2D4A' }}>{c.name || c.company_code || '—'}</div>
+                            <div style={{ fontSize: 11, color: '#94A3B8' }}>{c.company_code || ''}{c.city ? ` · ${c.city}` : ''}</div>
+                          </div>
+                          {sel && <span style={{ color: ORANGE, fontWeight: 900 }}>✓</span>}
+                        </div>
+                      )
+                    })}
+                  </div>
+          )}
+        </div>
+      </div>
+
+      <div style={{ padding: '14px 22px 18px', borderTop: '1px solid #E8EDF3', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+        <button onClick={onClose} style={btnGhost}>Cancel</button>
+        <button onClick={doSend} disabled={!canSend || sending} style={{ ...btnPrimary, opacity: (!canSend || sending) ? .5 : 1 }}>
+          <Send size={15} /> {sending ? 'Sending…' : `Send ${title}`}
+        </button>
+      </div>
+    </Overlay>
+  )
+}
 const gridInput = {
   width: '100%', padding: '9px 10px', border: '1.5px solid #CBD5E1',
   borderRadius: 7, fontSize: 14, color: '#1E2D4A', outline: 'none',
@@ -490,6 +1016,7 @@ function Cell({ children, head, style }) {
 function SheetView({ sheet, onBack }) {
   const meta = productMeta(sheet.product)
   const sym = AREA_SYMBOL[sheet.outputUnit]
+  const [docKind, setDocKind] = useState(null)
 
   const rowData = sheet.rows.map((r, i) => ({
     no: i + 1,
@@ -557,11 +1084,13 @@ function SheetView({ sheet, onBack }) {
             <div style={{ fontSize: 16, fontWeight: 800, color: '#1E2D4A', display: 'flex', alignItems: 'center', gap: 8 }}>
               <meta.icon size={18} color={meta.color} /> {sheet.party}
             </div>
-            <div style={{ fontSize: 12, color: '#64748B' }}>{sheet.name} ({meta.label}) · {fmtDate(sheet.date)}</div>
+            <div style={{ fontSize: 12, color: '#64748B' }}>{sheet.name} ({sheetLabel(sheet)}) · {fmtDate(sheet.date)}</div>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button onClick={downloadExcel} style={btnTeal}><Download size={15} /> Download</button>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button onClick={() => setDocKind('quotation')} style={btnPrimary}><FileText size={15} /> Quotation</button>
+          <button onClick={() => setDocKind('invoice')} style={btnTeal}><ReceiptText size={15} /> Invoice</button>
+          <button onClick={downloadExcel} style={btnGhost}><Download size={15} /> Download</button>
           <button onClick={printSheet} style={btnGhost}><Printer size={15} /> Print</button>
         </div>
       </div>
@@ -594,6 +1123,10 @@ function SheetView({ sheet, onBack }) {
           </tfoot>
         </table>
       </div>
+
+      {docKind && (
+        <SendDocumentModal kind={docKind} sheet={sheet} onClose={() => setDocKind(null)} />
+      )}
     </>
   )
 }

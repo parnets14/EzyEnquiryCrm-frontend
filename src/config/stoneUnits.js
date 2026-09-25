@@ -39,7 +39,46 @@ export const AREA_SYMBOL = {
   millimeter: 'mm²',
 }
 
-export const unitLabel = (key) => UNITS.find(u => u.key === key)?.label || key
+// ── Custom (user-added) units, persisted in localStorage ─────
+// Each: { key, label, toMetre, symbol }
+const CUSTOM_UNITS_KEY = 'stone_custom_units'
+
+export function loadCustomUnits() {
+  try {
+    const raw = localStorage.getItem(CUSTOM_UNITS_KEY)
+    const arr = raw ? JSON.parse(raw) : []
+    return Array.isArray(arr) ? arr : []
+  } catch { return [] }
+}
+
+/** Add a custom unit. Returns the merged custom-units list. */
+export function addCustomUnit({ label, toMetre, symbol }) {
+  const name = String(label || '').trim()
+  const factor = parseFloat(toMetre)
+  if (!name || !isFinite(factor) || factor <= 0) throw new Error('Enter a valid unit name and metre factor.')
+  const key = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || `u_${Date.now()}`
+  const list = loadCustomUnits().filter(u => u.key !== key)
+  const unit = { key, label: name, toMetre: factor, symbol: (symbol || name).trim() + '²' }
+  list.push(unit)
+  localStorage.setItem(CUSTOM_UNITS_KEY, JSON.stringify(list))
+  // Register into the live lookups so calculations work immediately.
+  UNIT_TO_METRE[key] = factor
+  AREA_SYMBOL[key] = unit.symbol
+  return list
+}
+
+/** All units (built-in + custom) — used to populate the dropdowns. */
+export function allUnits() {
+  const custom = loadCustomUnits()
+  // Ensure custom units are registered in the conversion/symbol maps.
+  custom.forEach(u => { UNIT_TO_METRE[u.key] = u.toMetre; AREA_SYMBOL[u.key] = u.symbol })
+  return [...UNITS, ...custom.map(u => ({ key: u.key, label: u.label }))]
+}
+
+export const unitLabel = (key) =>
+  (UNITS.find(u => u.key === key)?.label) ||
+  (loadCustomUnits().find(u => u.key === key)?.label) ||
+  key
 
 /** Convert a single length value from `fromUnit` to `toUnit`. */
 export function convertLength(value, fromUnit, toUnit) {
@@ -72,10 +111,10 @@ export function sumArea(rows, inputUnit, outputUnit) {
 }
 
 /** Round to a fixed number of decimals, returning a Number. */
-export const round = (v, d = 4) => {
+export const round = (v, d = 2) => {
   const f = 10 ** d
   return Math.round((Number(v) + Number.EPSILON) * f) / f
 }
 
-/** Format an area value for display (4 decimals, like the mobile app). */
-export const fmtArea = (v, d = 4) => round(v, d).toFixed(d)
+/** Format an area value for display (2 decimals). */
+export const fmtArea = (v, d = 2) => round(v, d).toFixed(d)

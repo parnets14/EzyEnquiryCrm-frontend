@@ -132,7 +132,7 @@ export default function BranchManagement({ branches = [], addBranch, updateBranc
             border: 'none', borderRadius: 9, fontSize: 13, color: '#01152D',
             background: 'transparent', outline: 'none',
             paddingLeft: (icon || prefix) ? 8 : 12,
-          }}
+          }}nd s
         />
       </div>
       {hasErr

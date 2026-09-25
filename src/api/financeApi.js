@@ -36,6 +36,10 @@ export const purchaseApi = {
   delete: (id) =>
     api.delete(`/purchases/${id}`).then(r => r.data),
 
+  // PATCH /purchases/:id/payment — record a payment (amount_paid, due_date, payment_notes)
+  updatePayment: (id, data) =>
+    api.patch(`/purchases/${id}/payment`, data).then(r => r.data),
+
   // ── Suppliers ───────────────────────────────────────────
   listSuppliers: () =>
     api.get('/purchases/suppliers/all').then(r => r.data),

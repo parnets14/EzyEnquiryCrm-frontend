@@ -449,11 +449,15 @@ export function ErpProvider({ children }) {
   const addPurchase = useCallback(async (data) => {
     try {
       const res = await purchaseApi.create(data)
-      const newPurchase = res?.data || res
-      setPurchases(prev => [newPurchase, ...prev])
-      // No inventory refresh on create — new purchases are Pending (no stock-in yet)
-      addNotification(`Purchase created: ${newPurchase.purchase_code || ''} — Status: Pending`, 'purchase')
-      return { success: true, data: newPurchase }
+      const payload = res?.data || res
+      // Backend may return { bill_code, purchases: [...] } for multi-item or a single record.
+      const newPurchases = Array.isArray(payload?.purchases)
+        ? payload.purchases
+        : [payload?.first || payload]
+      setPurchases(prev => [...newPurchases.filter(Boolean), ...prev])
+      const billCode = payload?.bill_code || newPurchases[0]?.purchase_code || ''
+      addNotification(`Purchase bill ${billCode} created (${newPurchases.length} item(s)) — Status: Pending`, 'purchase')
+      return { success: true, data: payload }
     } catch (err) {
       return { success: false, message: err.response?.data?.message || 'Purchase failed' }
     }
@@ -503,6 +507,17 @@ export function ErpProvider({ children }) {
       return { success: true }
     } catch (err) {
       return { success: false, message: err.response?.data?.message || 'Delete failed' }
+    }
+  }, [])
+
+  const updatePurchasePayment = useCallback(async (id, data) => {
+    try {
+      const res = await purchaseApi.updatePayment(id, data)
+      const updated = res?.data || res
+      setPurchases(prev => prev.map(p => (p._id || p.id) === id ? { ...p, ...updated } : p))
+      return { success: true, data: updated }
+    } catch (err) {
+      return { success: false, message: err.response?.data?.message || 'Payment update failed' }
     }
   }, [])
 
@@ -1191,7 +1206,7 @@ export function ErpProvider({ children }) {
     createDispatch, markInTransit, markDelivered,
 
     // ── Purchase actions ──────────────────────────────────
-    addPurchase, updatePurchase, deletePurchase, updatePurchaseStatus,
+    addPurchase, updatePurchase, deletePurchase, updatePurchaseStatus, updatePurchasePayment,
 
     // ── Supplier actions ──────────────────────────────────
     addSupplier, updateSupplier, deleteSupplier,

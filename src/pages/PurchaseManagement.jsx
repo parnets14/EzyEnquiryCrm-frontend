@@ -71,6 +71,7 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
   const [date,        setDate]        = useState('')
   const [invoiceNo,   setInvoiceNo]   = useState('')
   const [deliveryNo,  setDeliveryNo]  = useState('')
+  const [dueDate,     setDueDate]     = useState('')
   const [newStatus,   setNewStatus]   = useState('Pending')
   const [rows,        setRows]        = useState([emptyRow()])
   const [errors,      setErrors]      = useState({})
@@ -82,7 +83,7 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
   /* ── Open / close modal ── */
   const openModal = () => {
     setSupplier(''); setWarehouseId(''); setDate('')
-    setInvoiceNo(''); setDeliveryNo(''); setNewStatus('Pending')
+    setInvoiceNo(''); setDeliveryNo(''); setDueDate(''); setNewStatus('Pending')
     setCustomSupplier(''); setRows([emptyRow()]); setErrors({})
     setBranchId('')
     setShowModal(true)
@@ -107,14 +108,15 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
     setEditInvoice(p.invoice_number || p.invoice_no || '')
     setEditDelivery(p.delivery_number || p.delivery_no || p.docket_number || '')
     setEditStatus(p.status || 'Pending')
-    // Build edit rows from existing purchase data
+    // Build edit rows — for a multi-item bill, load all sibling records sharing bill_code.
+    // For now load the single item as one editable row (siblings fetched separately if needed).
     setEditRows([{
-      uid: Date.now(),
+      uid:        Date.now(),
       product_id: p.product_id || '',
-      qty: String(p.qty || ''),
-      rate: String(p.rate || ''),
-      gstPct: p.gst_percent || 18,
-      unit: p.unit || 'Sq Ft',
+      qty:        String(p.qty  || ''),
+      rate:       String(p.rate || ''),
+      gstPct:     p.gst_percent || 18,
+      unit:       p.unit || 'Sq Ft',
     }])
     setEditErrors({})
     setEditSaving(false)
@@ -229,14 +231,15 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
   }, { amt: 0, gst: 0, total: 0 }), [rows])
 
   /* ── Save ── */
+  /* ── Save — sends all rows as ONE bill (items[]) in a single API call ── */
   const handleSave = async () => {
     const errs = {}
     const supplierVal = supplier === '__other__' ? customSupplier.trim() : supplier
     if (!supplierVal) errs.supplier = 'Supplier required'
 
     rows.forEach((r, i) => {
-      if (!r.product_id)                                    errs[`p_${i}`]   = 'Select product'
-      if (!r.qty || isNaN(Number(r.qty)) || Number(r.qty) < 1) errs[`qty_${i}`] = 'Valid qty'
+      if (!r.product_id)                                           errs[`p_${i}`]   = 'Select product'
+      if (!r.qty || isNaN(Number(r.qty)) || Number(r.qty) < 1)   errs[`qty_${i}`] = 'Valid qty'
       if (!r.rate || isNaN(Number(r.rate)) || Number(r.rate) <= 0) errs[`rate_${i}`] = 'Valid rate'
     })
 
@@ -244,40 +247,34 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
 
     setSaving(true)
     try {
-      for (const row of rows) {
-        const prod   = products.find(p => (p._id || p.id) === row.product_id)
-        const qty    = Number(row.qty)
-        const rate   = Number(row.rate)
-        const amount = qty * rate
-        const gst    = Math.round(amount * row.gstPct / 100)
+      const matchedSupplier = suppliers.find(s => s.name === supplierVal)
+      const items = rows.map(row => {
+        const prod = products.find(p => (p._id || p.id) === row.product_id)
+        return {
+          product_id:   row.product_id,
+          product_code: prod?.code || '',
+          product_name: prod?.name || '',
+          qty:          Number(row.qty),
+          rate:         Number(row.rate),
+          unit:         row.unit || 'Sq Ft',
+          gst_percent:  row.gstPct,
+        }
+      })
 
-        // resolve supplier_id from suppliers list if available
-        const matchedSupplier = suppliers.find(s => s.name === supplierVal)
-        const supplierId = matchedSupplier ? (matchedSupplier._id || matchedSupplier.id) : undefined
+      await addPurchase?.({
+        supplier_id:      matchedSupplier ? (matchedSupplier._id || matchedSupplier.id) : undefined,
+        supplier_name:    supplierVal,
+        warehouse_id:     warehouseId || undefined,
+        branch_id:        branchId || undefined,
+        branch_name:      branches.find(b => (b._id || b.id) === branchId)?.name || '',
+        purchase_date:    date || new Date().toISOString().split('T')[0],
+        invoice_number:   invoiceNo,
+        delivery_number:  deliveryNo,
+        due_date:         dueDate || undefined,
+        items,           // ← all rows as one bill
+      })
 
-        await addPurchase?.({
-          supplier_id:      supplierId || undefined,
-          supplier_name:    supplierVal,
-          warehouse_id:     warehouseId || undefined,
-          branch_id:        branchId || undefined,
-          branch_name:      branches.find(b => (b._id || b.id) === branchId)?.name || '',
-          product_id:       row.product_id,
-          product_code:     prod?.code || '',
-          product_name:     prod?.name || '',
-          qty, rate, amount,
-          unit:             row.unit || 'Sq Ft',
-          gst_percent:      row.gstPct,
-          gst_amount:       gst,
-          total_amount:     amount + gst,
-          purchase_date:    date || new Date().toISOString().split('T')[0],
-          invoice_number:   invoiceNo,
-          delivery_number:  deliveryNo,
-          // status is always 'Pending' on create — backend enforces this
-        })
-      }
-
-      const names = rows.map(r => products.find(p => (p._id || p.id) === r.product_id)?.name || '').filter(Boolean)
-      toast(`✓ Purchase saved! ${rows.length} product(s) added — inventory updated.`)
+      toast(`✓ Purchase bill saved! ${rows.length} product(s) added.`)
       closeModal()
     } catch (e) {
       setErrors({ _global: 'Failed to save purchase. Please try again.' })
@@ -894,6 +891,7 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
                 <th style={{ padding: '10px 14px' }}>Total</th>
                 <th style={{ padding: '10px 14px' }}>Invoice No.</th>
                 <th style={{ padding: '10px 14px' }}>Delivery No.</th>
+                <th style={{ padding: '10px 14px', textAlign: 'center' }}>Payment</th>
                 <th style={{ padding: '10px 14px', textAlign: 'center' }}>Actions</th>
               </tr>
             </thead>
@@ -1162,6 +1160,11 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
                     value={deliveryNo}
                     onChange={e => setDeliveryNo(e.target.value)}
                   />
+                </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Payment Due Date</label>
+                  <input className="form-control" type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} />
+                  <div style={{ marginTop: 4, fontSize: 11, color: 'var(--text-muted)' }}>When supplier payment is due</div>
                 </div>
               </div>
 
