@@ -44,7 +44,7 @@ const PROD_TYPES = ['Regular Product','Premium Product','Economy Product','Exclu
 
 const IMG_BASE = import.meta.env.VITE_API_URL
   ? import.meta.env.VITE_API_URL.replace('/api', '')
-  : 'http://localhost:5000'
+  : 'https://ezyenquiry-backend.onrender.com'
 
 function creatorTypeOf(product = {}) {
   if (product.created_by_type) return product.created_by_type

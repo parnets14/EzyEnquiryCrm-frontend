@@ -1,7 +1,7 @@
 /**
  * api/index.js — Axios instance + re-exports for all API modules
  *
- * • baseURL  → http://localhost:5000/api  (PORT=5000 from backend .env)
+ * • baseURL  → https://ezyenquiry-backend.onrender.com/api  (PORT=5000 from backend .env)
  * • Every request automatically gets  Authorization: Bearer <token>
  * • Any 401 response clears storage and redirects to /login
  *

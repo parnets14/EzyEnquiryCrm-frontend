@@ -11,7 +11,7 @@ import { useAuth } from '../context/AuthContext'
 // ── Image URL helpers ─────────────────────────────────────────
 const IMG_BASE = import.meta.env.VITE_API_URL
   ? import.meta.env.VITE_API_URL.replace('/api', '')
-  : 'http://localhost:5000'
+  : 'https://ezyenquiry-backend.onrender.com'
 function imgUrl(p) {
   if (!p) return null
   if (p.startsWith('http')) return p
@@ -100,7 +100,7 @@ function ProductSearch({ value, onChange, products }) {
     if (raw.startsWith('http')) return raw
     const base = import.meta.env.VITE_API_URL
       ? import.meta.env.VITE_API_URL.replace('/api', '')
-      : 'http://localhost:5000'
+      : 'https://ezyenquiry-backend.onrender.com'
     return `${base}${raw}`
   }
 

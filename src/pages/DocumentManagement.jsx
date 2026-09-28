@@ -317,7 +317,7 @@ export default function DocumentManagement() {
                             <td>
                               <div className="table-actions">
                                 {d.file_url && (
-                                  <a href={`${import.meta.env.VITE_API_BASE_URL?.replace('/api','')||'http://localhost:5000'}${d.file_url}`}
+                                  <a href={`${import.meta.env.VITE_API_BASE_URL?.replace('/api','')||'https://ezyenquiry-backend.onrender.com'}${d.file_url}`}
                                     target="_blank" rel="noopener noreferrer"
                                     className="btn btn-ghost btn-xs" title="View">
                                     <Eye style={{ width: 13 }} />
@@ -366,7 +366,7 @@ export default function DocumentManagement() {
                         </div>
                         <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
                           {d.file_url && (
-                            <a href={`${import.meta.env.VITE_API_BASE_URL?.replace('/api','')||'http://localhost:5000'}${d.file_url}`}
+                            <a href={`${import.meta.env.VITE_API_BASE_URL?.replace('/api','')||'https://ezyenquiry-backend.onrender.com'}${d.file_url}`}
                               target="_blank" rel="noopener noreferrer"
                               className="btn btn-secondary btn-xs" style={{ flex: 1, justifyContent: 'center' }}>
                               <Eye style={{ width: 11 }} /> View

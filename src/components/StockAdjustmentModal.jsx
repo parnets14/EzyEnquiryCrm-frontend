@@ -23,7 +23,7 @@ const fmtN = n => Number(n || 0).toLocaleString('en-IN')
 
 const IMG_BASE = import.meta.env.VITE_API_URL
   ? import.meta.env.VITE_API_URL.replace('/api', '')
-  : 'http://localhost:5000'
+  : 'https://ezyenquiry-backend.onrender.com'
 const imgUrl = (u) => {
   if (Array.isArray(u)) u = u[0]
   if (!u) return ''
