@@ -7,7 +7,7 @@ import { companyApi } from '../api/companyApi'
 import { MODULES } from '../config/permissions'
 import {
   fieldsForType, matchCategoryType, labelForType, humanizeKey,
-  CATEGORY_DEFAULT_UNIT, PRODUCT_FIELD_SCHEMA,
+  CATEGORY_DEFAULT_UNIT, PRODUCT_FIELD_SCHEMA, PRODUCT_TYPES, shortLabelForType,
 } from '../config/productFieldSchema'
 
 // â”€â”€ Constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -77,14 +77,12 @@ const EMPTY_FORM = {
   size:'', finish:'', color:'', surface:'', thickness:'', grade:'',
   tile_type:'', application:'', anti_skid:'', origin:'', manufacturer:'', barcode:'',
   design:'', collection:'', pcs_per_box:'', sqft_per_box:'', weight_per_box:'',
-  purchase_rate:'', landing_cost:'', mrp:'', retail_rate:'', dealer_rate:'',
-  wholesale_rate:'', project_rate:'', min_selling_rate:'',
-  // discount % fields (off MRP)
-  retail_discount:'', dealer_discount:'', wholesale_discount:'', project_discount:'',
-  min_stock_level:'', reorder_level:'',
+  purchase_rate:'', landing_cost:'', mrp:'', retail_rate:'', wholesale_rate:'',
+  retail_discount:'', wholesale_discount:'',
   status:'Active', sales_type:'Regular Sale', product_type:'Regular Product',
   new_arrival: false, featured: false,
-  // Category-specific dynamic values keyed by field key (from productFieldSchema).
+  min_stock_level:'', reorder_level:'',
+  explicit_product_type: '',
   attributes: {},
 }
 
@@ -755,10 +753,64 @@ function PriceDiscountInput({ label, required, priceValue, onPriceChange, discou
 // PRODUCT FORM MODAL
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 function ProductFormModal({ editProduct, brands, categories, subCategories, warehouses = [], onSave, onClose, saving }) {
-  const [form, setForm]         = useState(EMPTY_FORM)
+  const [form, setForm]         = useState(() => {
+    if (!editProduct) return EMPTY_FORM
+    const explicitType =
+      editProduct.category_type && PRODUCT_FIELD_SCHEMA[editProduct.category_type]
+        ? editProduct.category_type
+        : matchCategoryType(
+            editProduct.category_id?.name || editProduct.category_name,
+            editProduct.sub_category_id?.name || editProduct.sub_category_name,
+          )
+    return {
+      code:              editProduct.code              || '',
+      name:              editProduct.name              || '',
+      alias:             editProduct.alias             || '',
+      description:       editProduct.description       || '',
+      hsn_code:          editProduct.hsn_code          || '',
+      brand_id:          editProduct.brand_id?._id     || editProduct.brand_id     || '',
+      category_id:       editProduct.category_id?._id  || editProduct.category_id  || '',
+      sub_category_id:   editProduct.sub_category_id?._id || editProduct.sub_category_id || '',
+      unit:              editProduct.unit              || 'Box',
+      gst_percent:       String(editProduct.gst_percent ?? '18'),
+      size:              editProduct.size              || '',
+      finish:            editProduct.finish            || '',
+      color:             editProduct.color             || '',
+      surface:           editProduct.surface           || '',
+      thickness:         editProduct.thickness         || '',
+      grade:             editProduct.grade             || '',
+      tile_type:         editProduct.tile_type         || '',
+      application:       editProduct.application       || '',
+      anti_skid:         editProduct.anti_skid         || '',
+      origin:            editProduct.origin            || '',
+      manufacturer:      editProduct.manufacturer      || '',
+      barcode:           editProduct.barcode           || '',
+      design:            editProduct.design            || '',
+      collection:        editProduct.collection        || '',
+      pcs_per_box:       editProduct.pcs_per_box       || '',
+      sqft_per_box:      editProduct.sqft_per_box      || '',
+      weight_per_box:    editProduct.weight_per_box    || '',
+      purchase_rate:     editProduct.purchase_price    || editProduct.purchase_rate || '',
+      landing_cost:      editProduct.landing_cost      || '',
+      mrp:               editProduct.mrp               || '',
+      retail_rate:       editProduct.retail_price      || editProduct.retail_rate  || '',
+      wholesale_rate:    editProduct.wholesale_rate    || '',
+      retail_discount:   editProduct.retail_discount   || '',
+      wholesale_discount:editProduct.wholesale_discount|| '',
+      status:            editProduct.is_active !== false ? 'Active' : 'Inactive',
+      sales_type:        editProduct.sales_type        || 'Regular Sale',
+      product_type:      editProduct.product_type      || 'Regular Product',
+      new_arrival:       !!editProduct.new_arrival,
+      featured:          !!editProduct.featured,
+      min_stock_level:   editProduct.min_stock_level != null ? String(editProduct.min_stock_level) : '',
+      reorder_level:     editProduct.reorder_level   != null ? String(editProduct.reorder_level)   : '',
+      explicit_product_type: explicitType,
+      attributes:        (editProduct.attributes && typeof editProduct.attributes === 'object') ? { ...editProduct.attributes } : {},
+    }
+  })
   const [errors, setErrors]     = useState({})
   const [imageFiles, setImageFiles]         = useState([])
-  const [existingImages, setExistingImages] = useState([])
+  const [existingImages, setExistingImages] = useState(() => editProduct?.image_urls || [])
   const [imgResetKey, setImgResetKey]       = useState(0)
   // Admin-defined extra specifications (label + value) beyond the schema fields.
   const [customSpecs, setCustomSpecs]       = useState([])
@@ -771,6 +823,7 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
 
   // Resolve the selected category / sub-category names, then infer the
   // category "type" that decides which dynamic fields to show.
+  // If the user explicitly picked a product type, that wins over inference.
   const selectedCatName = (() => {
     const c = categories.find(x => String(x._id || x.id) === String(form.category_id))
     return c?.name || editProduct?.category_id?.name || editProduct?.category_name || ''
@@ -779,8 +832,23 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
     const s = subCategories.find(x => String(x._id || x.id) === String(form.sub_category_id))
     return s?.name || editProduct?.sub_category_id?.name || editProduct?.sub_category_name || ''
   })()
-  const categoryType = matchCategoryType(selectedCatName, selectedSubName)
+  const inferredType = matchCategoryType(selectedCatName, selectedSubName)
+  const categoryType = form.explicit_product_type || inferredType
   const dynamicFields = fieldsForType(categoryType)
+
+  // ── Natural Stone Block auto-computation helpers ─────────────────
+  // CBM (m³) = L(mm) × W(mm) × H(mm) ÷ 1e9
+  const cbmFromMm = (l, w, h) => {
+    const a = parseFloat(l), b = parseFloat(w), c = parseFloat(h)
+    if (!(a > 0 && b > 0 && c > 0)) return ''
+    return ((a * b * c) / 1e9).toFixed(4)
+  }
+  // Tons = CBM × Density(kg/m³) ÷ 1000   (density default 2700 for stone)
+  const tonsFromCbmAndDensity = (cbm, density) => {
+    const v = parseFloat(cbm), d = parseFloat(density) || 2700
+    if (!(v > 0)) return ''
+    return ((v * d) / 1000).toFixed(3)
+  }
 
   // A category must be picked before the spec fields are meaningful.
   const categoryChosen = !!form.category_id
@@ -798,17 +866,57 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
     !!form.sub_category_id ||
     (!!editProduct && !editProduct.sub_category_id)
   const selectionComplete =
-    !!form.category_id &&
-    !!form.brand_id &&
-    subCategorySatisfied
+    !!editProduct ||   // editing: always show full form immediately
+    (
+      !!form.explicit_product_type &&
+      !!form.category_id &&
+      !!form.brand_id &&
+      subCategorySatisfied
+    )
 
   // Set a dynamic field's value. Column-backed fields live on form[key];
   // attributes-backed fields live on form.attributes[key].
+  // For stone_block fields, auto-compute CBM & tonnage when dims/density change.
   const setDynamic = useCallback((field, val) => {
     if (field.storeIn === 'attributes') {
-      setForm(f => ({ ...f, attributes: { ...(f.attributes || {}), [field.key]: val } }))
+      setForm(f => {
+        const attrs = { ...(f.attributes || {}), [field.key]: val }
+        // ── stone_block auto-compute ──────────────────────────────
+        if (categoryType === 'stone_block') {
+          const grossCbm = cbmFromMm(
+            attrs.gross_length_mm ?? f.attributes?.gross_length_mm,
+            attrs.gross_width_mm  ?? f.attributes?.gross_width_mm,
+            attrs.gross_height_mm ?? f.attributes?.gross_height_mm,
+          )
+          if (grossCbm !== '') attrs.gross_cbm = grossCbm
+          const netCbm = cbmFromMm(
+            attrs.net_length_mm ?? f.attributes?.net_length_mm,
+            attrs.net_width_mm  ?? f.attributes?.net_width_mm,
+            attrs.net_height_mm ?? f.attributes?.net_height_mm,
+          )
+          if (netCbm !== '') attrs.net_cbm = netCbm
+          const density = attrs.density ?? f.attributes?.density
+          if (grossCbm !== '') {
+            const gw = tonsFromCbmAndDensity(grossCbm, density)
+            if (gw !== '') attrs.gross_weight_tons = gw
+          }
+          if (netCbm !== '') {
+            const nw = tonsFromCbmAndDensity(netCbm, density)
+            if (nw !== '') attrs.net_weight_tons = nw
+          }
+          // If only density changes, re-compute weights using existing CBMs
+          if (field.key === 'density') {
+            const existingGrossCbm = grossCbm !== '' ? grossCbm : (attrs.gross_cbm ?? f.attributes?.gross_cbm)
+            const existingNetCbm   = netCbm   !== '' ? netCbm   : (attrs.net_cbm   ?? f.attributes?.net_cbm)
+            const gw2 = tonsFromCbmAndDensity(existingGrossCbm, density)
+            const nw2 = tonsFromCbmAndDensity(existingNetCbm, density)
+            if (gw2 !== '') attrs.gross_weight_tons = gw2
+            if (nw2 !== '') attrs.net_weight_tons   = nw2
+          }
+        }
+        return { ...f, attributes: attrs }
+      })
     } else {
-      // reuse `set` semantics (auto sqft/box) by routing through setForm
       setForm(f => {
         const next = { ...f, [field.key]: val }
         if (field.key === 'size' || field.key === 'pcs_per_box') {
@@ -817,7 +925,7 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
         return next
       })
     }
-  }, [])
+  }, [categoryType])
 
   const getDynamic = (field) =>
     field.storeIn === 'attributes'
@@ -827,6 +935,13 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
   // Populate form on edit
   useEffect(() => {
     if (editProduct) {
+      const explicitType =
+        editProduct.category_type && PRODUCT_FIELD_SCHEMA[editProduct.category_type]
+          ? editProduct.category_type
+          : matchCategoryType(
+              editProduct.category_id?.name || editProduct.category_name,
+              editProduct.sub_category_id?.name || editProduct.sub_category_name,
+            )
       setForm({
         code:              editProduct.code              || '',
         name:              editProduct.name              || '',
@@ -859,32 +974,22 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
         landing_cost:      editProduct.landing_cost      || '',
         mrp:               editProduct.mrp               || '',
         retail_rate:       editProduct.retail_price      || editProduct.retail_rate  || '',
-        dealer_rate:       editProduct.dealer_price      || editProduct.dealer_rate  || '',
         wholesale_rate:    editProduct.wholesale_rate    || '',
-        project_rate:      editProduct.project_rate      || '',
-        min_selling_rate:  editProduct.min_selling_rate  || '',
         retail_discount:   editProduct.retail_discount   || '',
-        dealer_discount:   editProduct.dealer_discount   || '',
         wholesale_discount:editProduct.wholesale_discount|| '',
-        project_discount:  editProduct.project_discount  || '',
-        min_stock_level:   editProduct.min_stock_level != null ? String(editProduct.min_stock_level) : '',
-        reorder_level:     editProduct.reorder_level   != null ? String(editProduct.reorder_level)   : '',
         status:            editProduct.is_active !== false ? 'Active' : 'Inactive',
         sales_type:        editProduct.sales_type        || 'Regular Sale',
         product_type:      editProduct.product_type      || 'Regular Product',
         new_arrival:       !!editProduct.new_arrival,
         featured:          !!editProduct.featured,
+        min_stock_level:   editProduct.min_stock_level != null ? String(editProduct.min_stock_level) : '',
+        reorder_level:     editProduct.reorder_level   != null ? String(editProduct.reorder_level)   : '',
+        explicit_product_type: explicitType,
         attributes:        (editProduct.attributes && typeof editProduct.attributes === 'object') ? { ...editProduct.attributes } : {},
       })
       setExistingImages(editProduct.image_urls || [])
-      // Reconstruct custom specs = attributes whose key isn't a schema field for
-      // this product's category type.
       const attrs = (editProduct.attributes && typeof editProduct.attributes === 'object') ? editProduct.attributes : {}
-      const type = matchCategoryType(
-        editProduct.category_type || editProduct.category_id?.name || editProduct.category_name,
-        editProduct.sub_category_id?.name || editProduct.sub_category_name,
-      )
-      const schemaKeys = new Set(fieldsForType(type).map(f => f.key))
+      const schemaKeys = new Set(fieldsForType(explicitType).map(f => f.key))
       setCustomSpecs(
         Object.entries(attrs)
           .filter(([k]) => !schemaKeys.has(k))
@@ -908,12 +1013,9 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
       next.sqft_per_box = calcSqftPerBox(next.size, next.pcs_per_box)
     }
     // Auto-calculate rates from MRP + discount %.
-    // rate = MRP * (1 - discount/100). Maps each rate to its discount field.
     const RATE_DISCOUNTS = {
       retail_rate:    'retail_discount',
-      dealer_rate:    'dealer_discount',
       wholesale_rate: 'wholesale_discount',
-      project_rate:   'project_discount',
     }
     const applyDiscount = (rateField, discField) => {
       const mrp  = parseFloat(next.mrp)
@@ -944,6 +1046,7 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
       e.sub_category_id = 'Sub-category is required'
     }
     if (!form.unit)        e.unit = 'Unit is required'
+    if (!form.explicit_product_type) e.explicit_product_type = 'Product Type is required'
 
     // Required category-specific fields.
     dynamicFields.forEach(f => {
@@ -953,12 +1056,17 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
     })
 
     const minStock = form.min_stock_level
-    if (minStock === '' || minStock === null || minStock === undefined) {
-      e.min_stock_level = 'Min stock level is required'
-    } else if (!Number.isFinite(Number(minStock)) || Number(minStock) < 0) {
-      e.min_stock_level = 'Enter a valid number (0 or more)'
+    if (minStock !== '' && minStock !== null && minStock !== undefined) {
+      if (!Number.isFinite(Number(minStock)) || Number(minStock) < 0) {
+        e.min_stock_level = 'Enter a valid number (0 or more)'
+      }
     }
-
+    const reorder = form.reorder_level
+    if (reorder !== '' && reorder !== null && reorder !== undefined) {
+      if (!Number.isFinite(Number(reorder)) || Number(reorder) < 0) {
+        e.reorder_level = 'Enter a valid number (0 or more)'
+      }
+    }
     return e
   }
 
@@ -1031,27 +1139,19 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
       landing_cost:    parseFloat(form.landing_cost)     || 0,
       mrp:             parseFloat(form.mrp)              || 0,
       retail_price:    parseFloat(form.retail_rate)      || 0,
-      dealer_price:    parseFloat(form.dealer_rate)      || 0,
       wholesale_rate:  parseFloat(form.wholesale_rate)   || 0,
-      project_rate:    parseFloat(form.project_rate)     || 0,
-      min_selling_rate:parseFloat(form.min_selling_rate) || 0,
       retail_discount:   parseFloat(form.retail_discount)   || 0,
-      dealer_discount:   parseFloat(form.dealer_discount)   || 0,
       wholesale_discount:parseFloat(form.wholesale_discount)|| 0,
-      project_discount:  parseFloat(form.project_discount)  || 0,
-      min_stock_level: parseFloat(form.min_stock_level)  || 0,
-      reorder_level:   parseFloat(form.reorder_level)    || 0,
+      min_stock_level: form.min_stock_level !== '' && form.min_stock_level != null ? parseFloat(form.min_stock_level) : null,
+      reorder_level:   form.reorder_level   !== '' && form.reorder_level   != null ? parseFloat(form.reorder_level)   : null,
       is_active:       form.status === 'Active',
       sales_type:      form.sales_type,
       product_type:    form.product_type,
       new_arrival:     form.new_arrival,
       featured:        form.featured,
-      // Category-specific extras that are NOT model columns go into attributes.
-      category_type:   categoryType,
+      category_type:   form.explicit_product_type || categoryType,
       attributes:      buildAttributesPayload(),
-      // For update: kept existing image URLs
       image_urls:      existingImages,
-      // imageFiles is the key productApi looks for - File[] array, field name 'file' for multer
       imageFiles:      imageFiles,
     }
 
@@ -1112,9 +1212,32 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
 
         <div className="modal-body">
 
-          {/* â”€â”€ STEP 1: CATEGORY â†’ SUB-CATEGORY â†’ BRAND (required first) â”€â”€ */}
-          <FormSection title="Step 1 · Select Category, Sub-Category & Brand" />
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:14 }}>
+          {/* â”€â”€ STEP 1: PRODUCT TYPE + CATEGORY â†’ SUB-CATEGORY â†’ BRAND (required first) â”€â”€ */}
+          <FormSection title="Step 1 · Select Product Type, Category, Sub-Category & Brand" />
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:14 }}>
+            {/* Product Type */}
+            <div>
+              <SelectField
+                label="Product Type" required
+                placeholder="Choose a product type"
+                value={form.explicit_product_type}
+                onChange={v => {
+                  setForm(f => ({
+                    ...f,
+                    explicit_product_type: v,
+                    // Preselect a sensible default unit for this product type (only when adding / not editing).
+                    unit: editProduct ? f.unit : (CATEGORY_DEFAULT_UNIT[v] || f.unit),
+                  }))
+                }}
+                options={PRODUCT_TYPES}
+              />
+              {errors.explicit_product_type && <span className="form-error">{errors.explicit_product_type}</span>}
+              {form.explicit_product_type && (
+                <div style={{ fontSize:11, color:'var(--primary)', marginTop:4, fontWeight:600 }}>
+                  Form will show {shortLabelForType(form.explicit_product_type)}-specific fields
+                </div>
+              )}
+            </div>
             {/* Category */}
             <div>
               <SearchableSelect
@@ -1128,8 +1251,9 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
                     ...f,
                     category_id: v,
                     sub_category_id: '',
-                    // Preselect a sensible unit for this category (only when adding).
-                    unit: editProduct ? f.unit : (CATEGORY_DEFAULT_UNIT[t] || f.unit),
+                    // If user hasn't manually picked a product type, auto-suggest from category name.
+                    explicit_product_type: f.explicit_product_type || t,
+                    unit: editProduct ? f.unit : (CATEGORY_DEFAULT_UNIT[f.explicit_product_type || t] || f.unit),
                   }))
                 }}
                 options={catOpts}
@@ -1161,12 +1285,12 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
             </div>
           </div>
 
-          {!selectionComplete && (
+          {!selectionComplete && !editProduct && (
             <div style={{
               marginTop:16, padding:'16px 18px', background:'var(--bg)',
               border:'1px dashed var(--border)', borderRadius:8, fontSize:13, color:'var(--text-muted)',
             }}>
-              Please select <strong>Category</strong>{categoryHasSubs ? <>, <strong>Sub-Category</strong></> : ''} and <strong>Brand</strong> to continue adding the product details.
+              Please select <strong>Product Type</strong>, <strong>Category</strong>{categoryHasSubs ? <>, <strong>Sub-Category</strong></> : ''} and <strong>Brand</strong> to continue adding the product details.
             </div>
           )}
 
@@ -1333,34 +1457,18 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
             </>
           )}
 
-          {/* â”€â”€ PRICING â”€â”€ */}
+          {/* PRICING */}
           <FormSection title="Pricing" />
           <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12 }}>
             <PriceInput label="Purchase Rate"   value={form.purchase_rate}   onChange={v=>set('purchase_rate',v)} />
             <PriceInput label="Landing Cost"    value={form.landing_cost}    onChange={v=>set('landing_cost',v)} />
             <PriceInput label="MRP"             value={form.mrp}             onChange={v=>set('mrp',v)} />
           </div>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginTop:12 }}>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:12, marginTop:12 }}>
             <PriceDiscountInput label="Retail Rate"    priceValue={form.retail_rate}    onPriceChange={v=>set('retail_rate',v)}
               discountValue={form.retail_discount}    onDiscountChange={v=>set('retail_discount',v)}    baseMrp={form.mrp} />
-            <PriceDiscountInput label="Dealer Rate"    priceValue={form.dealer_rate}    onPriceChange={v=>set('dealer_rate',v)}
-              discountValue={form.dealer_discount}    onDiscountChange={v=>set('dealer_discount',v)}    baseMrp={form.mrp} />
             <PriceDiscountInput label="Wholesale Rate" priceValue={form.wholesale_rate} onPriceChange={v=>set('wholesale_rate',v)}
               discountValue={form.wholesale_discount} onDiscountChange={v=>set('wholesale_discount',v)} baseMrp={form.mrp} />
-            <PriceDiscountInput label="Project Rate"   priceValue={form.project_rate}   onPriceChange={v=>set('project_rate',v)}
-              discountValue={form.project_discount}   onDiscountChange={v=>set('project_discount',v)}   baseMrp={form.mrp} />
-          </div>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginTop:12 }}>
-            <PriceInput label="Min Selling Rate"  value={form.min_selling_rate}  onChange={v=>set('min_selling_rate',v)} />
-            <div>
-              <label className="form-label">Min Stock Level <span style={{ color:'var(--danger)' }}>*</span></label>
-              <input className={`form-control${errors.min_stock_level ? ' error' : ''}`} type="number" min="0" placeholder="0" value={form.min_stock_level} onChange={e=>set('min_stock_level',e.target.value)} />
-              {errors.min_stock_level && <span className="form-error">{errors.min_stock_level}</span>}
-            </div>
-            <div>
-              <label className="form-label">Reorder Level</label>
-              <input className="form-control" type="number" min="0" placeholder="0" value={form.reorder_level} onChange={e=>set('reorder_level',e.target.value)} />
-            </div>
           </div>
 
           {/* â”€â”€ IMAGES â”€â”€ */}
@@ -1380,7 +1488,7 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
         <div className="modal-footer" style={{ position:'sticky', bottom:0, background:'var(--surface)', zIndex:10 }}>
           <button className="btn btn-secondary" type="button" onClick={onClose}>Cancel</button>
           <button className="btn btn-primary" type="button" disabled={saving || !selectionComplete} onClick={handleSave}
-            style={{ minWidth:120 }} title={!selectionComplete ? 'Select Category, Sub-Category and Brand first' : ''}>
+            style={{ minWidth:120 }} title={!selectionComplete ? 'Select Product Type, Category, Sub-Category and Brand first' : ''}>
             {saving ? 'Saving...' : 'Preview & Save'}
           </button>
         </div>

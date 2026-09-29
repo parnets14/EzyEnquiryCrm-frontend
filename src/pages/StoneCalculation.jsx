@@ -17,7 +17,7 @@ import { useState, useMemo, useEffect } from 'react'
 import {
   Gem, Layers, Box, Grid3x3, Plus, Search, Copy, Save, ArrowLeft,
   Trash2, Eye, Pencil, Share2, Download, Printer, X, Calculator, Calendar,
-  FileText, ReceiptText, Send,
+  FileText, ReceiptText, Send, CheckCircle, Package,
 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { stoneApi } from '../api/stoneApi'
@@ -26,6 +26,8 @@ import {
 } from '../config/stoneUnits'
 import { companyApi } from '../api/companyApi'
 import api from '../api'
+import { useErp } from '../context/ErpContext'
+import { productApi } from '../api/productApi'
 
 // ── Products (with react-style icons from lucide) ────────────────────────────
 // Brand palette (matches the app logo / sidebar)
@@ -326,9 +328,8 @@ function IconBtn({ title, color, onClick, children }) {
 function NewSheetModal({ product, onCancel, onCreate }) {
   const isCustom = product === 'custom'
   const meta = productMeta(product)
-  const [customType, setCustomType] = useState('')   // custom sheet type name
+  const [customType, setCustomType] = useState('')
   const [name, setName]   = useState('')
-  const party = ''   // party name field removed from the sheet form
   const [date, setDate]   = useState(todayISO())
   const [rows, setRows]   = useState('1')
   const [err, setErr]     = useState('')
@@ -357,11 +358,11 @@ function NewSheetModal({ product, onCancel, onCreate }) {
     if (!date)         return setErr('Please choose a date')
     const n = Math.max(1, Math.min(200, parseInt(rows, 10) || 1))
     const sheet = {
-      id: null,                       // unsaved yet
+      id: null,
       product,
       custom_type: '',
       name: name.trim(),
-      party: party.trim(),
+      party: name.trim(),
       date,
       inputUnit: 'inch',
       outputUnit: 'feet',
@@ -429,24 +430,84 @@ function NewSheetModal({ product, onCancel, onCreate }) {
 ═══════════════════════════════════════════════════════════════════════ */
 function EditView({ sheet, onBack, onSaved }) {
   const meta = productMeta(sheet.product)
+  const erp  = useErp()
   const [rows, setRows]           = useState(sheet.rows.length ? sheet.rows : [{ length: '', width: '' }])
   const [inputUnit, setInputUnit] = useState(sheet.inputUnit || 'inch')
   const [outputUnit, setOutput]   = useState(sheet.outputUnit || 'feet')
   const [saving, setSaving]       = useState(false)
-  const [units, setUnits]         = useState(() => allUnits())   // built-in + custom
+  const [units, setUnits]         = useState(() => allUnits())
   const [addUnitOpen, setAddUnitOpen] = useState(false)
-  const [docKind, setDocKind]     = useState(null)   // 'quotation' | 'invoice' → opens SendDocumentModal
+  const [docKind, setDocKind]     = useState(null)
+
+  // ── Selection + pricing (persisted via ErpContext) ──────────
+  const sheetId = sheet.id || ('temp_' + (sheet.name || 'new'))
+  const savedSel = erp.getStoneSelections(sheetId)
+  const [selectedRowIndices, setSelectedRowIndices] = useState(() =>
+    new Set(Array.isArray(savedSel?.selectedRowIndices) ? savedSel.selectedRowIndices : [])
+  )
+  const [rate,   setRate]   = useState(savedSel?.rate != null ? String(savedSel.rate || '') : '')
+  const [gstPct, setGstPct] = useState(savedSel?.gstPct ?? 18)
+
+  // ── Product picker ───────────────────────────────────────────
+  const [showProductPicker, setShowProductPicker] = useState(false)
+  const [selectedProduct,   setSelectedProduct]   = useState(savedSel?.selectedProduct || null)
 
   const sym = AREA_SYMBOL[outputUnit]
   const total = useMemo(() => sumArea(rows, inputUnit, outputUnit), [rows, inputUnit, outputUnit])
+
+  // Calculated prices + per-row details
+  const calculated = useMemo(() => {
+    const rateN = parseFloat(rate) || 0
+    const rowDetails = rows.map((r, i) => {
+      const area = rowArea(r.length, r.width, inputUnit, outputUnit)
+      const selected = selectedRowIndices.has(i)
+      const qty = Number(fmtArea(area))
+      const lineAmount = +(qty * rateN).toFixed(2)
+      const gstAmt = +(lineAmount * (Number(gstPct) || 0) / 100).toFixed(2)
+      return { index: i, length: r.length, width: r.width, area, selected, qty, lineAmount, gstAmt, lineTotal: +(lineAmount + gstAmt).toFixed(2) }
+    })
+    const selRows = rowDetails.filter(r => r.selected)
+    const selectedArea = selRows.reduce((a, r) => a + r.area, 0)
+    const selectedAreaFmt = Number(fmtArea(selectedArea)) || 0
+    const subtotal = +(selectedAreaFmt * rateN).toFixed(2)
+    const gstAmt   = +(subtotal * (Number(gstPct) || 0) / 100).toFixed(2)
+    const grandTotal = +(subtotal + gstAmt).toFixed(2)
+    return { rowDetails, selectedArea, selectedAreaFmt, subtotal, gstAmt, grandTotal, selectedCount: selRows.length }
+  }, [rows, inputUnit, outputUnit, selectedRowIndices, rate, gstPct])
+
+  // Sync selections to ErpContext whenever they change
+  useEffect(() => {
+    erp.setStoneSelectionsForSheet(sheetId, {
+      selectedRowIndices: Array.from(selectedRowIndices),
+      rate: Number(rate) || 0,
+      gstPct: Number(gstPct) || 0,
+      selectedProduct: selectedProduct || null,
+      calculatedPrices: {
+        subtotal: calculated.subtotal,
+        gstAmt:   calculated.gstAmt,
+        grandTotal: calculated.grandTotal,
+        selectedArea: calculated.selectedAreaFmt,
+        selectedCount: calculated.selectedCount,
+      },
+    })
+  }, [selectedRowIndices, rate, gstPct, selectedProduct, calculated, sheetId, erp])
 
   const setCell = (i, field, val) =>
     setRows(rs => rs.map((r, idx) => idx === i ? { ...r, [field]: val } : r))
 
   const addRow = () => setRows(rs => [...rs, { length: '', width: '' }])
-  const removeRow = (i) => setRows(rs => rs.length > 1 ? rs.filter((_, idx) => idx !== i) : rs)
+  const removeRow = (i) => {
+    setRows(rs => rs.length > 1 ? rs.filter((_, idx) => idx !== i) : rs)
+    setSelectedRowIndices(prev => {
+      const next = new Set()
+      prev.forEach(idx => {
+        if (idx < i) next.add(idx)
+        else if (idx > i) next.add(idx - 1)
+      })
+      return next
+    })
+  }
 
-  // Copy Previous: fill every empty row from the row above it.
   const copyPrevious = () =>
     setRows(rs => rs.map((r, i) => {
       if (i === 0) return r
@@ -455,6 +516,14 @@ function EditView({ sheet, onBack, onSaved }) {
       const width  = r.width  === '' ? prev.width  : r.width
       return { ...r, length, width }
     }))
+
+  const toggleRow   = (i) => setSelectedRowIndices(prev => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n })
+  const selectAll   = () => setSelectedRowIndices(new Set(rows.map((_, i) => i)))
+  const deselectAll = () => setSelectedRowIndices(new Set())
+  const allSelected  = rows.length > 0 && selectedRowIndices.size === rows.length
+  const someSelected = selectedRowIndices.size > 0 && selectedRowIndices.size < rows.length
+
+  const inr = (n) => '₹' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })
 
   const save = () => {
     setSaving(true)
@@ -502,7 +571,17 @@ function EditView({ sheet, onBack, onSaved }) {
 
       {/* grid */}
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '56px 1fr 1fr 1.2fr 46px', background: TEAL, color: '#fff', fontWeight: 700, fontSize: 13 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '50px 56px 1fr 1fr 1.2fr 46px', background: TEAL, color: '#fff', fontWeight: 700, fontSize: 13 }}>
+          <Cell head style={{ cursor: 'pointer' }} onClick={() => allSelected ? deselectAll() : selectAll()} title={allSelected ? 'Deselect all' : 'Select all'}>
+            <div style={{
+              width: 16, height: 16, borderRadius: 4, border: '2px solid #fff',
+              background: allSelected ? '#fff' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              position: 'relative',
+            }}>
+              {allSelected && <span style={{ color: TEAL, fontSize: 11, fontWeight: 900 }}>✓</span>}
+              {someSelected && <div style={{ position: 'absolute', width: 8, height: 2, background: '#fff' }} />}
+            </div>
+          </Cell>
           <Cell head>SN</Cell>
           <Cell head>Length</Cell>
           <Cell head>Width</Cell>
@@ -512,16 +591,34 @@ function EditView({ sheet, onBack, onSaved }) {
 
         {rows.map((r, i) => {
           const area = rowArea(r.length, r.width, inputUnit, outputUnit)
+          const selected = selectedRowIndices.has(i)
           return (
-            <div key={i} style={{ display: 'grid', gridTemplateColumns: '56px 1fr 1fr 1.2fr 46px', borderBottom: '1px solid #F1F5F9', alignItems: 'center' }}>
-              <Cell style={{ fontWeight: 700, color: '#64748B', justifyContent: 'center' }}>{i + 1}</Cell>
+            <div key={i} style={{
+              display: 'grid', gridTemplateColumns: '50px 56px 1fr 1fr 1.2fr 46px',
+              borderBottom: '1px solid #F1F5F9', alignItems: 'center',
+              background: selected ? '#FFF8F3' : '#fff',
+              transition: 'background .15s',
+              boxShadow: selected ? 'inset 3px 0 0 ' + ORANGE : 'none',
+            }}>
+              <Cell style={{ justifyContent: 'center' }}>
+                <div onClick={(e) => { e.stopPropagation(); toggleRow(i) }} title={selected ? 'Deselect' : 'Select'} style={{
+                  width: 18, height: 18, borderRadius: 5, cursor: 'pointer',
+                  border: `2px solid ${selected ? ORANGE : '#CBD5E1'}`,
+                  background: selected ? ORANGE : '#fff',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  flexShrink: 0,
+                }}>
+                  {selected && <span style={{ color: '#fff', fontSize: 11, fontWeight: 900 }}>✓</span>}
+                </div>
+              </Cell>
+              <Cell style={{ fontWeight: 700, color: selected ? ORANGE : '#64748B', justifyContent: 'center' }}>{i + 1}</Cell>
               <Cell>
                 <input type="number" min="0" step="any" value={r.length} onChange={e => setCell(i, 'length', e.target.value)} placeholder="0" style={gridInput} />
               </Cell>
               <Cell>
                 <input type="number" min="0" step="any" value={r.width} onChange={e => setCell(i, 'width', e.target.value)} placeholder="0" style={gridInput} />
               </Cell>
-              <Cell style={{ fontWeight: 700, color: '#1E2D4A', fontFamily: 'monospace' }}>
+              <Cell style={{ fontWeight: 700, color: selected ? ORANGE : '#1E2D4A', fontFamily: 'monospace' }}>
                 {area ? fmtArea(area) : ''}
               </Cell>
               <Cell style={{ justifyContent: 'center' }}>
@@ -534,9 +631,19 @@ function EditView({ sheet, onBack, onSaved }) {
         })}
 
         {/* footer sum */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', padding: '12px 16px', background: '#F8FAFC', gap: 8 }}>
-          <span style={{ fontSize: 14, fontWeight: 700, color: '#64748B' }}>Sum Total:</span>
-          <span style={{ fontSize: 18, fontWeight: 900, color: ORANGE, fontFamily: 'monospace' }}>{fmtArea(total)} {sym}</span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', background: '#F8FAFC', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: someSelected || allSelected ? ORANGE : '#94A3B8' }}>
+              {selectedRowIndices.size} of {rows.length} selected
+            </span>
+            {selectedRowIndices.size > 0 && (
+              <button onClick={deselectAll} style={{ ...btnGhost, padding: '4px 10px', fontSize: 11 }}>Clear</button>
+            )}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: '#64748B' }}>Sum Total:</span>
+            <span style={{ fontSize: 18, fontWeight: 900, color: ORANGE, fontFamily: 'monospace' }}>{fmtArea(total)} {sym}</span>
+          </div>
         </div>
       </div>
 
@@ -549,6 +656,118 @@ function EditView({ sheet, onBack, onSaved }) {
         <button onClick={save} disabled={saving} style={{ ...btnPrimary, opacity: saving ? .7 : 1 }}>
           <Save size={15} /> {saving ? 'Saving…' : 'Save'}
         </button>
+      </div>
+
+      {/* Selected Calculations & Price Details */}
+      <div style={{ marginTop: 18 }}>
+        <div style={{ fontSize: 15, fontWeight: 800, color: '#1E2D4A', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Calculator size={16} color={ORANGE} /> Selected Calculations &amp; Price Details
+        </div>
+
+        {calculated.selectedCount === 0 ? (
+          <div className="card" style={{ padding: '28px 20px', textAlign: 'center', color: '#94A3B8', fontSize: 13 }}>
+            <div style={{ opacity: .4, marginBottom: 8 }}><Calculator size={34} /></div>
+            Select one or more calculated results above using the checkboxes to view price &amp; calculation details.
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 340px', gap: 14 }}>
+            {/* Per-row details table */}
+            <div className="card table-wrap" style={{ padding: 0, overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: TEAL, color: '#fff' }}>
+                    <th style={th}>#</th>
+                    <th style={th}>Length ({unitLabel(inputUnit)})</th>
+                    <th style={th}>Width ({unitLabel(inputUnit)})</th>
+                    <th style={th}>Area ({sym})</th>
+                    <th style={{ ...th, background: '#1F3A64' }}>Qty (Area)</th>
+                    <th style={{ ...th, background: '#1F3A64' }}>Rate</th>
+                    <th style={{ ...th, background: '#1F3A64' }}>Amount</th>
+                    <th style={{ ...th, background: ORANGE }}>Line Total (incl. {gstPct}%)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {calculated.rowDetails.filter(r => r.selected).map(r => (
+                    <tr key={r.index} style={{ background: '#FFF8F3' }}>
+                      <td style={td}>{r.index + 1}</td>
+                      <td style={td}>{r.length || 0}</td>
+                      <td style={td}>{r.width || 0}</td>
+                      <td style={{ ...td, fontFamily: 'monospace', fontWeight: 700 }}>{fmtArea(r.area)}</td>
+                      <td style={{ ...td, fontFamily: 'monospace' }}>{fmtArea(r.area)}</td>
+                      <td style={{ ...td, fontFamily: 'monospace' }}>{parseFloat(rate) > 0 ? inr(rate) + '/' + sym : '—'}</td>
+                      <td style={{ ...td, fontFamily: 'monospace', fontWeight: 700 }}>{parseFloat(rate) > 0 ? inr(r.lineAmount) : '—'}</td>
+                      <td style={{ ...td, fontFamily: 'monospace', fontWeight: 800, color: ORANGE }}>{parseFloat(rate) > 0 ? inr(r.lineTotal) : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr style={{ background: '#F8FAFC' }}>
+                    <td style={{ ...td, fontWeight: 800 }} colSpan={3}>Selected ({calculated.selectedCount})</td>
+                    <td style={{ ...td, fontWeight: 900, color: ORANGE, fontFamily: 'monospace' }}>{fmtArea(calculated.selectedArea)} {sym}</td>
+                    <td style={{ ...td, fontWeight: 800 }} colSpan={3}>Subtotal</td>
+                    <td style={{ ...td, fontWeight: 800 }}>{parseFloat(rate) > 0 ? inr(calculated.subtotal) : '—'}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+            {/* Pricing summary card */}
+            <div className="card" style={{ padding: '18px 18px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label style={lbl}>Rate (per {sym}) <span style={{ color: '#DC2626' }}>*</span></label>
+                <div style={{ position: 'relative' }}>
+                  <span style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }}>₹</span>
+                  <input
+                    value={rate}
+                    onChange={e => setRate(e.target.value.replace(/[^0-9.]/g, ''))}
+                    placeholder="0"
+                    style={{ ...inputStyle, paddingLeft: 26, fontWeight: 700, fontSize: 15, color: ORANGE }}
+                  />
+                </div>
+              </div>
+              <div>
+                <label style={lbl}>GST (%)</label>
+                <select value={gstPct} onChange={e => setGstPct(Number(e.target.value))} style={{ ...inputStyle, cursor: 'pointer', fontWeight: 700 }}>
+                  {['0','5','12','18','28'].map(v => <option key={v} value={v}>{v}%</option>)}
+                </select>
+              </div>
+
+              <div style={{ borderTop: '1px solid #EEF2F7', paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 8, fontSize: 13 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#64748B' }}>Selected Rows</span>
+                  <b style={{ color: '#1E2D4A' }}>{calculated.selectedCount}</b>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#64748B' }}>Selected Area</span>
+                  <b style={{ color: '#1E2D4A', fontFamily: 'monospace' }}>{fmtArea(calculated.selectedArea)} {sym}</b>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#64748B' }}>Rate / {sym}</span>
+                  <b style={{ color: '#1E2D4A' }}>{parseFloat(rate) > 0 ? inr(rate) : '—'}</b>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#64748B' }}>Subtotal</span>
+                  <b style={{ color: '#1E2D4A' }}>{parseFloat(rate) > 0 ? inr(calculated.subtotal) : '—'}</b>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#64748B' }}>GST ({gstPct}%)</span>
+                  <b style={{ color: '#1E2D4A' }}>{parseFloat(rate) > 0 ? inr(calculated.gstAmt) : '—'}</b>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '2px solid ' + ORANGE, paddingTop: 8, marginTop: 2 }}>
+                  <b style={{ color: '#1E2D4A', fontSize: 14 }}>Grand Total</b>
+                  <b style={{ color: ORANGE, fontSize: 16, fontFamily: 'monospace' }}>{parseFloat(rate) > 0 ? inr(calculated.grandTotal) : '—'}</b>
+                </div>
+              </div>
+
+              {parseFloat(rate) > 0 && (
+                <div style={{ background: '#ECFDF5', border: '1px solid #A7F3D0', borderRadius: 10, padding: '10px 12px', fontSize: 12, color: '#065F46', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <CheckCircle size={15} color="#059669" />
+                  Selection &amp; prices ready. Use Quotation / Invoice buttons above to send this to a customer.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Add custom unit modal */}
@@ -572,7 +791,173 @@ function EditView({ sheet, onBack, onSaved }) {
           onClose={() => setDocKind(null)}
         />
       )}
+
+      {/* Product Picker Modal */}
+      {showProductPicker && (
+        <ProductPickerModal
+          onClose={() => setShowProductPicker(false)}
+          onSelect={(product) => {
+            setSelectedProduct(product)
+            // Auto-fill rate from product price
+            const autoRate = product.dealer_price || product.retail_price || product.wholesale_rate || product.mrp || ''
+            if (autoRate) setRate(String(autoRate))
+            setShowProductPicker(false)
+          }}
+        />
+      )}
     </>
+  )
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   PRODUCT PICKER MODAL
+   — Search & select a product from the product catalog.
+   — Shows size, pcs/box, sqft/box and price details for stone products.
+═══════════════════════════════════════════════════════════════════════ */
+function ProductPickerModal({ onClose, onSelect }) {
+  const [search, setSearch] = useState('')
+  const [products, setProducts] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    // Fetch products — filter to stone-relevant categories
+    productApi.list({ limit: 500 })
+      .then(res => {
+        if (cancelled) return
+        const list = Array.isArray(res?.data?.products) ? res.data.products
+                   : Array.isArray(res?.data)           ? res.data
+                   : []
+        setProducts(list)
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [])
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return products
+    return products.filter(p =>
+      (p.name || '').toLowerCase().includes(q) ||
+      (p.code || '').toLowerCase().includes(q) ||
+      (p.category_name || p.category_id?.name || '').toLowerCase().includes(q) ||
+      (p.size || '').toLowerCase().includes(q) ||
+      (p.color || '').toLowerCase().includes(q)
+    )
+  }, [products, search])
+
+  const handleSelect = (p) => {
+    // Build price label — pick the most relevant price
+    const price = p.dealer_price || p.retail_price || p.wholesale_rate || p.mrp || 0
+    const priceLabel = price > 0 ? `₹${Number(price).toLocaleString('en-IN')} / ${p.unit || 'Sq Ft'}` : null
+    onSelect({
+      _id:         p._id || p.id,
+      name:        p.name || '',
+      code:        p.code || '',
+      size:        p.size || '',
+      color:       p.color || '',
+      finish:      p.finish || '',
+      thickness:   p.thickness || '',
+      unit:        p.unit || '',
+      pcs_per_box: p.pcs_per_box || '',
+      sqft_per_box:p.sqft_per_box || '',
+      mrp:         p.mrp || 0,
+      dealer_price:p.dealer_price || 0,
+      retail_price:p.retail_price || 0,
+      wholesale_rate: p.wholesale_rate || 0,
+      priceLabel,
+    })
+  }
+
+  return (
+    <Overlay onClose={onClose}>
+      {/* Header */}
+      <div style={{ padding: '16px 20px', borderBottom: '1px solid #E8EDF3', display: 'flex', alignItems: 'center', gap: 12, position: 'sticky', top: 0, background: '#fff', zIndex: 2 }}>
+        <div style={{ width: 38, height: 38, borderRadius: 10, background: '#FFF3EC', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Package size={20} color={ORANGE} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 15, fontWeight: 800, color: '#1E2D4A' }}>Select Product</div>
+          <div style={{ fontSize: 12, color: '#94A3B8' }}>Pick a product to auto-fill size & price</div>
+        </div>
+        <button onClick={onClose} style={closeBtn}><X size={18} /></button>
+      </div>
+
+      {/* Search */}
+      <div style={{ padding: '12px 20px', borderBottom: '1px solid #F1F5F9' }}>
+        <div style={{ position: 'relative' }}>
+          <Search size={15} color="#94A3B8" style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)' }} />
+          <input
+            autoFocus
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search by name, code, size, colour…"
+            style={{ ...inputStyle, paddingLeft: 34 }}
+          />
+        </div>
+      </div>
+
+      {/* Product list */}
+      <div style={{ overflowY: 'auto', maxHeight: 420, padding: '8px 12px' }}>
+        {loading ? (
+          <div style={{ padding: '32px 0', textAlign: 'center', color: '#94A3B8', fontSize: 13 }}>Loading products…</div>
+        ) : filtered.length === 0 ? (
+          <div style={{ padding: '32px 0', textAlign: 'center', color: '#94A3B8', fontSize: 13 }}>No products found</div>
+        ) : (
+          filtered.map(p => {
+            const price = p.dealer_price || p.retail_price || p.wholesale_rate || p.mrp || 0
+            const catName = p.category_name || p.category_id?.name || ''
+            return (
+              <div
+                key={p._id || p.id}
+                onClick={() => handleSelect(p)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 12, padding: '10px 10px',
+                  borderRadius: 10, cursor: 'pointer', marginBottom: 4,
+                  border: '1px solid #F1F5F9', background: '#FAFAFA',
+                  transition: 'all .12s',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = '#FFF8F3'; e.currentTarget.style.borderColor = ORANGE }}
+                onMouseLeave={e => { e.currentTarget.style.background = '#FAFAFA'; e.currentTarget.style.borderColor = '#F1F5F9' }}
+              >
+                {/* Icon */}
+                <div style={{ width: 38, height: 38, borderRadius: 9, background: '#FFF3EC', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Package size={18} color={ORANGE} />
+                </div>
+
+                {/* Info */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: '#1E2D4A', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {p.name}
+                    {p.code && <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 400, marginLeft: 6 }}>{p.code}</span>}
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 3, flexWrap: 'wrap' }}>
+                    {catName && <span style={{ fontSize: 11, background: '#F1F5F9', color: '#64748B', borderRadius: 5, padding: '1px 7px', fontWeight: 600 }}>{catName}</span>}
+                    {p.size && <span style={{ fontSize: 11, color: '#64748B' }}>📐 {p.size}</span>}
+                    {p.color && <span style={{ fontSize: 11, color: '#64748B' }}>🎨 {p.color}</span>}
+                    {p.finish && <span style={{ fontSize: 11, color: '#64748B' }}>{p.finish}</span>}
+                    {p.pcs_per_box && <span style={{ fontSize: 11, color: '#64748B' }}>Pcs/Box: <b>{p.pcs_per_box}</b></span>}
+                    {p.sqft_per_box && <span style={{ fontSize: 11, color: '#64748B' }}>Sqft/Box: <b>{p.sqft_per_box}</b></span>}
+                  </div>
+                </div>
+
+                {/* Price */}
+                {price > 0 && (
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: ORANGE }}>
+                      ₹{Number(price).toLocaleString('en-IN')}
+                    </div>
+                    <div style={{ fontSize: 10, color: '#94A3B8' }}>per {p.unit || 'Sq Ft'}</div>
+                  </div>
+                )}
+              </div>
+            )
+          })
+        )}
+      </div>
+    </Overlay>
   )
 }
 
@@ -1017,6 +1402,16 @@ function SheetView({ sheet, onBack }) {
   const meta = productMeta(sheet.product)
   const sym = AREA_SYMBOL[sheet.outputUnit]
   const [docKind, setDocKind] = useState(null)
+  const erp = useErp()
+
+  // ── Selection + pricing (same pattern as EditView) ─────────
+  const sheetId = sheet.id || ('view_' + (sheet.name || 'new'))
+  const savedSel = erp.getStoneSelections(sheetId)
+  const [selectedRowIndices, setSelectedRowIndices] = useState(() =>
+    new Set(Array.isArray(savedSel?.selectedRowIndices) ? savedSel.selectedRowIndices : [])
+  )
+  const [rate,   setRate]   = useState(savedSel?.rate != null ? String(savedSel.rate || '') : '')
+  const [gstPct, setGstPct] = useState(savedSel?.gstPct ?? 18)
 
   const rowData = sheet.rows.map((r, i) => ({
     no: i + 1,
@@ -1024,6 +1419,49 @@ function SheetView({ sheet, onBack }) {
     width: r.width,
     total: fmtArea(rowArea(r.length, r.width, sheet.inputUnit, sheet.outputUnit)),
   }))
+
+  // Calculated prices + per-row details
+  const calculated = useMemo(() => {
+    const rateN = parseFloat(rate) || 0
+    const rowDetails = sheet.rows.map((r, i) => {
+      const area = rowArea(r.length, r.width, sheet.inputUnit, sheet.outputUnit)
+      const selected = selectedRowIndices.has(i)
+      const qty = Number(fmtArea(area))
+      const lineAmount = +(qty * rateN).toFixed(2)
+      const gstAmt = +(lineAmount * (Number(gstPct) || 0) / 100).toFixed(2)
+      return { index: i, length: r.length, width: r.width, area, selected, qty, lineAmount, gstAmt, lineTotal: +(lineAmount + gstAmt).toFixed(2) }
+    })
+    const selRows = rowDetails.filter(r => r.selected)
+    const selectedArea = selRows.reduce((a, r) => a + r.area, 0)
+    const selectedAreaFmt = Number(fmtArea(selectedArea)) || 0
+    const subtotal = +(selectedAreaFmt * rateN).toFixed(2)
+    const gstAmt   = +(subtotal * (Number(gstPct) || 0) / 100).toFixed(2)
+    const grandTotal = +(subtotal + gstAmt).toFixed(2)
+    return { rowDetails, selectedArea, selectedAreaFmt, subtotal, gstAmt, grandTotal, selectedCount: selRows.length }
+  }, [sheet.rows, sheet.inputUnit, sheet.outputUnit, selectedRowIndices, rate, gstPct])
+
+  // Sync selections to ErpContext
+  useEffect(() => {
+    erp.setStoneSelectionsForSheet(sheetId, {
+      selectedRowIndices: Array.from(selectedRowIndices),
+      rate: Number(rate) || 0,
+      gstPct: Number(gstPct) || 0,
+      calculatedPrices: {
+        subtotal: calculated.subtotal,
+        gstAmt:   calculated.gstAmt,
+        grandTotal: calculated.grandTotal,
+        selectedArea: calculated.selectedAreaFmt,
+        selectedCount: calculated.selectedCount,
+      },
+    })
+  }, [selectedRowIndices, rate, gstPct, calculated, sheetId, erp])
+
+  const toggleRow   = (i) => setSelectedRowIndices(prev => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n })
+  const selectAll   = () => setSelectedRowIndices(new Set(sheet.rows.map((_, i) => i)))
+  const deselectAll = () => setSelectedRowIndices(new Set())
+  const allSelected  = sheet.rows.length > 0 && selectedRowIndices.size === sheet.rows.length
+  const someSelected = selectedRowIndices.size > 0 && selectedRowIndices.size < sheet.rows.length
+  const inr = (n) => '₹' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })
 
   const downloadExcel = () => {
     const header = ['No.', `Length (${unitLabel(sheet.inputUnit)})`, `Width (${unitLabel(sheet.inputUnit)})`, `Total (${sym})`]
@@ -1095,33 +1533,186 @@ function SheetView({ sheet, onBack }) {
         </div>
       </div>
 
-      <div className="card table-wrap" style={{ padding: 0, overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-          <thead>
-            <tr style={{ background: TEAL, color: '#fff' }}>
-              <th style={th}>No.</th>
-              <th style={th}>Length ({unitLabel(sheet.inputUnit)})</th>
-              <th style={th}>Width ({unitLabel(sheet.inputUnit)})</th>
-              <th style={{ ...th, background: ORANGE }}>Total ({sym})</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rowData.map(r => (
-              <tr key={r.no}>
-                <td style={td}>{r.no}</td>
-                <td style={td}>{r.length}</td>
-                <td style={td}>{r.width}</td>
-                <td style={{ ...td, fontWeight: 700, fontFamily: 'monospace' }}>{r.total}</td>
+      {/* Selection summary bar + main table */}
+      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        {/* Selection info header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', background: '#F8FAFC', borderBottom: '1px solid #EEF2F7', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: someSelected || allSelected ? ORANGE : '#94A3B8' }}>
+              {selectedRowIndices.size} of {sheet.rows.length} selected
+            </span>
+            {selectedRowIndices.size > 0 && (
+              <button onClick={deselectAll} style={{ ...btnGhost, padding: '4px 10px', fontSize: 11 }}>Clear</button>
+            )}
+          </div>
+        </div>
+
+        <div className="table-wrap" style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr style={{ background: TEAL, color: '#fff' }}>
+                <th style={{ ...th, cursor: 'pointer' }} title={allSelected ? 'Deselect all' : 'Select all'} onClick={() => allSelected ? deselectAll() : selectAll()}>
+                  <div style={{
+                    width: 16, height: 16, borderRadius: 4, border: '2px solid #fff',
+                    background: allSelected ? '#fff' : 'transparent', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    position: 'relative',
+                  }}>
+                    {allSelected && <span style={{ color: TEAL, fontSize: 11, fontWeight: 900 }}>✓</span>}
+                    {someSelected && <div style={{ position: 'absolute', width: 8, height: 2, background: '#fff' }} />}
+                  </div>
+                </th>
+                <th style={th}>No.</th>
+                <th style={th}>Length ({unitLabel(sheet.inputUnit)})</th>
+                <th style={th}>Width ({unitLabel(sheet.inputUnit)})</th>
+                <th style={{ ...th, background: ORANGE }}>Total ({sym})</th>
               </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr style={{ background: '#F8FAFC' }}>
-              <td style={{ ...td, fontWeight: 800 }} colSpan={3}>Sum Total</td>
-              <td style={{ ...td, fontWeight: 900, color: ORANGE, fontFamily: 'monospace' }}>{fmtArea(sheet.total)} {sym}</td>
-            </tr>
-          </tfoot>
-        </table>
+            </thead>
+            <tbody>
+              {rowData.map((r, i) => {
+                const selected = selectedRowIndices.has(i)
+                return (
+                  <tr key={r.no} style={{
+                    background: selected ? '#FFF8F3' : '#fff',
+                    boxShadow: selected ? 'inset 3px 0 0 ' + ORANGE : 'none',
+                  }}>
+                    <td style={{ ...td, textAlign: 'center', paddingLeft: 8, paddingRight: 8 }}>
+                      <div onClick={() => toggleRow(i)} title={selected ? 'Deselect' : 'Select'} style={{
+                        width: 18, height: 18, borderRadius: 5, cursor: 'pointer',
+                        border: `2px solid ${selected ? ORANGE : '#CBD5E1'}`,
+                        background: selected ? ORANGE : '#fff',
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        {selected && <span style={{ color: '#fff', fontSize: 11, fontWeight: 900 }}>✓</span>}
+                      </div>
+                    </td>
+                    <td style={{ ...td, fontWeight: 700, color: selected ? ORANGE : '#1E2D4A' }}>{r.no}</td>
+                    <td style={td}>{r.length}</td>
+                    <td style={td}>{r.width}</td>
+                    <td style={{ ...td, fontWeight: 700, fontFamily: 'monospace', color: selected ? ORANGE : '#1E2D4A' }}>{r.total}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+            <tfoot>
+              <tr style={{ background: '#F8FAFC' }}>
+                <td style={{ ...td, fontWeight: 800 }} colSpan={3}>Sum Total</td>
+                <td style={{ ...td, fontWeight: 900, color: ORANGE, fontFamily: 'monospace' }} colSpan={2}>{fmtArea(sheet.total)} {sym}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+
+      {/* Selected Calculations & Price Details */}
+      <div style={{ marginTop: 18 }}>
+        <div style={{ fontSize: 15, fontWeight: 800, color: '#1E2D4A', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Calculator size={16} color={ORANGE} /> Selected Calculations &amp; Price Details
+        </div>
+
+        {calculated.selectedCount === 0 ? (
+          <div className="card" style={{ padding: '28px 20px', textAlign: 'center', color: '#94A3B8', fontSize: 13 }}>
+            <div style={{ opacity: .4, marginBottom: 8 }}><Calculator size={34} /></div>
+            Select one or more calculated results above using the checkboxes to view price &amp; calculation details.
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 340px', gap: 14 }}>
+            {/* Per-row details table */}
+            <div className="card table-wrap" style={{ padding: 0, overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: TEAL, color: '#fff' }}>
+                    <th style={th}>#</th>
+                    <th style={th}>Length ({unitLabel(sheet.inputUnit)})</th>
+                    <th style={th}>Width ({unitLabel(sheet.inputUnit)})</th>
+                    <th style={th}>Area ({sym})</th>
+                    <th style={{ ...th, background: '#1F3A64' }}>Qty (Area)</th>
+                    <th style={{ ...th, background: '#1F3A64' }}>Rate</th>
+                    <th style={{ ...th, background: '#1F3A64' }}>Amount</th>
+                    <th style={{ ...th, background: ORANGE }}>Line Total (incl. {gstPct}%)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {calculated.rowDetails.filter(r => r.selected).map(r => (
+                    <tr key={r.index} style={{ background: '#FFF8F3' }}>
+                      <td style={td}>{r.index + 1}</td>
+                      <td style={td}>{r.length || 0}</td>
+                      <td style={td}>{r.width || 0}</td>
+                      <td style={{ ...td, fontFamily: 'monospace', fontWeight: 700 }}>{fmtArea(r.area)}</td>
+                      <td style={{ ...td, fontFamily: 'monospace' }}>{fmtArea(r.area)}</td>
+                      <td style={{ ...td, fontFamily: 'monospace' }}>{parseFloat(rate) > 0 ? inr(rate) + '/' + sym : '—'}</td>
+                      <td style={{ ...td, fontFamily: 'monospace', fontWeight: 700 }}>{parseFloat(rate) > 0 ? inr(r.lineAmount) : '—'}</td>
+                      <td style={{ ...td, fontFamily: 'monospace', fontWeight: 800, color: ORANGE }}>{parseFloat(rate) > 0 ? inr(r.lineTotal) : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr style={{ background: '#F8FAFC' }}>
+                    <td style={{ ...td, fontWeight: 800 }} colSpan={3}>Selected ({calculated.selectedCount})</td>
+                    <td style={{ ...td, fontWeight: 900, color: ORANGE, fontFamily: 'monospace' }}>{fmtArea(calculated.selectedArea)} {sym}</td>
+                    <td style={{ ...td, fontWeight: 800 }} colSpan={3}>Subtotal</td>
+                    <td style={{ ...td, fontWeight: 800 }}>{parseFloat(rate) > 0 ? inr(calculated.subtotal) : '—'}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+            {/* Pricing summary card */}
+            <div className="card" style={{ padding: '18px 18px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label style={lbl}>Rate (per {sym}) <span style={{ color: '#DC2626' }}>*</span></label>
+                <div style={{ position: 'relative' }}>
+                  <span style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }}>₹</span>
+                  <input
+                    value={rate}
+                    onChange={e => setRate(e.target.value.replace(/[^0-9.]/g, ''))}
+                    placeholder="0"
+                    style={{ ...inputStyle, paddingLeft: 26, fontWeight: 700, fontSize: 15, color: ORANGE }}
+                  />
+                </div>
+              </div>
+              <div>
+                <label style={lbl}>GST (%)</label>
+                <select value={gstPct} onChange={e => setGstPct(Number(e.target.value))} style={{ ...inputStyle, cursor: 'pointer', fontWeight: 700 }}>
+                  {['0','5','12','18','28'].map(v => <option key={v} value={v}>{v}%</option>)}
+                </select>
+              </div>
+
+              <div style={{ borderTop: '1px solid #EEF2F7', paddingTop: 12, display: 'flex', flexDirection: 'column', gap: 8, fontSize: 13 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#64748B' }}>Selected Rows</span>
+                  <b style={{ color: '#1E2D4A' }}>{calculated.selectedCount}</b>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#64748B' }}>Selected Area</span>
+                  <b style={{ color: '#1E2D4A', fontFamily: 'monospace' }}>{fmtArea(calculated.selectedArea)} {sym}</b>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#64748B' }}>Rate / {sym}</span>
+                  <b style={{ color: '#1E2D4A' }}>{parseFloat(rate) > 0 ? inr(rate) : '—'}</b>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#64748B' }}>Subtotal</span>
+                  <b style={{ color: '#1E2D4A' }}>{parseFloat(rate) > 0 ? inr(calculated.subtotal) : '—'}</b>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#64748B' }}>GST ({gstPct}%)</span>
+                  <b style={{ color: '#1E2D4A' }}>{parseFloat(rate) > 0 ? inr(calculated.gstAmt) : '—'}</b>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '2px solid ' + ORANGE, paddingTop: 8, marginTop: 2 }}>
+                  <b style={{ color: '#1E2D4A', fontSize: 14 }}>Grand Total</b>
+                  <b style={{ color: ORANGE, fontSize: 16, fontFamily: 'monospace' }}>{parseFloat(rate) > 0 ? inr(calculated.grandTotal) : '—'}</b>
+                </div>
+              </div>
+
+              {parseFloat(rate) > 0 && (
+                <div style={{ background: '#ECFDF5', border: '1px solid #A7F3D0', borderRadius: 10, padding: '10px 12px', fontSize: 12, color: '#065F46', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <CheckCircle size={15} color="#059669" />
+                  Selection &amp; prices ready. Use Quotation / Invoice buttons above to send this to a customer.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {docKind && (

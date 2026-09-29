@@ -53,6 +53,29 @@ export function ErpProvider({ children }) {
   const [loadingBranches, setLoadingBranches] = useState(false)
   const [suppliers,      setSuppliers]      = useState([])
 
+  // ── Stone Calculation Selection (system-wide) ──────────────
+  // Shape: { [sheetId]: { selectedRowIndices: [], rate, gstPct, calculatedPrices } }
+  const [selectedStoneCalculations, setSelectedStoneCalculations] = useState({})
+
+  const setStoneSelectionsForSheet = useCallback((sheetId, selection) => {
+    setSelectedStoneCalculations(prev => ({
+      ...prev,
+      [sheetId]: { ...(prev[sheetId] || {}), ...selection, updatedAt: new Date().toISOString() },
+    }))
+  }, [])
+
+  const clearStoneSelections = useCallback((sheetId) => {
+    setSelectedStoneCalculations(prev => {
+      const next = { ...prev }
+      delete next[sheetId]
+      return next
+    })
+  }, [])
+
+  const getStoneSelections = useCallback((sheetId) => {
+    return selectedStoneCalculations[sheetId] || null
+  }, [selectedStoneCalculations])
+
   // ── Helper: extract array from API response ───────────────
   const arr = (res, key) => {
     const d = res?.data || res
@@ -1187,14 +1210,14 @@ export function ErpProvider({ children }) {
     payments, notifications, products, categories, subCategories, brands,
     customers, leads, followups, employees, users, companies,
     warehouses, transfers, documents, dashboardStats, loadingData,
-    suppliers, branches,
+    suppliers, branches, selectedStoneCalculations,
 
     // ── Setters (for optimistic local updates) ────────────
     setEnquiries, setOrders, setDispatches, setInventory, setPurchases,
     setSales, setExpenses, setPayments, setNotifications, setProducts,
     setCategories, setSubCategories, setBrands, setCustomers, setLeads, setFollowups,
     setEmployees, setUsers, setCompanies, setWarehouses, setTransfers, setDocuments,
-    setSuppliers, setBranches,
+    setSuppliers, setBranches, setSelectedStoneCalculations,
 
     // ── Enquiry actions ───────────────────────────────────
     addEnquiry, updateEnquiry, deleteEnquiry, convertEnquiryToOrder,
@@ -1252,6 +1275,9 @@ export function ErpProvider({ children }) {
 
     // ── User actions ──────────────────────────────────────
     addUser, updateUser, deleteUser, resetUserPassword,
+
+    // ── Stone Calculation Selection actions ────────────────
+    setStoneSelectionsForSheet, clearStoneSelections, getStoneSelections,
 
     // ── Refresh ───────────────────────────────────────────
     fetchAll,
