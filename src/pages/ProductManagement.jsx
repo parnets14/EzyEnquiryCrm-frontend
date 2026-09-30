@@ -14,7 +14,7 @@ import {
 const SIZES = [
   '300x300','300x450','300x600','400x400','450x900',
   '600x600','600x1200','800x800','800x1600',
-  '1000x1000','1200x1200','1200x2400',
+  '1000x1000','1200x1200','1200x2400','800x2400','1200x1800','400x1200','300x900','300x1200','75x300','75x150','200x200',
 ]
 // Calculate Sqft/Box from a tile size string (e.g. "300x300", in mm) and pcs per box.
 // 1 sq ft = 304.8mm x 304.8mm, so tile area (sqft) = (W/304.8) * (H/304.8).
@@ -121,6 +121,51 @@ function downloadProduct(p) {
     `<img src="${imgUrl(u)}" class="prod-img" alt="product" />`
   ).join('')
 
+  // Determine product type for section labels & field names
+  const effCatType = p.category_type || matchCategoryType(p.category_name || p.category_id?.name) || 'other'
+  const isStoneProduct = ['granite','marble','stone_block'].includes(effCatType)
+  const isTileProduct  = ['tiles'].includes(effCatType)
+  const isBlockProduct = ['stone_block'].includes(effCatType)
+
+  const specSectionTitle = (() => {
+    if (effCatType === 'granite')     return 'Granite Specifications'
+    if (effCatType === 'marble')      return 'Marble Specifications'
+    if (effCatType === 'stone_block') return 'Stone Block Specifications'
+    if (effCatType === 'tiles')       return 'Tile Specifications'
+    if (effCatType === 'sanitaryware')return 'Sanitaryware Specifications'
+    if (effCatType === 'blocks')      return 'Block Specifications'
+    if (effCatType === 'non_sanitary')return 'Item Specifications'
+    return 'Product Specifications'
+  })()
+
+  const sizeLabel = isBlockProduct ? 'Block Size'
+                  : isStoneProduct ? 'Slab / Tile Size'
+                  : 'Tile Size'
+  const typeLabel = isBlockProduct ? 'Stone Type'
+                  : isStoneProduct ? 'Product Form'
+                  : 'Tile Type'
+  const packUnit  = isStoneProduct ? 'Crate' : 'Box'
+
+  const attrLabel = (key) => {
+    for (const list of Object.values(PRODUCT_FIELD_SCHEMA)) {
+      const def = list.find(f => f.key === key)
+      if (def) return def.unit ? `${def.label} (${def.unit})` : def.label
+    }
+    return humanizeKey(key)
+  }
+
+  const attrChips = (() => {
+    if (!p.attributes || typeof p.attributes !== 'object') return ''
+    const entries = Object.entries(p.attributes).filter(([, val]) => v(val))
+    if (entries.length === 0) return ''
+    const sectionTitle = `${labelForType(p.category_type || matchCategoryType(p.category_name || p.category_id?.name))} Specifications`
+    const chipsHtml = entries.map(([key, val]) => chip(attrLabel(key), String(val))).join('')
+    return `<div class="section">
+  <div class="section-title">${sectionTitle}</div>
+  <div class="chips">${chipsHtml}</div>
+</div>`
+  })()
+
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -193,18 +238,18 @@ function downloadProduct(p) {
   </table>
 </div>
 
-<!-- Tile Specifications -->
+<!-- Product Specifications (column fields) -->
 ${(v(p.size)||v(p.finish)||v(p.color)||v(p.surface)||v(p.thickness)||v(p.grade)||v(p.tile_type)||v(p.application)||v(p.anti_skid)||v(p.origin)||v(p.manufacturer)||v(p.barcode)) ? `
 <div class="section">
-  <div class="section-title">Tile Specifications</div>
+  <div class="section-title">${specSectionTitle}</div>
   <div class="chips">
-    ${chip('Size',         p.size ? p.size.toUpperCase() + ' MM' : null)}
+    ${chip(sizeLabel,      p.size ? p.size.toUpperCase() + ' MM' : null)}
     ${chip('Finish',       p.finish)}
     ${chip('Colour',       p.color)}
     ${chip('Surface',      p.surface)}
     ${chip('Thickness',    p.thickness)}
     ${chip('Grade',        p.grade)}
-    ${chip('Tile Type',    p.tile_type)}
+    ${chip(typeLabel,      p.tile_type)}
     ${chip('Application',  p.application)}
     ${chip('Anti Skid',    p.anti_skid)}
     ${chip('Origin',       p.origin)}
@@ -213,16 +258,28 @@ ${(v(p.size)||v(p.finish)||v(p.color)||v(p.surface)||v(p.thickness)||v(p.grade)|
   </div>
 </div>` : ''}
 
+${attrChips}
+
 <!-- Packing -->
 ${(v(p.design)||v(p.collection)||v(p.pcs_per_box)||v(p.sqft_per_box)||v(p.weight_per_box)) ? `
 <div class="section">
-  <div class="section-title">Packing &amp; Collection</div>
+  <div class="section-title">${isStoneProduct ? 'Packing &amp; Details' : 'Packing &amp; Collection'}</div>
   <div class="chips">
-    ${chip('Design',       p.design)}
-    ${chip('Collection',   p.collection)}
-    ${chip('Pcs / Box',    p.pcs_per_box    ? String(p.pcs_per_box) : null)}
-    ${chip('Sqft / Box',   p.sqft_per_box   ? parseFloat(p.sqft_per_box).toFixed(2) + ' Sq.Ft' : null)}
-    ${chip('Weight / Box', p.weight_per_box ? parseFloat(p.weight_per_box).toFixed(2) + ' Kg'   : null)}
+    ${chip('Design',            p.design)}
+    ${chip('Collection',        p.collection)}
+    ${chip('Pcs / ' + packUnit,    p.pcs_per_box    ? String(p.pcs_per_box) : null)}
+    ${chip('Sqft / ' + packUnit,   p.sqft_per_box   ? parseFloat(p.sqft_per_box).toFixed(2) + ' Sq.Ft' : null)}
+    ${chip('Weight / ' + packUnit, p.weight_per_box ? parseFloat(p.weight_per_box).toFixed(2) + ' Kg'   : null)}
+  </div>
+</div>` : ''}
+
+<!-- Sales & Product Type -->
+${(v(p.sales_type) || v(p.product_type)) ? `
+<div class="section">
+  <div class="section-title">Sales &amp; Product Type</div>
+  <div class="chips">
+    ${chip('Sales Type',   p.sales_type)}
+    ${chip('Product Type', p.product_type)}
   </div>
 </div>` : ''}
 
@@ -483,7 +540,7 @@ function EditableSelect({ label, required, placeholder, value, onChange, baseOpt
           </div>
           <div style={{ maxHeight:180, overflowY:'auto' }}>
             <div style={{ padding:'7px 14px', fontSize:13, color:'var(--text-muted)', cursor:'pointer' }}
-              onMouseDown={() => pick('')}>â€” None â€”</div>
+              onMouseDown={() => pick('')}>"” None "”</div>
             {filtered.length === 0 && (
               <div style={{ padding:'10px 14px', fontSize:12, color:'var(--text-muted)' }}>No results</div>
             )}
@@ -600,10 +657,20 @@ function Toggle({ label, checked, onChange }) {
 }
 
 // â”€â”€ Image Picker â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-function ImagePicker({ existingUrls = [], onFilesChange, onRemoveExisting, resetKey }) {
+function ImagePicker({ existingUrls = [], onFilesChange, onRemoveExisting, resetKey, initialFiles = [] }) {
   const inputRef = useRef()
-  const [previews, setPreviews] = useState([])
-  useEffect(() => { setPreviews([]) }, [resetKey])
+  const [previews, setPreviews] = useState(() =>
+    initialFiles.map(f => ({ file: f, url: typeof f === 'string' ? f : (f ? URL.createObjectURL(f) : '') }))
+  )
+
+  useEffect(() => {
+    previews.forEach(p => { try { URL.revokeObjectURL(p.url) } catch {} })
+    setPreviews([])
+  }, [resetKey])
+
+  useEffect(() => () => {
+    previews.forEach(p => { try { URL.revokeObjectURL(p.url) } catch {} })
+  }, [])
 
   const handlePick = (e) => {
     const files = Array.from(e.target.files || [])
@@ -618,6 +685,8 @@ function ImagePicker({ existingUrls = [], onFilesChange, onRemoveExisting, reset
   }
   const removeNew = (idx) => {
     setPreviews(prev => {
+      const target = prev[idx]
+      if (target) { try { URL.revokeObjectURL(target.url) } catch {} }
       const u = prev.filter((_, i) => i !== idx)
       onFilesChange(u.map(p => p.file))
       return u
@@ -632,8 +701,9 @@ function ImagePicker({ existingUrls = [], onFilesChange, onRemoveExisting, reset
       <div style={{ display:'flex', flexWrap:'wrap', gap:10 }}>
         {existingUrls.map((url, i) => (
           <div key={`ex-${i}`} style={{ position:'relative', width:80, height:80 }}>
-            <img src={imgUrl(url)} alt="product"
-              style={{ width:80, height:80, objectFit:'cover', borderRadius:8, border:'1px solid var(--border)' }} />
+            <img src={imgUrl(url)} alt="product" loading="lazy"
+              onError={(e) => { e.currentTarget.style.opacity = '0.3' }}
+              style={{ width:80, height:80, objectFit:'cover', borderRadius:8, border:'1px solid var(--border)', background:'var(--bg)' }} />
             <button type="button" onClick={() => onRemoveExisting(i)}
               style={{ position:'absolute', top:-6, right:-6, background:'var(--danger)', border:'none', borderRadius:'50%', width:20, height:20, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', padding:0 }}>
               <X style={{ width:11 }} />
@@ -641,9 +711,9 @@ function ImagePicker({ existingUrls = [], onFilesChange, onRemoveExisting, reset
           </div>
         ))}
         {previews.map((p, i) => (
-          <div key={`new-${i}`} style={{ position:'relative', width:80, height:80 }}>
-            <img src={p.url} alt="preview"
-              style={{ width:80, height:80, objectFit:'cover', borderRadius:8, border:'2px dashed var(--primary)' }} />
+          <div key={`new-${i}-${p.url.length}`} style={{ position:'relative', width:80, height:80 }}>
+            <img src={p.url} alt="preview" loading="lazy"
+              style={{ width:80, height:80, objectFit:'cover', borderRadius:8, border:'2px dashed var(--primary)', background:'var(--bg)' }} />
             <button type="button" onClick={() => removeNew(i)}
               style={{ position:'absolute', top:-6, right:-6, background:'var(--danger)', border:'none', borderRadius:'50%', width:20, height:20, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', padding:0 }}>
               <X style={{ width:11 }} />
@@ -749,9 +819,9 @@ function PriceDiscountInput({ label, required, priceValue, onPriceChange, discou
   )
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════
 // PRODUCT FORM MODAL
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════
 function ProductFormModal({ editProduct, brands, categories, subCategories, warehouses = [], onSave, onClose, saving }) {
   const [form, setForm]         = useState(() => {
     if (!editProduct) return EMPTY_FORM
@@ -877,12 +947,28 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
   // Set a dynamic field's value. Column-backed fields live on form[key];
   // attributes-backed fields live on form.attributes[key].
   // For stone_block fields, auto-compute CBM & tonnage when dims/density change.
+  // NOTE: categoryType is read INSIDE the setForm updater callback to avoid a
+  // stale-closure infinite re-render (setForm always runs against latest state).
   const setDynamic = useCallback((field, val) => {
     if (field.storeIn === 'attributes') {
       setForm(f => {
+        const explicitType = f.explicit_product_type
+        const catName = (() => {
+          try {
+            const c = categories.find(x => String(x._id || x.id) === String(f.category_id))
+            return c?.name || ''
+          } catch { return '' }
+        })()
+        const subName = (() => {
+          try {
+            const s = subCategories.find(x => String(x._id || x.id) === String(f.sub_category_id))
+            return s?.name || ''
+          } catch { return '' }
+        })()
+        const ct = explicitType || matchCategoryType(catName, subName)
         const attrs = { ...(f.attributes || {}), [field.key]: val }
         // ── stone_block auto-compute ──────────────────────────────
-        if (categoryType === 'stone_block') {
+        if (ct === 'stone_block') {
           const grossCbm = cbmFromMm(
             attrs.gross_length_mm ?? f.attributes?.gross_length_mm,
             attrs.gross_width_mm  ?? f.attributes?.gross_width_mm,
@@ -914,6 +1000,39 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
             if (nw2 !== '') attrs.net_weight_tons   = nw2
           }
         }
+        // ── tiles auto-compute: Area / piece + sqft / pallet ───
+        if (ct === 'tiles') {
+          const lmm = parseFloat(attrs.piece_length_mm ?? f.attributes?.piece_length_mm)
+          const wmm = parseFloat(attrs.piece_width_mm  ?? f.attributes?.piece_width_mm)
+          if (lmm > 0 && wmm > 0) {
+            attrs.area_per_piece_sqft = ((lmm / 304.8) * (wmm / 304.8)).toFixed(3)
+          }
+          const bpp = parseFloat(attrs.boxes_per_pallet ?? f.attributes?.boxes_per_pallet)
+          const spb = parseFloat(f.sqft_per_box)
+          if (bpp > 0 && spb > 0) {
+            attrs.sqft_per_pallet = (bpp * spb).toFixed(2)
+          }
+        }
+        // ── granite + marble auto-compute ────────────────────────
+        if (ct === 'granite' || ct === 'marble') {
+          const lmm = parseFloat(attrs.length_mm ?? f.attributes?.length_mm)
+          const wmm = parseFloat(attrs.width_mm  ?? f.attributes?.width_mm)
+          if (lmm > 0 && wmm > 0) {
+            attrs.area_per_piece = ((lmm / 304.8) * (wmm / 304.8)).toFixed(3)
+          }
+          const ppp = parseFloat(attrs.pcs_per_crate ?? f.attributes?.pcs_per_crate)
+          const app = parseFloat(attrs.area_per_piece ?? f.attributes?.area_per_piece)
+          if (ppp > 0 && app > 0) {
+            attrs.sqft_per_crate = (ppp * app).toFixed(2)
+          }
+          const tkStr = (f.thickness || '').toString()
+          const tk = parseFloat(tkStr) || 0
+          const density = parseFloat(attrs.density ?? f.attributes?.density) || 2700
+          if (ppp > 0 && app > 0 && tk > 0) {
+            const volM3PerPiece = (app * 0.092903) * (tk / 1000)
+            attrs.weight_per_crate = (ppp * volM3PerPiece * density).toFixed(1)
+          }
+        }
         return { ...f, attributes: attrs }
       })
     } else {
@@ -925,7 +1044,7 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
         return next
       })
     }
-  }, [categoryType])
+  }, [categories, subCategories])
 
   const getDynamic = (field) =>
     field.storeIn === 'attributes'
@@ -1003,7 +1122,7 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
     setErrors({})
     setImageFiles([])
     setImgResetKey(k => k + 1)
-  }, [editProduct])
+  }, [editProduct?._id || editProduct?.id])
 
   const set = useCallback((field, val) => setForm(f => {
     const next = { ...f, [field]: val }
@@ -1192,7 +1311,7 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
     <div className="modal-overlay" onClick={onClose}>
       <div
         className="modal"
-        style={{ maxWidth:900, width:'100%', maxHeight:'92vh', overflowY:'auto' }}
+        style={{ maxWidth: 1200, width: '96vw', maxHeight: '96vh', overflowY: 'auto' }}
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -1210,11 +1329,11 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
           </div>
         </div>
 
-        <div className="modal-body">
+        <div className="modal-body" style={{ padding:'24px 28px' }}>
 
           {/* â”€â”€ STEP 1: PRODUCT TYPE + CATEGORY â†’ SUB-CATEGORY â†’ BRAND (required first) â”€â”€ */}
           <FormSection title="Step 1 · Select Product Type, Category, Sub-Category & Brand" />
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:14 }}>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:16 }}>
             {/* Product Type */}
             <div>
               <SelectField
@@ -1298,8 +1417,7 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
 
           {/* â”€â”€ STEP 2: PRODUCT DETAILS â”€â”€ */}
           <FormSection title="Step 2 · Product Details" />
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:14, marginTop:0 }}>
-            {/* Product Code */}
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:16, marginTop:0 }}>
             <div>
               <label className="form-label">Product Code</label>
               <input className="form-control" placeholder="Will be auto-generated if left empty"
@@ -1366,48 +1484,76 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
               <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:10 }}>
                 Fields below are tailored to <strong>{labelForType(categoryType)}</strong>. Required fields are marked *.
               </div>
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:14 }}>
-                {dynamicFields.map(f => {
-                  const val = getDynamic(f)
-                  const errKey = `dyn_${f.key}`
-                  // Number fields stay as plain inputs (each product has its own
-                  // value). Everything else (select + text) becomes an editable
-                  // dropdown so admin can Add / delete options and pick one.
-                  if (f.type !== 'number') {
-                    return (
-                      <div key={f.key}>
-                        <EditableSelect
-                          label={f.label + (f.required ? ' *' : '')}
-                          placeholder={f.placeholder || f.label}
-                          value={val}
-                          onChange={v => setDynamic(f, v)}
-                          baseOptions={f.options || []}
-                          fieldKey={`${categoryType}.${f.key}`}
-                        />
-                        {errors[errKey] && <span className="form-error">{errors[errKey]}</span>}
-                      </div>
-                    )
+
+              {(() => {
+                // ── Group fields by their `section` property and render ──
+                //    a FormSection heading whenever the section changes.
+                //    Fields without a section property are placed at the start.
+                const groups = []
+                let currentSection = null
+                let currentFields = []
+                dynamicFields.forEach(f => {
+                  const section = f.section || null
+                  if (section !== currentSection) {
+                    if (currentFields.length > 0 || currentSection != null) {
+                      groups.push({ section: currentSection, fields: currentFields })
+                    }
+                    currentSection = section
+                    currentFields = [f]
+                  } else {
+                    currentFields.push(f)
                   }
-                  return (
-                    <div key={f.key}>
-                      <label className="form-label">
-                        {f.label}{f.required && <span style={{ color:'var(--danger)' }}> *</span>}
-                        {f.unit && <span style={{ fontWeight:400, color:'var(--text-muted)', fontSize:11 }}> ({f.unit})</span>}
-                      </label>
-                      <input
-                        className={`form-control${errors[errKey] ? ' error' : ''}`}
-                        type="number"
-                        min="0"
-                        step="any"
-                        placeholder={f.placeholder || f.label}
-                        value={val}
-                        onChange={e => setDynamic(f, e.target.value)}
-                      />
-                      {errors[errKey] && <span className="form-error">{errors[errKey]}</span>}
+                })
+                if (currentFields.length > 0 || currentSection != null) {
+                  groups.push({ section: currentSection, fields: currentFields })
+                }
+                return groups.map((group, gi) => (
+                  <div key={gi} style={{ marginBottom: gi < groups.length - 1 ? 4 : 0 }}>
+                    {group.section && (
+                      <FormSection title={group.section} />
+                    )}
+                    <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:16 }}>
+                      {group.fields.map(f => {
+                        const val = getDynamic(f)
+                        const errKey = `dyn_${f.key}`
+                        if (f.type !== 'number') {
+                          return (
+                            <div key={f.key}>
+                              <EditableSelect
+                                label={f.label + (f.required ? ' *' : '')}
+                                placeholder={f.placeholder || f.label}
+                                value={val}
+                                onChange={v => setDynamic(f, v)}
+                                baseOptions={f.options || []}
+                                fieldKey={`${categoryType}.${f.key}`}
+                              />
+                              {errors[errKey] && <span className="form-error">{errors[errKey]}</span>}
+                            </div>
+                          )
+                        }
+                        return (
+                          <div key={f.key}>
+                            <label className="form-label">
+                              {f.label}{f.required && <span style={{ color:'var(--danger)' }}> *</span>}
+                              {f.unit && <span style={{ fontWeight:400, color:'var(--text-muted)', fontSize:11 }}> ({f.unit})</span>}
+                            </label>
+                            <input
+                              className={`form-control${errors[errKey] ? ' error' : ''}`}
+                              type="number"
+                              min="0"
+                              step="any"
+                              placeholder={f.placeholder || f.label}
+                              value={val}
+                              onChange={e => setDynamic(f, e.target.value)}
+                            />
+                            {errors[errKey] && <span className="form-error">{errors[errKey]}</span>}
+                          </div>
+                        )
+                      })}
                     </div>
-                  )
-                })}
-              </div>
+                  </div>
+                ))
+              })()}
 
               {/* Common trade identifiers, shown for every category */}
               <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:14, marginTop:14 }}>
@@ -1459,7 +1605,7 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
 
           {/* PRICING */}
           <FormSection title="Pricing" />
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12 }}>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:16 }}>
             <PriceInput label="Purchase Rate"   value={form.purchase_rate}   onChange={v=>set('purchase_rate',v)} />
             <PriceInput label="Landing Cost"    value={form.landing_cost}    onChange={v=>set('landing_cost',v)} />
             <PriceInput label="MRP"             value={form.mrp}             onChange={v=>set('mrp',v)} />
@@ -1471,16 +1617,17 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
               discountValue={form.wholesale_discount} onDiscountChange={v=>set('wholesale_discount',v)} baseMrp={form.mrp} />
           </div>
 
-          {/* â”€â”€ IMAGES â”€â”€ */}
+          </>)}
+
+          {/* â”€â”€ IMAGES â”€â”€ Always rendered OUTSIDE selectionComplete gate so preview state survives re-renders */}
           <FormSection title="Product Images" />
           <ImagePicker
             existingUrls={existingImages}
             onFilesChange={setImageFiles}
             onRemoveExisting={idx => setExistingImages(p => p.filter((_,i)=>i!==idx))}
             resetKey={imgResetKey}
+            initialFiles={imageFiles}
           />
-
-          </>)}
 
         </div>
 
@@ -1497,7 +1644,7 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
   )
 }
 
-// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// ══════════════════════════════════════════════════════════════
 // PRODUCT DETAIL VIEW MODAL
 // ══════════════════════════════════════════════════════════════
 // PRODUCT DETAIL VIEW MODAL — clean full-detail layout
@@ -1513,6 +1660,34 @@ function ProductViewModal({ product: p, loading, onClose, onEdit, canEdit, canEx
     return num > 0 ? `₹${num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : null
   }
   const fmtDate = (d) => d ? new Date(d).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }) : null
+
+  // Determine product type for section labels & field names
+  const effCatType = p.category_type || matchCategoryType(p.category_name || p.category_id?.name) || 'other'
+  const isStoneProduct = ['granite','marble','stone_block'].includes(effCatType)
+  const isTileProduct  = ['tiles'].includes(effCatType)
+  const isBlockProduct = ['stone_block'].includes(effCatType)
+
+  // Spec section title, icon, and labels based on product type
+  const specSectionTitle = (() => {
+    if (effCatType === 'granite')     return { icon:'🪨', title:'Granite Specifications' }
+    if (effCatType === 'marble')      return { icon:'💠', title:'Marble Specifications' }
+    if (effCatType === 'stone_block') return { icon:'🧱', title:'Stone Block Specifications' }
+    if (effCatType === 'tiles')       return { icon:'🔲', title:'Tile Specifications' }
+    if (effCatType === 'sanitaryware')return { icon:'🚿', title:'Sanitaryware Specifications' }
+    if (effCatType === 'blocks')      return { icon:'🧱', title:'Block Specifications' }
+    if (effCatType === 'non_sanitary')return { icon:'🛠️', title:'Item Specifications' }
+    return { icon:'📋', title:'Product Specifications' }
+  })()
+
+  // Size label varies by product type
+  const sizeLabel = isBlockProduct ? 'Block Size'
+                  : isStoneProduct ? 'Slab / Tile Size'
+                  : 'Tile Size'
+  const typeLabel = isBlockProduct ? 'Stone Type'
+                  : isStoneProduct ? 'Product Form'
+                  : 'Tile Type'
+  // Packing unit: crate for stone, box for tiles
+  const packUnit = isStoneProduct ? 'Crate' : 'Box'
 
   // Map an attribute key to a friendly label using the schema, with a unit suffix
   // when defined; falls back to a humanized key.
@@ -1709,23 +1884,23 @@ function ProductViewModal({ product: p, loading, onClose, onEdit, canEdit, canEx
             </div>
           </div>
 
-          {/* ── Tile Specifications ── */}
+          {/* ── Product Type-Specific Specifications from columns ── */}
           {(v(p.size)||v(p.finish)||v(p.color)||v(p.surface)||v(p.thickness)||v(p.grade)||v(p.tile_type)||v(p.application)||v(p.anti_skid)||v(p.origin)||v(p.manufacturer)||v(p.barcode)) && (
             <div>
-              <SectionTitle icon="🔲" title="Tile Specifications" />
+              <SectionTitle icon={specSectionTitle.icon} title={specSectionTitle.title} />
               <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'10px 16px' }}>
-                <Field label="Tile Size"    value={p.size ? p.size.toUpperCase()+' MM' : null} />
-                <Field label="Finish"       value={v(p.finish)} />
-                <Field label="Colour"       value={v(p.color)} />
-                <Field label="Surface"      value={v(p.surface)} />
-                <Field label="Thickness"    value={v(p.thickness)} />
-                <Field label="Grade"        value={v(p.grade)} />
-                <Field label="Tile Type"    value={v(p.tile_type)} />
-                <Field label="Application"  value={v(p.application)} />
-                <Field label="Anti Skid"    value={v(p.anti_skid)} />
-                <Field label="Origin"       value={v(p.origin)} />
-                <Field label="Manufacturer" value={v(p.manufacturer)} />
-                <Field label="Barcode / EAN"value={v(p.barcode)} />
+                <Field label={sizeLabel}       value={p.size ? p.size.toUpperCase()+' MM' : null} />
+                <Field label="Finish"          value={v(p.finish)} />
+                <Field label="Colour"          value={v(p.color)} />
+                <Field label="Surface"         value={v(p.surface)} />
+                <Field label="Thickness"       value={v(p.thickness)} />
+                <Field label="Grade"           value={v(p.grade)} />
+                <Field label={typeLabel}       value={v(p.tile_type)} />
+                <Field label="Application"     value={v(p.application)} />
+                <Field label="Anti Skid"       value={v(p.anti_skid)} />
+                <Field label="Origin"          value={v(p.origin)} />
+                <Field label="Manufacturer"    value={v(p.manufacturer)} />
+                <Field label="Barcode / EAN"   value={v(p.barcode)} />
               </div>
             </div>
           )}
@@ -1733,13 +1908,13 @@ function ProductViewModal({ product: p, loading, onClose, onEdit, canEdit, canEx
           {/* ── Packing & Collection ── */}
           {(v(p.design)||v(p.collection)||v(p.pcs_per_box)||v(p.sqft_per_box)||v(p.weight_per_box)) && (
             <div>
-              <SectionTitle icon="📦" title="Packing & Collection" />
+              <SectionTitle icon="📦" title={isStoneProduct ? `Packing & Details` : `Packing & Collection`} />
               <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:'10px 16px' }}>
-                <Field label="Design"        value={v(p.design)} />
-                <Field label="Collection"    value={v(p.collection)} />
-                <Field label="Pcs / Box"     value={p.pcs_per_box    ? String(p.pcs_per_box)                                    : null} />
-                <Field label="Sqft / Box"    value={p.sqft_per_box   ? `${parseFloat(p.sqft_per_box).toFixed(2)} Sq.Ft`          : null} />
-                <Field label="Weight / Box"  value={p.weight_per_box ? `${parseFloat(p.weight_per_box).toFixed(2)} Kg`           : null} />
+                <Field label="Design"                 value={v(p.design)} />
+                <Field label="Collection"             value={v(p.collection)} />
+                <Field label={`Pcs / ${packUnit}`}    value={p.pcs_per_box    ? String(p.pcs_per_box)                                    : null} />
+                <Field label={`Sqft / ${packUnit}`}   value={p.sqft_per_box   ? `${parseFloat(p.sqft_per_box).toFixed(2)} Sq.Ft`          : null} />
+                <Field label={`Weight / ${packUnit}`} value={p.weight_per_box ? `${parseFloat(p.weight_per_box).toFixed(2)} Kg`           : null} />
               </div>
             </div>
           )}
@@ -1832,7 +2007,6 @@ function RecycleBinModal({ onClose, onRestored, canRestore }) {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const { productApi } = await import('../api/productApi')
       const res = await productApi.getRecycleBin({ search })
       const data = res?.data
       setItems(Array.isArray(data) ? data : Array.isArray(res) ? res : [])
@@ -1846,7 +2020,6 @@ function RecycleBinModal({ onClose, onRestored, canRestore }) {
     if (!canRestore) return
     setBusy(id)
     try {
-      const { productApi } = await import('../api/productApi')
       await productApi.restore(id)
       setItems(p => p.filter(x => (x._id || x.id) !== id))
       onRestored()
@@ -2318,7 +2491,6 @@ export default function ProductManagement({
     setViewItem(p)
     setViewLoading(true)
     try {
-      const { productApi } = await import('../api/productApi')
       const id  = p._id || p.id
       const res = await productApi.get(id)
       const full = res?.data || res
@@ -2928,7 +3100,7 @@ export default function ProductManagement({
             </div>
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>Cancel</button>
-              <button className="btn btn-danger" onClick={handleDeleteStep2}>
+              <button className="btn btn-danger" onClick={handleDeleteConfirm}>
                 Yes, Move to Bin
               </button>
             </div>
@@ -2936,41 +3108,7 @@ export default function ProductManagement({
         </div>
       )}
 
-      {deleteTarget && mayDelete && deleteTarget.step === 2 && (
-        <div className="modal-overlay" onClick={() => setDeleteTarget(null)}>
-          <div className="modal" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                <div style={{ width:36, height:36, borderRadius:'50%', background:'#FEF2F2', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                  <Trash2 size={18} style={{ color:'var(--danger)' }}/>
-                </div>
-                <span className="modal-title" style={{ color:'var(--danger)' }}>Final Confirmation</span>
-              </div>
-              <button className="modal-close" onClick={() => setDeleteTarget(null)}><X size={16}/></button>
-            </div>
-            <div className="modal-body" style={{ paddingTop:14 }}>
-              <div style={{ background:'#FEF2F2', border:'1px solid #FECACA', borderRadius:8, padding:'12px 14px', marginBottom:12 }}>
-                <p style={{ fontSize:13, fontWeight:700, color:'#991B1B', marginBottom:4 }}>
-                  ⚠️ Are you absolutely sure?
-                </p>
-                <p style={{ fontSize:12, color:'#991B1B' }}>
-                  "<strong>{deleteTarget.name}</strong>" will be moved to Recycle Bin.
-                </p>
-              </div>
-              <p style={{ fontSize:12, color:'var(--text-muted)' }}>
-                This is your final confirmation. The product will be soft-deleted and can be restored later from Recycle Bin.
-              </p>
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>Cancel</button>
-              <button className="btn btn-danger" onClick={handleDeleteConfirm}
-                style={{ background:'#DC2626' }}>
-                <Trash2 size={13}/> Confirm Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Step 2 removed — delete now completes in one step */}
 
       {/* Toast */}
       {toast.msg && (

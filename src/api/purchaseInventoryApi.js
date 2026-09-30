@@ -1,25 +1,4 @@
-/**
- * purchaseInventoryApi.js
- * Complete API client for Purchase + Inventory module.
- *
- * Route map (all prefixed with /api):
- *   Purchase Requisition : /purchase-requisitions
- *   Purchase Orders      : /purchase-orders
- *   GRN                  : /grns
- *   Quality Inspection   : /quality-inspections
- *   Purchase Return      : /purchase-returns
- *   Purchase Invoice     : /purchase-invoices
- *   Purchase Reports     : /purchase-reports
- *   Stock Ledger         : /inventory/ledger
- *   Opening Stock        : /inventory/opening-stock
- *   Unit Conversion      : /inventory/units
- *   Rack / Bin           : /inventory/rack-bins
- *   Batch / Lot          : /inventory/batches
- *   Shade / Caliber      : /inventory/shades
- *   Damage / Breakage    : /inventory/damages
- *   Stock Adjustment     : /inventory/adjustments
- *   Inventory Reports    : /inventory/reports
- */
+
 import api from './index'
 
 // ── Purchase Requisition ──────────────────────────────────────

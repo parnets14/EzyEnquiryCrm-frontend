@@ -309,10 +309,10 @@ export default function SupplierManagement({
                 <RefreshCw size={13} /> Reset
               </button>
             )}
-
+{/* 
             <button className="btn btn-primary" onClick={openAdd}>
               <Plus style={{ width: 15 }} /> Add Supplier
-            </button>
+            </button> */}
           </div>
         </div>
 
@@ -562,9 +562,9 @@ export default function SupplierManagement({
 
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={closeModal} disabled={saving}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+              {/* <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
                 {saving ? 'Saving…' : (editItem ? 'Update Supplier' : 'Add Supplier')}
-              </button>
+              </button> */}
             </div>
           </div>
         </div>

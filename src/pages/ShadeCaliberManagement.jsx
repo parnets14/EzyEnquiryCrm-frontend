@@ -122,10 +122,10 @@ export default function ShadeCaliberManagement({ products = [], warehouses = [],
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr style={{ background: '#1E2D4A', color: '#fff' }}>
-              {activeTab === 'shades'
+              {(activeTab === 'shades'
                 ? ['Shade Code','Shade Name','Product','Description','Status','Actions']
                 : ['Caliber Code','Caliber Name','Product','Dimensions','Tolerance','Status','Actions']
-              }.map(h => <th key={h} style={{ padding: '10px 14px', textAlign: h === 'Actions' ? 'right' : 'left', fontWeight: 700 }}>{h}</th>)}
+              ).map(h => <th key={h} style={{ padding: '10px 14px', textAlign: h === 'Actions' ? 'right' : 'left', fontWeight: 700 }}>{h}</th>)}
             </tr>
           </thead>
           <tbody>
