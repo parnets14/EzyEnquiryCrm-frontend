@@ -55,3 +55,27 @@ export const retailerApi = {
   revenue: () =>
     api.get('/subscriptions/admin/revenue').then(r => r.data),
 }
+
+// ── Everything else the retailer app produces (Super Admin) ────
+// All of these are `{ <key>: rows, pagination }` from
+// retailerAdminVisibilityController's companyScopedLister.
+const listOf = path => (params = {}) =>
+  api.get(`/retailer/admin/${path}`, { params: { limit: 200, ...params } }).then(r => r.data)
+
+Object.assign(retailerApi, {
+  listSales:        listOf('sales'),
+  listPurchases:    listOf('purchases'),
+  listExpenses:     listOf('expenses'),
+  listTransactions: listOf('transactions'),
+  listInvoices:     listOf('invoices'),
+  listQuotations:   listOf('quotations'),
+  listCustomers:    listOf('customers'),
+  listLeads:        listOf('leads'),
+  listFollowups:    listOf('followups'),
+  listInventory:    listOf('inventory'),
+  listDispatches:   listOf('dispatches'),
+
+  // One aggregated payload for the Overview stat cards.
+  activitySummary: (params = {}) =>
+    api.get('/retailer/admin/activity-summary', { params }).then(r => r.data),
+})

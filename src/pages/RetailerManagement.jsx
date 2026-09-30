@@ -1,13 +1,22 @@
 /**
  * RetailerManagement.jsx
  * Admin hub for all retailer app connections.
+ *
  * Tabs: Overview | Companies | Orders | Enquiries | Users | Subscriptions
+ *       + everything else the retailer app produces:
+ *       Sales | Purchases | Expenses | Payments | Invoices | Quotations
+ *       Customers | Leads | Follow-ups | Inventory | Dispatch
+ *
+ * All data comes from /api/retailer/admin/* (retailerAdminVisibilityController),
+ * which is Super-Admin gated and scoped to retailer companies only.
  */
 import { useState, useEffect, useCallback } from 'react'
 import {
   Building2, ShoppingCart, MessageSquare, Users, CreditCard,
   RefreshCw, Search, Eye, CheckCircle, XCircle, AlertCircle,
-  X, TrendingUp, ShieldOff, ShieldCheck, FileText,
+  X, TrendingUp, ShieldOff, ShieldCheck,
+  Wallet, Receipt, Truck, Target,
+  IndianRupee, AlertTriangle, ClipboardList, UserCheck,
 } from 'lucide-react'
 import { retailerApi } from '../api/retailerApi'
 
@@ -17,13 +26,82 @@ const fmtDate = d => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit
 
 const STATUS_BADGE = {
   Approved: 'badge-green', Active: 'badge-green', Delivered: 'badge-green', Confirmed: 'badge-green',
-  Pending: 'badge-yellow', New: 'badge-yellow', Viewed: 'badge-yellow',
-  Rejected: 'badge-red', Suspended: 'badge-red', Cancelled: 'badge-red',
-  Dispatched: 'badge-blue', Replied: 'badge-blue',
+  Paid: 'badge-green', Received: 'badge-green', Completed: 'badge-green', Done: 'badge-green',
+  Converted: 'badge-green', accepted: 'badge-green', Qualified: 'badge-green',
+  Pending: 'badge-yellow', New: 'badge-yellow', Viewed: 'badge-yellow', Draft: 'badge-yellow',
+  draft: 'badge-yellow', 'Partially Paid': 'badge-yellow', Partial: 'badge-yellow',
+  'Follow-up': 'badge-yellow', Interested: 'badge-yellow', Contacted: 'badge-yellow',
+  Reserved: 'badge-yellow', Picking: 'badge-yellow', Due: 'badge-yellow', Missed: 'badge-red',
+  Rejected: 'badge-red', Suspended: 'badge-red', Cancelled: 'badge-red', cancelled: 'badge-red',
+  Overdue: 'badge-red', Lost: 'badge-red', Returned: 'badge-red', Expired: 'badge-red',
+  expired: 'badge-red', 'Not Interested': 'badge-gray',
+  Dispatched: 'badge-blue', Replied: 'badge-blue', 'In Transit': 'badge-blue', sent: 'badge-blue',
+  Packed: 'badge-blue', 'Ready for Dispatch': 'badge-blue',
 }
 const badge = s => STATUS_BADGE[s] || 'badge-gray'
 
 const PLANS = ['Free', 'Retailer Basic', 'Retailer Pro']
+
+/**
+ * Generic admin table.
+ *
+ * The eleven retailer-data tabs all render the same shape — a search box, a
+ * loading/empty state, and a table of columns — so one component keeps them
+ * consistent instead of copy-pasting the markup eleven times.
+ *   columns = [{ key, header, render?(row), align? }]
+ */
+function DataTable({ title, searchPlaceholder, search, onSearch, rows, loading, emptyText, columns, note }) {
+  return (
+    <div className="card">
+      <div className="card-header">
+        <span className="card-title">{title}</span>
+        <div className="header-actions">
+          <div className="search-bar">
+            <Search size={14} />
+            <input placeholder={searchPlaceholder} value={search} onChange={e => onSearch(e.target.value)} />
+          </div>
+        </div>
+      </div>
+      {note ? <div style={{ padding: '0 18px 10px', fontSize: 12, color: 'var(--text-muted)' }}>{note}</div> : null}
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              {columns.map(c => (
+                <th key={c.key} style={c.align ? { textAlign: c.align } : undefined}>{c.header}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {loading && (
+              <tr><td colSpan={columns.length} style={{ textAlign: 'center', padding: 30 }}>Loading…</td></tr>
+            )}
+            {!loading && rows.length === 0 && (
+              <tr>
+                <td colSpan={columns.length} style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>
+                  {emptyText}
+                </td>
+              </tr>
+            )}
+            {!loading && rows.map((r, i) => (
+              <tr key={r._id || i}>
+                {columns.map(c => (
+                  <td key={c.key} style={c.tdStyle}>{c.render ? c.render(r) : (r[c.key] ?? '—')}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+// Shared cell renderers
+const codeCell  = v => <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#F26522', fontSize: 12 }}>{v || '—'}</span>
+const badgeCell = v => <span className={`badge ${badge(v)}`}>{v || '—'}</span>
+const moneyCell = v => <span style={{ fontWeight: 700 }}>{money(v)}</span>
+const dateCell  = v => <span style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{fmtDate(v)}</span>
 
 // ═══════════════════════════════════════════════════════════════
 export default function RetailerManagement() {
@@ -37,8 +115,26 @@ export default function RetailerManagement() {
   const [subs,        setSubs]        = useState([])
   const [revenue,     setRevenue]     = useState(null)
 
+  // ── Everything else the retailer app produces ──────────────
+  const [sales,        setSales]        = useState([])
+  const [purchases,    setPurchases]    = useState([])
+  const [expenses,     setExpenses]     = useState([])
+  const [transactions, setTransactions] = useState([])
+  const [invoices,     setInvoices]     = useState([])
+  const [quotations,   setQuotations]   = useState([])
+  const [customers,    setCustomers]    = useState([])
+  const [leads,        setLeads]        = useState([])
+  const [followups,    setFollowups]    = useState([])
+  const [inventory,    setInventory]    = useState([])
+  const [dispatches,   setDispatches]   = useState([])
+  const [summary,      setSummary]      = useState(null)
+
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState('')
+  // Labels of the sections whose fetch failed. Surfaced as a banner so an
+  // undeployed/renamed endpoint shows up as a clear message instead of a
+  // silently empty table.
+  const [failed,  setFailed]  = useState([])
   const [search,  setSearch]  = useState('')
   const [toast,   setToast]   = useState({ msg: '', ok: true })
 
@@ -55,23 +151,79 @@ export default function RetailerManagement() {
   const showToast = (msg, ok = true) => { setToast({ msg, ok }); setTimeout(() => setToast({ msg: '', ok: true }), 3500) }
 
   // ── Load all data ──────────────────────────────────────────
+  // Every call goes through `safe()` below, so one failing module (an empty
+  // collection, or an endpoint that is not deployed yet) can never blank the
+  // whole admin page — it degrades to an empty table plus a named warning.
   const load = useCallback(async () => {
     setLoading(true); setError('')
+    const asArray = v => (Array.isArray(v) ? v : [])
+    /**
+     * Unwrap `{ data: { <key>: rows } }` → rows, tolerating every shape the API
+     * has used. **Guaranteed to return an array.**
+     *
+     * This used to be `res?.data?.[key] || res?.[key] || res?.data || []`, whose
+     * final fallback returned `res.data` — an OBJECT whenever the key was absent
+     * (e.g. a failed request caught into `{ data: {} }`). The page then crashed
+     * on `sales.filter is not a function`, taking the whole admin screen down
+     * rather than showing an empty table. Never let this return a non-array.
+     */
+    const rows = (res, key) => {
+      if (!res) return []
+      const data = res.data
+      if (Array.isArray(data)) return data                    // { data: [...] }
+      if (data && Array.isArray(data[key])) return data[key]  // { data: { sales: [...] } }
+      if (Array.isArray(res[key])) return res[key]            // { sales: [...] }
+      return []
+    }
+    // Record which sections failed so the user sees a reason, not just empty
+    // tables. Most likely cause: the endpoint is not deployed yet (the CRM
+    // defaults to the Render backend — see VITE_API_URL in src/api/index.js).
+    const failures = []
+    const safe = (label, promise) =>
+      promise.catch(() => { failures.push(label); return { data: {} } })
     try {
-      const [c, o, e, u, s, rev] = await Promise.all([
-        retailerApi.listCompanies({ limit: 200 }).catch(() => ({ data: [] })),
-        retailerApi.listOrders({ limit: 200 }).catch(() => ({ data: [] })),
-        retailerApi.listEnquiries({ limit: 200 }).catch(() => ({ data: [] })),
-        retailerApi.listUsers({ limit: 200 }).catch(() => ({ data: [] })),
-        retailerApi.listSubscriptions().catch(() => ({ data: { subscriptions: [] } })),
-        retailerApi.revenue().catch(() => null),
+      const [
+        c, o, e, u, s, rev, sum,
+        sl, pu, ex, tx, iv, qu, cu, ld, fu, inv, di,
+      ] = await Promise.all([
+        safe('Companies',   retailerApi.listCompanies({ limit: 200 })),
+        safe('Orders',      retailerApi.listOrders({ limit: 200 })),
+        safe('Enquiries',   retailerApi.listEnquiries({ limit: 200 })),
+        safe('Users',       retailerApi.listUsers({ limit: 200 })),
+        safe('Subscriptions', retailerApi.listSubscriptions()),
+        safe('Revenue',     retailerApi.revenue()),
+        safe('Summary',     retailerApi.activitySummary()),
+        safe('Sales',       retailerApi.listSales({ limit: 200 })),
+        safe('Purchases',   retailerApi.listPurchases({ limit: 200 })),
+        safe('Expenses',    retailerApi.listExpenses({ limit: 200 })),
+        safe('Payments',    retailerApi.listTransactions({ limit: 200 })),
+        safe('Invoices',    retailerApi.listInvoices({ limit: 200 })),
+        safe('Quotations',  retailerApi.listQuotations({ limit: 200 })),
+        safe('Customers',   retailerApi.listCustomers({ limit: 200 })),
+        safe('Leads',       retailerApi.listLeads({ limit: 200 })),
+        safe('Follow-ups',  retailerApi.listFollowups({ limit: 200 })),
+        safe('Inventory',   retailerApi.listInventory({ limit: 200 })),
+        safe('Dispatch',    retailerApi.listDispatches({ limit: 200 })),
       ])
-      setCompanies (c?.data?.companies  || c?.companies  || c?.data || [])
-      setOrders    (o?.data?.orders     || o?.orders     || o?.data || [])
-      setEnquiries (e?.data?.enquiries  || e?.enquiries  || e?.data || [])
-      setUsers     (u?.data?.users      || u?.users      || u?.data || [])
-      setSubs      (s?.data?.subscriptions || s?.subscriptions || [])
+      setFailed(failures)
+      setCompanies (rows(c, 'companies'))
+      setOrders    (rows(o, 'orders'))
+      setEnquiries (rows(e, 'enquiries'))
+      setUsers     (rows(u, 'users'))
+      setSubs      (asArray(s?.data?.subscriptions ?? s?.subscriptions))
       setRevenue   (rev?.data || rev || null)
+      setSummary   (sum?.data || sum || null)
+      setSales        (rows(sl,  'sales'))
+      setPurchases    (rows(pu,  'purchases'))
+      setExpenses     (rows(ex,  'expenses'))
+      setTransactions (rows(tx,  'transactions'))
+      setInvoices     (rows(iv,  'invoices'))
+      setQuotations   (rows(qu,  'quotations'))
+      setCustomers    (rows(cu,  'customers'))
+      setLeads        (rows(ld,  'leads'))
+      setFollowups    (rows(fu,  'followups'))
+      setInventory    (rows(inv, 'inventory'))
+      setDispatches   (rows(di,  'dispatches'))
     } catch (err) {
       setError(err?.response?.data?.message || 'Failed to load retailer data.')
     } finally {
@@ -150,29 +302,66 @@ export default function RetailerManagement() {
   const fUsers     = users.filter(u     => match(u.name, u.mobile, u.email, u.company_name))
   const fSubs      = subs.filter(s      => match(s.company_name, s.plan, s.company_code))
 
+  const fSales        = sales.filter(r        => match(r.sale_code, r.customer_name, r.product_name, r.company_name, r.invoice_number))
+  const fPurchases    = purchases.filter(r    => match(r.purchase_code, r.supplier_name, r.product_name, r.company_name, r.invoice_number))
+  const fExpenses     = expenses.filter(r     => match(r.category, r.description, r.reference, r.company_name))
+  const fTransactions = transactions.filter(r => match(r.txn_code, r.party_name, r.reference, r.company_name))
+  const fInvoices     = invoices.filter(r     => match(r.invoice_no, r.customer_name, r.product_name, r.company_name))
+  const fQuotations   = quotations.filter(r   => match(r.quotation_no, r.customer_name, r.product_name, r.company_name))
+  const fCustomers    = customers.filter(r    => match(r.name, r.mobile, r.email, r.city, r.gst_number, r.company_name))
+  const fLeads        = leads.filter(r        => match(r.name, r.mobile, r.email, r.source, r.company_name))
+  const fFollowups    = followups.filter(r    => match(r.notes, r.assigned_to?.name, r.company_name))
+  const fInventory    = inventory.filter(r    => match(r.product_id?.name, r.product_id?.code, r.warehouse_id?.name, r.company_name))
+  const fDispatches   = dispatches.filter(r   => match(r.dispatch_code, r.customer_name, r.vehicle_number, r.lr_number, r.company_name))
+
   // ── Stats ─────────────────────────────────────────────────
+  // Prefer the aggregated summary (counts EVERY row, not just the first 200
+  // fetched for the tables); fall back to the loaded array length.
   const pendingCount   = companies.filter(c => c.status === 'Pending').length
   const approvedCount  = companies.filter(c => c.status === 'Approved').length
   const suspendedCount = companies.filter(c => c.status === 'Suspended').length
 
   const STATS = [
-    { label: 'Total Retailers',   val: companies.length,  icon: Building2,     color: '#7C3AED', bg: '#F5F3FF' },
+    { label: 'Total Retailers',   val: summary?.companies ?? companies.length, icon: Building2,     color: '#7C3AED', bg: '#F5F3FF' },
     { label: 'Pending Approval',  val: pendingCount,      icon: AlertCircle,   color: '#D97706', bg: '#FFFBEB' },
     { label: 'Approved',          val: approvedCount,     icon: CheckCircle,   color: '#059669', bg: '#ECFDF5' },
     { label: 'Suspended',         val: suspendedCount,    icon: ShieldOff,     color: '#DC2626', bg: '#FEF2F2' },
-    { label: 'Total Orders',      val: orders.length,     icon: ShoppingCart,  color: '#2563EB', bg: '#EFF6FF' },
-    { label: 'Enquiries',         val: enquiries.length,  icon: MessageSquare, color: '#EA580C', bg: '#FFF7ED' },
-    { label: 'Users',             val: users.length,      icon: Users,         color: '#0891B2', bg: '#ECFEFF' },
-    { label: 'Platform Revenue',  val: money(revenue?.total_revenue), icon: TrendingUp, color: '#059669', bg: '#ECFDF5' },
+    { label: 'Total Sales',       val: money(summary?.sales?.total),     icon: TrendingUp,   color: '#059669', bg: '#ECFDF5' },
+    { label: 'Purchases',         val: money(summary?.purchases?.total), icon: ShoppingCart, color: '#2563EB', bg: '#EFF6FF' },
+    { label: 'Expenses',          val: money(summary?.expenses?.total),  icon: Wallet,       color: '#DC2626', bg: '#FEF2F2' },
+    { label: 'Receivable Due',    val: money(summary?.receivable_due),   icon: IndianRupee,  color: '#D97706', bg: '#FFFBEB' },
+    { label: 'Payable Due',       val: money(summary?.payable_due),      icon: IndianRupee,  color: '#EA580C', bg: '#FFF7ED' },
+    { label: 'Orders',            val: summary?.orders ?? orders.length,       icon: ClipboardList, color: '#2563EB', bg: '#EFF6FF' },
+    { label: 'Enquiries',         val: summary?.enquiries ?? enquiries.length, icon: MessageSquare, color: '#EA580C', bg: '#FFF7ED' },
+    { label: 'Dispatches',        val: summary?.dispatches ?? dispatches.length, icon: Truck,      color: '#7C3AED', bg: '#F5F3FF' },
+    { label: 'Customers',         val: summary?.customers ?? customers.length, icon: UserCheck,   color: '#0891B2', bg: '#ECFEFF' },
+    { label: 'Leads',             val: summary?.leads ?? leads.length,         icon: Target,      color: '#DB2777', bg: '#FDF2F8' },
+    { label: 'Invoices',          val: summary?.invoices ?? invoices.length,   icon: Receipt,     color: '#4F46E5', bg: '#EEF2FF' },
+    { label: 'Users',             val: summary?.users ?? users.length,         icon: Users,       color: '#0891B2', bg: '#ECFEFF' },
+    { label: 'Platform Revenue',  val: money(revenue?.total_revenue),          icon: CreditCard,  color: '#059669', bg: '#ECFDF5' },
   ]
 
+  // Low-stock / out-of-stock alerts surfaced straight from the summary.
+  const stockAlerts = (summary?.low_stock || 0) + (summary?.out_of_stock || 0)
+
   const TABS = [
-    { key: 'overview',   label: 'Overview' },
-    { key: 'companies',  label: `Companies (${companies.length})` },
-    { key: 'orders',     label: `Orders (${orders.length})` },
-    { key: 'enquiries',  label: `Enquiries (${enquiries.length})` },
-    { key: 'users',      label: `Users (${users.length})` },
-    { key: 'subs',       label: `Subscriptions (${subs.length})` },
+    { key: 'overview',     label: 'Overview' },
+    { key: 'companies',    label: `Companies (${companies.length})` },
+    { key: 'orders',       label: `Orders (${orders.length})` },
+    { key: 'enquiries',    label: `Enquiries (${enquiries.length})` },
+    { key: 'sales',        label: `Sales (${sales.length})` },
+    { key: 'purchases',    label: `Purchases (${purchases.length})` },
+    { key: 'expenses',     label: `Expenses (${expenses.length})` },
+    { key: 'transactions', label: `Payments (${transactions.length})` },
+    { key: 'invoices',     label: `Invoices (${invoices.length})` },
+    { key: 'quotations',   label: `Quotations (${quotations.length})` },
+    { key: 'customers',    label: `Customers (${customers.length})` },
+    { key: 'leads',        label: `Leads (${leads.length})` },
+    { key: 'followups',    label: `Follow-ups (${followups.length})` },
+    { key: 'inventory',    label: `Inventory (${inventory.length})` },
+    { key: 'dispatches',   label: `Dispatch (${dispatches.length})` },
+    { key: 'users',        label: `Users (${users.length})` },
+    { key: 'subs',         label: `Subscriptions (${subs.length})` },
   ]
 
   return (
@@ -200,6 +389,20 @@ export default function RetailerManagement() {
 
       {error && <div className="alert alert-warning" style={{ marginBottom: 14 }}><AlertCircle size={15} style={{ marginRight: 8 }} />{error}</div>}
 
+      {/* Partial-load notice. Without this, a 404 from an endpoint that has not
+          been deployed yet looks identical to "this retailer has no data". */}
+      {!loading && failed.length > 0 && (
+        <div className="alert alert-warning" style={{ marginBottom: 14 }}>
+          <AlertCircle size={15} style={{ marginRight: 8, flexShrink: 0 }} />
+          <span>
+            {failed.length} section{failed.length > 1 ? 's' : ''} failed to load
+            ({failed.join(', ')}). The tables below are empty because the request
+            failed, not because there is no data — check that the backend is
+            deployed and running the latest routes.
+          </span>
+        </div>
+      )}
+
       {/* ── Tabs ── */}
       <div className="tabs" style={{ marginBottom: 18, flexWrap: 'wrap' }}>
         {TABS.map(t => (
@@ -215,20 +418,32 @@ export default function RetailerManagement() {
       {/* ══ OVERVIEW ══════════════════════════════════════════ */}
       {tab === 'overview' && (
         <>
-          {/* Stats grid */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 24 }}>
+          {/* Stats grid — auto-fill so 17 cards lay out cleanly at any width */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: 14, marginBottom: 20 }}>
             {STATS.map(({ label, val, icon: Icon, color, bg }) => (
               <div key={label} style={{ background: bg, borderRadius: 14, padding: '16px 20px', border: `1px solid ${color}22`, display: 'flex', alignItems: 'center', gap: 14 }}>
                 <div style={{ width: 44, height: 44, borderRadius: 12, background: `${color}18`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                   <Icon size={20} color={color} />
                 </div>
-                <div>
+                <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em', color, marginBottom: 3 }}>{label}</div>
-                  <div style={{ fontSize: 26, fontWeight: 900, color }}>{val}</div>
+                  <div style={{ fontSize: 22, fontWeight: 900, color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{val}</div>
                 </div>
               </div>
             ))}
           </div>
+
+          {/* Stock alerts pulled straight from the aggregated summary */}
+          {stockAlerts > 0 && (
+            <div className="alert alert-warning" style={{ marginBottom: 16 }}>
+              <AlertTriangle size={15} style={{ marginRight: 8 }} />
+              <strong>{summary?.low_stock || 0}</strong> low-stock and <strong>{summary?.out_of_stock || 0}</strong> out-of-stock
+              item(s) across all retailer companies.
+              <button className="btn btn-sm btn-secondary" style={{ marginLeft: 12 }} onClick={() => { setTab('inventory'); setSearch('') }}>
+                View inventory
+              </button>
+            </div>
+          )}
 
           {/* Pending approvals */}
           <div className="card">
@@ -418,6 +633,215 @@ export default function RetailerManagement() {
             </table>
           </div>
         </div>
+      )}
+
+      {/* ══ SALES (ERP) ═══════════════════════════════════════ */}
+      {tab === 'sales' && (
+        <DataTable
+          title="Retailer Sales" searchPlaceholder="Search sales…"
+          search={search} onSearch={setSearch}
+          rows={fSales} loading={loading} emptyText="No sales recorded by any retailer yet."
+          columns={[
+            { key: 'sale_code',     header: 'Code',     render: r => codeCell(r.sale_code) },
+            { key: 'company_name',  header: 'Company' },
+            { key: 'customer_name', header: 'Customer' },
+            { key: 'product_name',  header: 'Product',  render: r => <span style={{ fontWeight: 600 }}>{r.product_name || '—'}</span> },
+            { key: 'qty',           header: 'Qty' },
+            { key: 'total_amount',  header: 'Total',    render: r => moneyCell(r.total_amount) },
+            { key: 'sale_status',   header: 'Status',   render: r => badgeCell(r.sale_status) },
+            { key: 'sale_date',     header: 'Date',     render: r => dateCell(r.sale_date || r.created_at) },
+          ]}
+        />
+      )}
+
+      {/* ══ PURCHASES (ERP) ═══════════════════════════════════ */}
+      {tab === 'purchases' && (
+        <DataTable
+          title="Retailer Purchases" searchPlaceholder="Search purchases…"
+          search={search} onSearch={setSearch}
+          rows={fPurchases} loading={loading} emptyText="No purchases recorded yet."
+          columns={[
+            { key: 'purchase_code', header: 'Code',     render: r => codeCell(r.purchase_code) },
+            { key: 'company_name',  header: 'Company' },
+            { key: 'supplier_name', header: 'Supplier' },
+            { key: 'product_name',  header: 'Product',  render: r => <span style={{ fontWeight: 600 }}>{r.product_name || '—'}</span> },
+            { key: 'qty',           header: 'Qty' },
+            { key: 'total_amount',  header: 'Total',    render: r => moneyCell(r.total_amount) },
+            { key: 'status',        header: 'Status',   render: r => badgeCell(r.status) },
+            { key: 'purchase_date', header: 'Date',     render: r => dateCell(r.purchase_date || r.created_at) },
+          ]}
+        />
+      )}
+
+      {/* ══ EXPENSES ══════════════════════════════════════════ */}
+      {tab === 'expenses' && (
+        <DataTable
+          title="Retailer Expenses" searchPlaceholder="Search expenses…"
+          search={search} onSearch={setSearch}
+          rows={fExpenses} loading={loading} emptyText="No expenses recorded yet."
+          note={`Total across all retailers: ${money(summary?.expenses?.total)} (${summary?.expenses?.count ?? expenses.length} entries)`}
+          columns={[
+            { key: 'company_name',  header: 'Company' },
+            { key: 'category',      header: 'Category', render: r => <span style={{ fontWeight: 600 }}>{r.category || '—'}</span> },
+            { key: 'description',   header: 'Description', render: r => <span style={{ fontSize: 12 }}>{r.description || '—'}</span> },
+            { key: 'amount',        header: 'Amount',   render: r => <span style={{ fontWeight: 700, color: '#DC2626' }}>{money(r.amount)}</span> },
+            { key: 'payment_mode',  header: 'Mode' },
+            { key: 'expense_date',  header: 'Date',     render: r => dateCell(r.expense_date || r.created_at) },
+          ]}
+        />
+      )}
+
+      {/* ══ PAYMENTS / TRANSACTIONS ═══════════════════════════ */}
+      {tab === 'transactions' && (
+        <DataTable
+          title="Retailer Payments" searchPlaceholder="Search payments…"
+          search={search} onSearch={setSearch}
+          rows={fTransactions} loading={loading} emptyText="No payments recorded yet."
+          note={`Receivable due ${money(summary?.receivable_due)} · Payable due ${money(summary?.payable_due)}`}
+          columns={[
+            { key: 'txn_code',     header: 'Code',   render: r => codeCell(r.txn_code) },
+            { key: 'company_name', header: 'Company' },
+            { key: 'type',         header: 'Type',   render: r => <span className={`badge ${r.type === 'Received' ? 'badge-green' : 'badge-blue'}`}>{r.type}</span> },
+            { key: 'party_name',   header: 'Party' },
+            { key: 'amount',       header: 'Amount', render: r => moneyCell(r.amount) },
+            { key: 'mode',         header: 'Mode' },
+            { key: 'reference',    header: 'Reference', render: r => <span style={{ fontSize: 12 }}>{r.reference || '—'}</span> },
+            { key: 'txn_date',     header: 'Date',   render: r => dateCell(r.txn_date || r.created_at) },
+          ]}
+        />
+      )}
+
+      {/* ══ INVOICES ══════════════════════════════════════════ */}
+      {tab === 'invoices' && (
+        <DataTable
+          title="Retailer Invoices" searchPlaceholder="Search invoices…"
+          search={search} onSearch={setSearch}
+          rows={fInvoices} loading={loading} emptyText="No invoices yet."
+          columns={[
+            { key: 'invoice_no',    header: 'Invoice',  render: r => codeCell(r.invoice_no) },
+            { key: 'company_name',  header: 'Company' },
+            { key: 'customer_name', header: 'Customer' },
+            { key: 'product_name',  header: 'Product',  render: r => <span style={{ fontWeight: 600 }}>{r.product_name || '—'}</span> },
+            { key: 'grand_total',   header: 'Total',    render: r => moneyCell(r.grand_total) },
+            { key: 'payment_status', header: 'Payment', render: r => badgeCell(r.payment_status) },
+            { key: 'status',        header: 'Status',   render: r => badgeCell(r.status) },
+            { key: 'created_at',    header: 'Date',     render: r => dateCell(r.created_at) },
+          ]}
+        />
+      )}
+
+      {/* ══ QUOTATIONS ════════════════════════════════════════ */}
+      {tab === 'quotations' && (
+        <DataTable
+          title="Retailer Quotations" searchPlaceholder="Search quotations…"
+          search={search} onSearch={setSearch}
+          rows={fQuotations} loading={loading} emptyText="No quotations yet."
+          columns={[
+            { key: 'quotation_no',  header: 'Quote',    render: r => codeCell(r.quotation_no) },
+            { key: 'company_name',  header: 'Company' },
+            { key: 'customer_name', header: 'Customer' },
+            { key: 'product_name',  header: 'Product',  render: r => <span style={{ fontWeight: 600 }}>{r.product_name || '—'}</span> },
+            { key: 'qty',           header: 'Qty' },
+            { key: 'total',         header: 'Total',    render: r => moneyCell(r.total) },
+            { key: 'status',        header: 'Status',   render: r => badgeCell(r.status) },
+            { key: 'created_at',    header: 'Date',     render: r => dateCell(r.created_at) },
+          ]}
+        />
+      )}
+
+      {/* ══ CUSTOMERS ═════════════════════════════════════════ */}
+      {tab === 'customers' && (
+        <DataTable
+          title="Retailer Customers" searchPlaceholder="Search customers…"
+          search={search} onSearch={setSearch}
+          rows={fCustomers} loading={loading} emptyText="No customers added yet."
+          columns={[
+            { key: 'name',         header: 'Name',    render: r => <span style={{ fontWeight: 700 }}>{r.name || '—'}</span> },
+            { key: 'company_name', header: 'Company' },
+            { key: 'mobile',       header: 'Mobile',  render: r => <span style={{ fontFamily: 'monospace', fontSize: 13 }}>{r.mobile || '—'}</span> },
+            { key: 'city',         header: 'City' },
+            { key: 'biz_type',     header: 'Type' },
+            { key: 'gst_number',   header: 'GSTIN',   render: r => <span style={{ fontSize: 12, fontFamily: 'monospace' }}>{r.gst_number || '—'}</span> },
+            { key: 'credit_limit', header: 'Credit',  render: r => moneyCell(r.credit_limit) },
+            { key: 'created_at',   header: 'Added',   render: r => dateCell(r.created_at) },
+          ]}
+        />
+      )}
+
+      {/* ══ LEADS ═════════════════════════════════════════════ */}
+      {tab === 'leads' && (
+        <DataTable
+          title="Retailer Leads" searchPlaceholder="Search leads…"
+          search={search} onSearch={setSearch}
+          rows={fLeads} loading={loading} emptyText="No leads yet."
+          columns={[
+            { key: 'name',         header: 'Name',    render: r => <span style={{ fontWeight: 700 }}>{r.name || '—'}</span> },
+            { key: 'company_name', header: 'Company' },
+            { key: 'mobile',       header: 'Mobile',  render: r => <span style={{ fontFamily: 'monospace', fontSize: 13 }}>{r.mobile || '—'}</span> },
+            { key: 'source',       header: 'Source',  render: r => <span style={{ fontSize: 12 }}>{r.source || '—'}</span> },
+            { key: 'status',       header: 'Status',  render: r => badgeCell(r.status) },
+            { key: 'assigned_to',  header: 'Assigned', render: r => r.assigned_to?.name || 'Unassigned' },
+            { key: 'created_at',   header: 'Created', render: r => dateCell(r.created_at) },
+          ]}
+        />
+      )}
+
+      {/* ══ FOLLOW-UPS ════════════════════════════════════════ */}
+      {tab === 'followups' && (
+        <DataTable
+          title="Retailer Follow-ups" searchPlaceholder="Search follow-ups…"
+          search={search} onSearch={setSearch}
+          rows={fFollowups} loading={loading} emptyText="No follow-ups scheduled."
+          columns={[
+            { key: 'company_name',  header: 'Company' },
+            { key: 'notes',         header: 'Notes',   render: r => <span style={{ fontSize: 12 }}>{r.notes || '—'}</span> },
+            { key: 'followup_date', header: 'Due',     render: r => dateCell(r.followup_date) },
+            { key: 'status',        header: 'Status',  render: r => badgeCell(r.status) },
+            { key: 'assigned_to',   header: 'Assigned', render: r => r.assigned_to?.name || 'Unassigned' },
+            { key: 'done_at',       header: 'Done',    render: r => dateCell(r.done_at) },
+          ]}
+        />
+      )}
+
+      {/* ══ INVENTORY ═════════════════════════════════════════ */}
+      {tab === 'inventory' && (
+        <DataTable
+          title="Retailer Inventory" searchPlaceholder="Search by product or warehouse…"
+          search={search} onSearch={setSearch}
+          rows={fInventory} loading={loading} emptyText="No stock records yet."
+          note={stockAlerts > 0
+            ? `⚠ ${summary?.low_stock || 0} low-stock and ${summary?.out_of_stock || 0} out-of-stock item(s) across all retailers.`
+            : 'All stock levels healthy.'}
+          columns={[
+            { key: 'product',      header: 'Product',  render: r => <span style={{ fontWeight: 700 }}>{r.product_id?.name || '—'}</span> },
+            { key: 'code',         header: 'Code',     render: r => codeCell(r.product_id?.code) },
+            { key: 'company_name', header: 'Company' },
+            { key: 'warehouse',    header: 'Warehouse', render: r => r.warehouse_id?.name || '—' },
+            { key: 'available_stock', header: 'Available', render: r => <span style={{ fontWeight: 700, color: (r.available_stock || 0) <= 0 ? '#DC2626' : '#059669' }}>{r.available_stock ?? 0}</span> },
+            { key: 'current_stock',   header: 'Physical' },
+            { key: 'reserved_stock',  header: 'Reserved' },
+            { key: 'low_stock_alert', header: 'Alert @' },
+          ]}
+        />
+      )}
+
+      {/* ══ DISPATCH ══════════════════════════════════════════ */}
+      {tab === 'dispatches' && (
+        <DataTable
+          title="Retailer Dispatches" searchPlaceholder="Search dispatches…"
+          search={search} onSearch={setSearch}
+          rows={fDispatches} loading={loading} emptyText="No dispatches yet."
+          columns={[
+            { key: 'dispatch_code',  header: 'Code',     render: r => codeCell(r.dispatch_code) },
+            { key: 'company_name',   header: 'Company' },
+            { key: 'customer_name',  header: 'Customer' },
+            { key: 'vehicle_number', header: 'Vehicle',  render: r => <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{r.vehicle_number || '—'}</span> },
+            { key: 'lr_number',      header: 'LR No.',   render: r => <span style={{ fontSize: 12 }}>{r.lr_number || '—'}</span> },
+            { key: 'qty',            header: 'Qty' },
+            { key: 'status',         header: 'Status',   render: r => badgeCell(r.status) },
+            { key: 'dispatch_date',  header: 'Dispatched', render: r => dateCell(r.dispatch_date || r.created_at) },
+          ]}
+        />
       )}
 
       {/* ══ USERS ═════════════════════════════════════════════ */}
