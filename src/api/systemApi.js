@@ -23,6 +23,9 @@ export const notificationApi = {
   delete: (id) =>
     api.delete(`/notifications/${id}`).then(r => r.data),
 
+  deleteAll: () =>
+    api.delete('/notifications').then(r => r.data),
+
   // Super Admin — send to a single company. Body: { company_id, title, message, type? }
   send: (data) =>
     api.post('/notifications', data).then(r => r.data),

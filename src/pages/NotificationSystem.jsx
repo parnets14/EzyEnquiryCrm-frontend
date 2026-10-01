@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Bell, CheckCircle, Package, ShoppingCart, Truck, CreditCard, MessageSquare, Send, X, Megaphone } from 'lucide-react'
+import { Bell, CheckCircle, Package, ShoppingCart, Truck, CreditCard, MessageSquare, Send, X, Megaphone, Trash2 } from 'lucide-react'
 import { notificationApi } from '../api/systemApi'
 import { companyApi } from '../api/companyApi'
 
@@ -30,8 +30,9 @@ const TYPE_FILTERS = [
   { key: 'purchase',  label: 'Purchase'   },
 ]
 
-export default function NotificationSystem({ notifications = [], markNotifRead, markAllNotifsRead, deleteNotif }) {
+export default function NotificationSystem({ notifications = [], markNotifRead, markAllNotifsRead, deleteNotif, clearAllNotifs }) {
   const [filter, setFilter] = useState('all')
+  const [clearing, setClearing] = useState(false)
 
   // ── Compose / broadcast (Super Admin) ──────────────────────
   const isSuperAdmin = (() => {
@@ -105,6 +106,14 @@ export default function NotificationSystem({ notifications = [], markNotifRead, 
     await deleteNotif?.(id)
   }
 
+  const handleClearAll = async () => {
+    if (normalizedNotifs.length === 0) return
+    if (!window.confirm('Remove all notifications? This cannot be undone.')) return
+    setClearing(true)
+    try { await clearAllNotifs?.() }
+    finally { setClearing(false) }
+  }
+
   const unreadCount = normalizedNotifs.filter(n => !n.is_read).length
 
   const filtered = normalizedNotifs.filter(n => {
@@ -154,6 +163,16 @@ export default function NotificationSystem({ notifications = [], markNotifRead, 
             {unreadCount > 0 && (
               <button className="btn btn-secondary btn-sm" onClick={handleMarkAllRead}>
                 <CheckCircle style={{ width: 13 }} />Mark All Read
+              </button>
+            )}
+            {normalizedNotifs.length > 0 && (
+              <button
+                className="btn btn-sm"
+                onClick={handleClearAll}
+                disabled={clearing}
+                style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca' }}
+              >
+                <Trash2 style={{ width: 13 }} />{clearing ? 'Clearing…' : 'Clear All'}
               </button>
             )}
           </div>
@@ -220,9 +239,20 @@ export default function NotificationSystem({ notifications = [], markNotifRead, 
                 )}
                 <button
                   onClick={(e) => handleDelete(e, n._id)}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: 2, borderRadius: 4, fontSize: 14, lineHeight: 1 }}
-                  title="Delete"
-                >✕</button>
+                  title="Remove notification"
+                  aria-label="Remove notification"
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    width: 26, height: 26, flexShrink: 0,
+                    background: 'transparent', border: '1px solid transparent',
+                    cursor: 'pointer', color: 'var(--text-muted)', borderRadius: 6,
+                    transition: 'all .15s',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background = '#fef2f2'; e.currentTarget.style.color = '#dc2626'; e.currentTarget.style.borderColor = '#fecaca' }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.borderColor = 'transparent' }}
+                >
+                  <X style={{ width: 14, height: 14 }} />
+                </button>
               </div>
             )
           })}

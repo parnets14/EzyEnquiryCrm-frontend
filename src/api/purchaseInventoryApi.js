@@ -53,15 +53,11 @@ export const qualityInspectionApi = {
   delete: (id)        => api.delete(`/quality-inspections/${id}`).then(r => r.data),
 }
 
-// ── Purchase Invoice ──────────────────────────────────────────
+// ── Purchase Invoices (stored as purchase bill records) ─────────
 export const purchaseInvoiceApi = {
   list: (params = {}) => api.get('/purchase-invoices', { params }).then(r => r.data),
-  get:  (id)          => api.get(`/purchase-invoices/${id}`).then(r => r.data),
-  create: (data)      => api.post('/purchase-invoices', data).then(r => r.data),
-  update: (id, data)  => api.put(`/purchase-invoices/${id}`, data).then(r => r.data),
-  recordPayment: (id, data) =>
-    api.patch(`/purchase-invoices/${id}/payment`, data).then(r => r.data),
-  delete: (id)        => api.delete(`/purchase-invoices/${id}`).then(r => r.data),
+  recordPayment: (billCode, data) =>
+    api.patch(`/purchase-invoices/${encodeURIComponent(billCode)}/payment`, data).then(r => r.data),
 }
 
 // ── Purchase Return ───────────────────────────────────────────

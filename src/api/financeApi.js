@@ -40,18 +40,19 @@ export const purchaseApi = {
   updatePayment: (id, data) =>
     api.patch(`/purchases/${id}/payment`, data).then(r => r.data),
 
+
   // ── Suppliers ───────────────────────────────────────────
   listSuppliers: () =>
-    api.get('/purchases/suppliers/all').then(r => r.data),
+    api.get('/suppliers').then(r => r.data),
 
   createSupplier: (data) =>
-    api.post('/purchases/suppliers', data).then(r => r.data),
+    api.post('/suppliers', data).then(r => r.data),
 
   updateSupplier: (id, data) =>
-    api.put(`/purchases/suppliers/${id}`, data).then(r => r.data),
+    api.put(`/suppliers/${id}`, data).then(r => r.data),
 
   deleteSupplier: (id) =>
-    api.delete(`/purchases/suppliers/${id}`).then(r => r.data),
+    api.delete(`/suppliers/${id}`).then(r => r.data),
 }
 
 // ── Sales ─────────────────────────────────────────────────────

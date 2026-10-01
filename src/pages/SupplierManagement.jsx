@@ -562,9 +562,9 @@ export default function SupplierManagement({
 
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={closeModal} disabled={saving}>Cancel</button>
-              {/* <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-                {saving ? 'Saving…' : (editItem ? 'Update Supplier' : 'Add Supplier')}
-              </button> */}
+              <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+                {saving ? 'Saving…' : 'OK'}
+              </button>
             </div>
           </div>
         </div>

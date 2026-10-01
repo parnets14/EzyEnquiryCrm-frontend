@@ -389,7 +389,9 @@ export default function PurchaseRequisition({ products = [], suppliers = [], war
                             if (p) setLine(idx, 'product_name', p.name)
                           }}>
                             <option value="">-- Select Product --</option>
-                            {products.map(p => <option key={p._id || p.id} value={p._id || p.id}>{p.name}</option>)}
+                            {products
+                              .filter(p => p.is_active !== false && p.status !== 'deleted')
+                              .map(p => <option key={p._id || p.id} value={p._id || p.id}>{p.name}</option>)}
                           </select>
                         </td>
                         <td style={{ padding: '6px 8px' }}>

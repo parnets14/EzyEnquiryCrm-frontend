@@ -70,41 +70,25 @@ const NAV_CONFIG = [
     ],
   },
 
-  // ── Purchase ──────────────────────────────────────────────
+  // ── Purchase (SOW §13: Purchase Entry + Reports) ──────────
   {
     type: 'section', key: 'purchase', label: 'Purchases', icon: ShoppingBag,
     items: [
-      { to: '/purchase-inventory/purchase-dashboard',    icon: LayoutDashboard, label: 'Overview',    moduleKey: MODULES.PURCHASE_DASHBOARD },
-      { to: '/purchase-inventory/supplier-management',   icon: Building2,       label: 'Suppliers',             moduleKey: MODULES.SUPPLIERS },
-      { to: '/purchase-inventory/purchase-requisition',  icon: ClipboardList,   label: 'Purchase Requests',  moduleKey: MODULES.PURCHASE_REQUISITION },
-      { to: '/purchase-inventory/purchase-orders',       icon: FileText,        label: 'Purchase Orders',       moduleKey: MODULES.PURCHASE_ORDERS },
-      { to: '/purchase-inventory/purchase-management',   icon: PackagePlus,     label: 'Bills',        moduleKey: MODULES.PURCHASES },
-      { to: '/purchase-inventory/grn',                   icon: PackageCheck,    label: 'Goods Received',   moduleKey: MODULES.GRN },
-      { to: '/purchase-inventory/quality-inspection',    icon: CheckCheck,      label: 'Quality Checks',    moduleKey: MODULES.QUALITY_INSPECTION },
-      { to: '/purchase-inventory/purchase-invoice',      icon: Receipt,         label: 'Invoices',      moduleKey: MODULES.PURCHASE_INVOICE },
-      { to: '/purchase-inventory/purchase-return',       icon: Send,            label: 'Returns',       moduleKey: MODULES.PURCHASE_RETURN },
-      { to: '/purchase-inventory/purchase-reports',      icon: FileBarChart,    label: 'Reports',      moduleKey: MODULES.PURCHASE_REPORTS },
+      { to: '/purchase-inventory/supplier-management',   icon: Building2,    label: 'Suppliers',       moduleKey: MODULES.SUPPLIERS },
+      { to: '/purchase-inventory/purchase-management',   icon: PackagePlus,  label: 'Purchase Entry',  moduleKey: MODULES.PURCHASES },
+      { to: '/purchase-inventory/purchase-reports',      icon: FileBarChart, label: 'Purchase Reports',moduleKey: MODULES.PURCHASE_REPORTS },
     ],
   },
 
-  // ── Inventory ─────────────────────────────────────────────
+  // ── Inventory (SOW §4 Stock In/Out/Transfer + Alerts, §23 Multi-Warehouse) ──
   {
     type: 'section', key: 'inventory', label: 'Inventory', icon: Boxes,
     items: [
-      { to: '/purchase-inventory/inventory-dashboard',   icon: LayoutDashboard, label: 'Overview',   moduleKey: MODULES.INVENTORY_DASHBOARD },
-      { to: '/product-management/products',              icon: Package,         label: 'Products',              moduleKey: MODULES.PRODUCTS },
-      { to: '/purchase-inventory/unit-conversion',       icon: Scale,           label: 'Units',    moduleKey: MODULES.UNIT_CONVERSION },
-      { to: '/purchase-inventory/warehouse-management',  icon: Warehouse,       label: 'Warehouses',            moduleKey: MODULES.WAREHOUSES },
-      { to: '/purchase-inventory/rack-bin',              icon: Map,             label: 'Storage Locations',            moduleKey: MODULES.RACK_BIN },
-      { to: '/purchase-inventory/opening-stock',         icon: Archive,         label: 'Starting Stock',         moduleKey: MODULES.OPENING_STOCK },
-      { to: '/purchase-inventory/inventory-management',  icon: BarChart3,       label: 'Stock Levels',         moduleKey: MODULES.INVENTORY },
-      { to: '/purchase-inventory/stock-ledger',          icon: BookOpen,        label: 'Stock History',          moduleKey: MODULES.STOCK_LEDGER },
-      { to: '/purchase-inventory/stock-transfer',        icon: ArrowLeftRight,  label: 'Move Stock',        moduleKey: MODULES.STOCK_TRANSFER },
-      { to: '/purchase-inventory/stock-adjustment',      icon: Sliders,         label: 'Adjust Stock',      moduleKey: MODULES.STOCK_ADJUSTMENT },
-      { to: '/purchase-inventory/damage-breakage',       icon: AlertTriangle,   label: 'Damaged Stock',     moduleKey: MODULES.DAMAGE_BREAKAGE },
-      { to: '/purchase-inventory/batch-lot',             icon: Layers,          label: 'Batches',           moduleKey: MODULES.BATCH_LOT },
-      { to: '/purchase-inventory/shade-caliber',         icon: Droplets,        label: 'Color & Size',       moduleKey: MODULES.SHADE_CALIBER },
-      { to: '/purchase-inventory/inventory-reports',     icon: PieChart,        label: 'Reports',     moduleKey: MODULES.INVENTORY_REPORTS },
+      { to: '/purchase-inventory/inventory-management',  icon: BarChart3,      label: 'Stock (In / Out)',   moduleKey: MODULES.INVENTORY },
+      { to: '/purchase-inventory/stock-transfer',        icon: ArrowLeftRight, label: 'Stock Transfer',     moduleKey: MODULES.STOCK_TRANSFER },
+      { to: '/purchase-inventory/warehouse-management',  icon: Warehouse,      label: 'Warehouses',         moduleKey: MODULES.WAREHOUSES },
+      { to: '/purchase-inventory/damage-breakage',       icon: AlertTriangle,  label: 'Damaged Stock',      moduleKey: MODULES.DAMAGE_BREAKAGE },
+      { to: '/purchase-inventory/inventory-reports',     icon: PieChart,       label: 'Inventory Reports',  moduleKey: MODULES.INVENTORY_REPORTS },
     ],
   },
 

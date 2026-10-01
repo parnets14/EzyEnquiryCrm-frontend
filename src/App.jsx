@@ -173,7 +173,7 @@ function AppRoutes() {
         <Route path="purchase-inventory/quality-inspection"
           element={<RequireAccess module={MODULES.QUALITY_INSPECTION}><QualityInspection products={products} warehouses={warehouses} inventory={inventory} /></RequireAccess>} />
         <Route path="purchase-inventory/purchase-invoice"
-          element={<RequireAccess module={MODULES.PURCHASE_INVOICE}><PurchaseInvoicePage purchases={purchases} products={products} suppliers={erpCtx.suppliers} /></RequireAccess>} />
+          element={<RequireAccess module={MODULES.PURCHASE_INVOICE}><PurchaseInvoicePage purchases={purchases} products={products} suppliers={erpCtx.suppliers} updatePurchaseBillPayment={erpCtx.updatePurchaseBillPayment} /></RequireAccess>} />
         <Route path="purchase-inventory/purchase-return"
           element={<RequireAccess module={MODULES.PURCHASE_RETURN}><PurchaseReturn purchases={purchases} products={products} suppliers={erpCtx.suppliers} warehouses={warehouses} inventory={inventory} /></RequireAccess>} />
         <Route path="purchase-inventory/purchase-reports"
