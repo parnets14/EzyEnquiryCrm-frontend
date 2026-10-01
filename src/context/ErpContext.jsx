@@ -230,13 +230,22 @@ export function ErpProvider({ children }) {
     try {
       const res = await enquiryApi.create(data)
       const newEnq = res?.data || res
+      // A BROADCAST returns a summary ({ broadcast, recipients, ids }), not an
+      // enquiry document — prepending it would put a phantom row in the table
+      // with no _id. Refresh the list instead so the real per-recipient rows
+      // (and any replies) load.
+      if (newEnq?.broadcast) {
+        addNotification(`Enquiry broadcast to ${newEnq.recipients} compan${newEnq.recipients === 1 ? 'y' : 'ies'}`, 'enquiry')
+        fetchAll?.()
+        return { success: true, data: newEnq }
+      }
       setEnquiries(prev => [newEnq, ...prev])
       addNotification(`New Enquiry ${newEnq.enq_code || ''} from ${data.retailer_name || data.retailer || ''}`, 'enquiry')
       return { success: true, data: newEnq }
     } catch (err) {
       return { success: false, message: err.response?.data?.message || 'Failed to create enquiry' }
     }
-  }, [addNotification])
+  }, [addNotification, fetchAll])
 
   const updateEnquiry = useCallback(async (id, changes) => {
     try {
@@ -264,11 +273,15 @@ export function ErpProvider({ children }) {
           String(o._id || o.id) !== String(deletedOrderId)
         ))
       }
+      // Deleting a BROADCAST removes every sibling row (`deleted_count > 1`), but
+      // only one was filtered out above — so the rest would ghost on screen until
+      // the next navigation. Refetch instead of trying to patch the list by hand.
+      if ((data?.deleted_count || 0) > 1) fetchAll?.()
       return { success: true, deletedOrderId }
     } catch (err) {
       return { success: false, message: err.response?.data?.message || 'Delete failed' }
     }
-  }, [])
+  }, [fetchAll])
 
   const convertEnquiryToOrder = useCallback(async (enquiry, agreedRate, extraData = {}) => {
     try {
