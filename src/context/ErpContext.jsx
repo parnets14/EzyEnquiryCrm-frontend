@@ -557,6 +557,7 @@ export function ErpProvider({ children }) {
     }
   }, [])
 
+
   // ─────────────────────────────────────────────────────────
   // PAYMENT ACTIONS
   // ─────────────────────────────────────────────────────────
@@ -993,11 +994,32 @@ export function ErpProvider({ children }) {
   }, [])
 
   const deleteNotif = useCallback(async (id) => {
+    const removeLocal = () =>
+      setNotifications(prev => prev.filter(n => n._id !== id && n.id !== id))
     try {
       await notificationApi.delete(id)
-      setNotifications(prev => prev.filter(n => n._id !== id && n.id !== id))
+      removeLocal()
       return { success: true }
     } catch (err) {
+      // A 404 means the record is already gone (or not server-backed, e.g. a
+      // locally-generated toast notification). Either way, drop it from the UI.
+      if (err?.response?.status === 404) {
+        removeLocal()
+        return { success: true }
+      }
+      return { success: false }
+    }
+  }, [])
+
+  const clearAllNotifs = useCallback(async () => {
+    try {
+      await notificationApi.deleteAll()
+      setNotifications([])
+      return { success: true }
+    } catch (err) {
+      // Clear locally regardless so the UI empties even if the record set
+      // was already gone server-side.
+      setNotifications([])
       return { success: false }
     }
   }, [])
@@ -1280,7 +1302,7 @@ export function ErpProvider({ children }) {
     addExpense, updateExpense, deleteExpense,
 
     // ── Notification actions ──────────────────────────────
-    markNotifRead, markAllNotifsRead, deleteNotif, addNotification,
+    markNotifRead, markAllNotifsRead, deleteNotif, clearAllNotifs, addNotification,
 
     // ── Warehouse & Transfer actions ──────────────────────
     addWarehouse, updateWarehouse, deleteWarehouse,

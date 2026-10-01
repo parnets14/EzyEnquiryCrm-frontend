@@ -1,7 +1,6 @@
 import { useState, useMemo, Fragment } from 'react'
-import { Plus, Search, Download, ShoppingBag, CheckCircle, Trash2, X, PackageCheck, Building2, ArrowRight, ChevronDown, RefreshCw, Warehouse, Eye, Pencil, AlertTriangle, BarChart2, TrendingDown } from 'lucide-react'
+import { Plus, Search, Download, ShoppingBag, CheckCircle, Trash2, X, PackageCheck, Building2, ArrowRight, ChevronDown, RefreshCw, Warehouse, Eye, Pencil, AlertTriangle } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 
 /* ── API field helpers ── */
 const purCode     = p => p.purchase_code  || (p._id ? `PUR-${String(p._id).slice(-6).toUpperCase()}` : (p.id || ''))
@@ -585,37 +584,6 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
   const countCompleted = purchases.filter(p => getStatus(p) === 'Completed').length
   const countCancelled = purchases.filter(p => getStatus(p) === 'Cancelled').length
 
-  /* ── Monthly summary — last 12 months (zero-months included) ── */
-  const monthlyData = useMemo(() => {
-    const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-    const now   = new Date()
-    const slots = []
-    for (let i = 11; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-      slots.push({
-        key:   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
-        label: `${MONTH_NAMES[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`,
-        total: 0, qty: 0, count: 0,
-      })
-    }
-    purchases.forEach(p => {
-      const raw = p.purchase_date || p.date || ''
-      if (!raw) return
-      const d   = new Date(raw)
-      if (isNaN(d.getTime())) return
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-      const slot = slots.find(s => s.key === key)
-      if (slot) {
-        slot.total += purTotal(p)
-        slot.qty   += p.qty || 0
-        slot.count += 1
-      }
-    })
-    return slots
-  }, [purchases])
-
-  const [showMonthly, setShowMonthly] = useState(true)
-  const maxMonthTotal = Math.max(...monthlyData.map(m => m.total), 1)
 
   return (
     <>
@@ -687,104 +655,6 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
           </div>
         )
       })()}
-
-      {/* Supplier quick-link banner */}
-      {suppliers.length === 0 && (
-        <div className="alert alert-info" style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Building2 size={16} style={{ flexShrink: 0 }} />
-          <span style={{ flex: 1, fontSize: 13 }}>
-            No suppliers added yet. Add suppliers first to link them to purchases.
-          </span>
-          <button
-            className="btn btn-primary btn-sm"
-            style={{ flexShrink: 0 }}
-            onClick={() => navigate('/purchase-inventory/supplier-management')}
-          >
-            Add Suppliers <ArrowRight size={13} />
-          </button>
-        </div>
-      )}
-
-      {/* ── Monthly Purchase Summary ── */}
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div
-          className="card-header"
-          style={{ cursor: 'pointer', userSelect: 'none' }}
-          onClick={() => setShowMonthly(v => !v)}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <BarChart2 size={16} style={{ color: 'var(--primary)' }} />
-            <span className="card-title">Monthly Purchase Summary</span>
-            <span className="badge badge-blue" style={{ fontSize: 11 }}>Last 12 Months</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {/* Zero-month count badge */}
-            {monthlyData.filter(m => m.count === 0).length > 0 && (
-              <span style={{
-                display: 'inline-flex', alignItems: 'center', gap: 4,
-                background: '#fef2f2', color: '#dc2626',
-                border: '1px solid #fecaca', borderRadius: 20,
-                padding: '2px 10px', fontSize: 11, fontWeight: 600,
-              }}>
-                <TrendingDown size={12} />
-                {monthlyData.filter(m => m.count === 0).length} month{monthlyData.filter(m => m.count === 0).length > 1 ? 's' : ''} with no purchase
-              </span>
-            )}
-            <ChevronDown
-              size={16}
-              style={{
-                color: 'var(--text-muted)',
-                transform: showMonthly ? 'rotate(180deg)' : 'none',
-                transition: 'transform .2s',
-              }}
-            />
-          </div>
-        </div>
-
-        {showMonthly && (
-          <div className="card-body" style={{ padding: '16px 18px' }}>
-
-            {/* Bar chart */}
-            <ResponsiveContainer width="100%" height={160}>
-              <BarChart data={monthlyData} barSize={22} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                <XAxis dataKey="label" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
-                <YAxis
-                  tick={{ fontSize: 10 }}
-                  tickFormatter={v => v === 0 ? '₹0' : `₹${(v / 1000).toFixed(0)}k`}
-                  axisLine={false} tickLine={false} width={48}
-                />
-                <Tooltip
-                  formatter={(val, name) => [`₹${val.toLocaleString('en-IN')}`, 'Purchase']}
-                  labelFormatter={label => `Month: ${label}`}
-                  contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                />
-                <Bar dataKey="total" radius={[5, 5, 0, 0]} name="Purchase">
-                  {monthlyData.map((entry, idx) => (
-                    <Cell
-                      key={idx}
-                      fill={entry.count === 0 ? '#e5e7eb' : entry.total === maxMonthTotal ? '#FD5C02' : '#06B6D4'}
-                    />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-
-            {/* Legend */}
-            <div style={{ display: 'flex', gap: 16, justifyContent: 'center', marginTop: 6, fontSize: 11, flexWrap: 'wrap' }}>
-              {[
-                { color: '#FD5C02', label: 'Highest Month' },
-                { color: '#06B6D4', label: 'Purchase Made' },
-                { color: '#e5e7eb', label: 'No Purchase' },
-              ].map(({ color, label }) => (
-                <span key={label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <span style={{ width: 12, height: 12, borderRadius: 3, background: color, display: 'inline-block', border: color === '#e5e7eb' ? '1px solid #d1d5db' : 'none' }} />
-                  <span style={{ color: 'var(--text-muted)' }}>{label}</span>
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
 
       {/* ── Filter Bar — OUTSIDE card, equal-width single row ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 14px' }}>

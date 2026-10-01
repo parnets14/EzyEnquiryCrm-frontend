@@ -51,6 +51,25 @@ import QuotationManager from './pages/QuotationManager'
 import InvoiceManagement from './pages/InvoiceManagement'
 import StoneCalculation from './pages/StoneCalculation'
 
+import PurchaseDashboard from './pages/PurchaseDashboard'
+import PurchaseRequisition from './pages/PurchaseRequisition'
+import PurchaseOrders from './pages/PurchaseOrders'
+import GRNManagement from './pages/GRNManagement'
+import QualityInspection from './pages/QualityInspection'
+import PurchaseInvoicePage from './pages/PurchaseInvoicePage'
+import PurchaseReturn from './pages/PurchaseReturn'
+import PurchaseReports from './pages/PurchaseReports'
+import InventoryDashboard from './pages/InventoryDashboard'
+import UnitConversion from './pages/UnitConversion'
+import RackBinManagement from './pages/RackBinManagement'
+import OpeningStock from './pages/OpeningStock'
+import StockLedger from './pages/StockLedger'
+import StockAdjustmentPage from './pages/StockAdjustmentPage'
+import DamageBreakage from './pages/DamageBreakage'
+import BatchLotManagement from './pages/BatchLotManagement'
+import ShadeCaliberManagement from './pages/ShadeCaliberManagement'
+import InventoryReports from './pages/InventoryReports'
+
 import './index.css'
 
 function AppRoutes() {
@@ -138,18 +157,55 @@ function AppRoutes() {
         <Route path="staff/staff-management"
           element={<RequireAccess module={MODULES.STAFF_MGMT}><StaffManagement /></RequireAccess>} />
 
-        {/* ── Purchase & Inventory ─────────────────────── */}
+        {/* ── Purchase ─────────────────────────────────── */}
+        <Route path="purchase-inventory/purchase-dashboard"
+          element={<RequireAccess module={MODULES.PURCHASE_DASHBOARD}><PurchaseDashboard purchases={purchases} suppliers={erpCtx.suppliers} products={products} /></RequireAccess>} />
         <Route path="purchase-inventory/supplier-management"
           element={<RequireAccess module={MODULES.SUPPLIERS}><SupplierManagement suppliers={erpCtx.suppliers} addSupplier={erpCtx.addSupplier} updateSupplier={erpCtx.updateSupplier} deleteSupplier={erpCtx.deleteSupplier} /></RequireAccess>} />
+        <Route path="purchase-inventory/purchase-requisition"
+          element={<RequireAccess module={MODULES.PURCHASE_REQUISITION}><PurchaseRequisition products={products} suppliers={erpCtx.suppliers} warehouses={warehouses} branches={erpCtx.branches || []} /></RequireAccess>} />
+        <Route path="purchase-inventory/purchase-orders"
+          element={<RequireAccess module={MODULES.PURCHASE_ORDERS}><PurchaseOrders purchases={purchases} products={products} suppliers={erpCtx.suppliers} warehouses={warehouses} branches={erpCtx.branches || []} {...erpCtx} /></RequireAccess>} />
         <Route path="purchase-inventory/purchase-management"
           element={<RequireAccess module={MODULES.PURCHASES}><PurchaseManagement branches={erpCtx.branches || []} purchases={purchases} products={products} suppliers={erpCtx.suppliers} {...erpCtx} /></RequireAccess>} />
-        <Route path="purchase-inventory/inventory-management"
-          element={<RequireAccess module={MODULES.INVENTORY}><InventoryManagement branches={erpCtx.branches || []} inventory={inventory} products={products} warehouses={warehouses} {...erpCtx} /></RequireAccess>} />
+        <Route path="purchase-inventory/grn"
+          element={<RequireAccess module={MODULES.GRN}><GRNManagement purchases={purchases} products={products} suppliers={erpCtx.suppliers} warehouses={warehouses} branches={erpCtx.branches || []} inventory={inventory} /></RequireAccess>} />
+        <Route path="purchase-inventory/quality-inspection"
+          element={<RequireAccess module={MODULES.QUALITY_INSPECTION}><QualityInspection products={products} warehouses={warehouses} inventory={inventory} /></RequireAccess>} />
+        <Route path="purchase-inventory/purchase-invoice"
+          element={<RequireAccess module={MODULES.PURCHASE_INVOICE}><PurchaseInvoicePage purchases={purchases} products={products} suppliers={erpCtx.suppliers} updatePurchaseBillPayment={erpCtx.updatePurchaseBillPayment} /></RequireAccess>} />
+        <Route path="purchase-inventory/purchase-return"
+          element={<RequireAccess module={MODULES.PURCHASE_RETURN}><PurchaseReturn purchases={purchases} products={products} suppliers={erpCtx.suppliers} warehouses={warehouses} inventory={inventory} /></RequireAccess>} />
+        <Route path="purchase-inventory/purchase-reports"
+          element={<RequireAccess module={MODULES.PURCHASE_REPORTS}><PurchaseReports purchases={purchases} products={products} suppliers={erpCtx.suppliers} warehouses={warehouses} /></RequireAccess>} />
 
-        <Route path="purchase-inventory/stock-transfer"
-          element={<RequireAccess module={MODULES.STOCK_TRANSFER}><StockTransfer branches={erpCtx.branches || []} transfers={transfers} warehouses={warehouses} products={products} {...erpCtx} /></RequireAccess>} />
+        {/* ── Inventory ────────────────────────────────── */}
+        <Route path="purchase-inventory/inventory-dashboard"
+          element={<RequireAccess module={MODULES.INVENTORY_DASHBOARD}><InventoryDashboard inventory={inventory} products={products} warehouses={warehouses} /></RequireAccess>} />
+        <Route path="purchase-inventory/unit-conversion"
+          element={<RequireAccess module={MODULES.UNIT_CONVERSION}><UnitConversion products={products} /></RequireAccess>} />
         <Route path="purchase-inventory/warehouse-management"
           element={<RequireAccess module={MODULES.WAREHOUSES}><WarehouseManagement branches={erpCtx.branches || []} /></RequireAccess>} />
+        <Route path="purchase-inventory/rack-bin"
+          element={<RequireAccess module={MODULES.RACK_BIN}><RackBinManagement warehouses={warehouses} /></RequireAccess>} />
+        <Route path="purchase-inventory/opening-stock"
+          element={<RequireAccess module={MODULES.OPENING_STOCK}><OpeningStock products={products} warehouses={warehouses} /></RequireAccess>} />
+        <Route path="purchase-inventory/inventory-management"
+          element={<RequireAccess module={MODULES.INVENTORY}><InventoryManagement branches={erpCtx.branches || []} inventory={inventory} products={products} warehouses={warehouses} {...erpCtx} /></RequireAccess>} />
+        <Route path="purchase-inventory/stock-ledger"
+          element={<RequireAccess module={MODULES.STOCK_LEDGER}><StockLedger products={products} warehouses={warehouses} inventory={inventory} /></RequireAccess>} />
+        <Route path="purchase-inventory/stock-transfer"
+          element={<RequireAccess module={MODULES.STOCK_TRANSFER}><StockTransfer branches={erpCtx.branches || []} transfers={transfers} warehouses={warehouses} products={products} {...erpCtx} /></RequireAccess>} />
+        <Route path="purchase-inventory/stock-adjustment"
+          element={<RequireAccess module={MODULES.STOCK_ADJUSTMENT}><StockAdjustmentPage products={products} warehouses={warehouses} inventory={inventory} /></RequireAccess>} />
+        <Route path="purchase-inventory/damage-breakage"
+          element={<RequireAccess module={MODULES.DAMAGE_BREAKAGE}><DamageBreakage products={products} warehouses={warehouses} inventory={inventory} /></RequireAccess>} />
+        <Route path="purchase-inventory/batch-lot"
+          element={<RequireAccess module={MODULES.BATCH_LOT}><BatchLotManagement products={products} warehouses={warehouses} inventory={inventory} /></RequireAccess>} />
+        <Route path="purchase-inventory/shade-caliber"
+          element={<RequireAccess module={MODULES.SHADE_CALIBER}><ShadeCaliberManagement products={products} warehouses={warehouses} inventory={inventory} /></RequireAccess>} />
+        <Route path="purchase-inventory/inventory-reports"
+          element={<RequireAccess module={MODULES.INVENTORY_REPORTS}><InventoryReports inventory={inventory} products={products} warehouses={warehouses} /></RequireAccess>} />
 
         {/* ── Marketplace ──────────────────────────────── */}
         <Route path="marketplace/enquiry-management"
