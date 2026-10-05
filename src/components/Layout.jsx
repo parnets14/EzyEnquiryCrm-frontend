@@ -63,8 +63,8 @@ const NAV_CONFIG = [
   {
     type: 'section', key: 'product-setup', label: 'Products', icon: Package,
     items: [
-      { to: '/product-management/categories', icon: Tag,     label: 'Categories',          moduleKey: MODULES.CATEGORIES },
-      { to: '/product-management/brands',     icon: Tag,     label: 'Brands',              moduleKey: MODULES.BRANDS },
+      // Categories & Brands are now managed inline from the Add Product form,
+      // so their separate pages are hidden from the menu.
       { to: '/product-management/products',   icon: Package, label: 'Product List', moduleKey: MODULES.PRODUCTS },
       { to: '/product-management/external-products', icon: Store, label: 'Partner Products', moduleKey: MODULES.PRODUCTS },
     ],
