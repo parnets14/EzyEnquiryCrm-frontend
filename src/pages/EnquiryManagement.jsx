@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { enquiryApi } from '../api'
+import { enquirySeen } from '../utils/enquirySeen'
 import { Plus, Search, Eye, ArrowRight, ArrowRightLeft, MessageCircle, CheckCircle, X, LayoutList, Sparkles, ScanEye, Reply, Handshake, BadgeCheck, Ban, Package, Trash2, Edit2, Send, DollarSign, Box, Truck, FileText, Clock, CheckCircle2, MapPin, Phone, Mail, Calendar } from 'lucide-react'
 
 // ── API field helpers (backend snake_case → frontend) ─────────
@@ -53,10 +54,10 @@ const directionOf = (e, user) => {
 // action — which reads as "it created it many times". Group them and summarise:
 // how many recipients, how many replied, the best quote so far, and the
 // furthest-along status.
-const STATUS_RANK = { Cancelled: 0, New: 1, Viewed: 2, Replied: 3, Negotiation: 4, Confirmed: 5 }
+const STATUS_RANK = { Cancelled: 0, New: 1, Viewed: 2, Replied: 3, Confirmed: 5 }
 
 function rowHasReplied(r) {
-  return ['Replied', 'Negotiation', 'Confirmed'].includes(r.status)
+  return ['Replied', 'Confirmed'].includes(r.status)
     || !!String(r.distributor_reply || '').trim()
     || r.offered_price != null
     || r.available_quantity != null
@@ -77,6 +78,13 @@ function groupBroadcasts(rows) {
       .map(m => m.status)
       .sort((a, b) => (STATUS_RANK[b] ?? 1) - (STATUS_RANK[a] ?? 1))[0]
     const prices = members.map(m => +(m.offered_price || 0)).filter(Boolean)
+    // The group's "last activity" is the NEWEST updated_at across every sibling
+    // row — so the green dot lights up when ANY recipient acts, not just the
+    // first member we spread below.
+    const latestUpdated = members
+      .map(m => m.updated_at || m.updatedAt || m.created_at)
+      .filter(Boolean)
+      .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0]
     return {
       ...members[0],
       __group: true,
@@ -85,6 +93,7 @@ function groupBroadcasts(rows) {
       __ids: members.map(eid),
       status,
       offered_price: prices.length ? Math.min(...prices) : null,
+      updated_at: latestUpdated || members[0].updated_at,
     }
   })
 }
@@ -168,13 +177,12 @@ const enqOrderId   = e => e.order_id || e.orderId || null
 const enqOrderCode = e => e.order_code || (e.order_id && typeof e.order_id === 'object' ? e.order_id.order_code : '') || ''
 const enqRemarks  = e => e.remarks || ''
 
-const STATUS_FLOW = ['New', 'Viewed', 'Replied', 'Negotiation', 'Confirmed', 'Cancelled']
+const STATUS_FLOW = ['New', 'Viewed', 'Replied', 'Confirmed', 'Cancelled']
 
 const STATUS_META = {
   New:         { color: 'badge-blue',   label: 'New',         dot: '#3B82F6' },
   Viewed:      { color: 'badge-cyan',   label: 'Viewed',      dot: '#06B6D4' },
   Replied:     { color: 'badge-yellow', label: 'Replied',     dot: '#F59E0B' },
-  Negotiation: { color: 'badge-orange', label: 'Negotiation', dot: '#F97316' },
   Confirmed:   { color: 'badge-green',  label: 'Confirmed',   dot: '#10B981' },
   Cancelled:   { color: 'badge-red',    label: 'Cancelled',   dot: '#EF4444' },
 }
@@ -182,8 +190,7 @@ const STATUS_META = {
 const NEXT_STATUSES = {
   New:         ['Viewed', 'Cancelled'],
   Viewed:      ['Replied', 'Cancelled'],
-  Replied:     ['Negotiation', 'Confirmed', 'Cancelled'],
-  Negotiation: ['Confirmed', 'Cancelled'],
+  Replied:     ['Confirmed', 'Cancelled'],
   Confirmed:   [],
   Cancelled:   [],
 }
@@ -207,6 +214,10 @@ export default function EnquiryManagement({
   // 'received' = addressed TO this company (we owe a reply)
   // 'sent'     = raised BY this company (we are waiting on answers)
   const [dirTab,        setDirTab]       = useState('received')
+  // Browser-local "last seen" map { enquiryId: ISO } — drives the green "new
+  // activity" dot on the Sent tab and its rows. Reloaded whenever the enquiries
+  // prop changes so a dot clears after the operator opens the enquiry.
+  const [seenMap,       setSeenMap]      = useState(() => enquirySeen.getAll())
   // Keyed by enquiry id so the panel never shows the PREVIOUS enquiry's roster
   // while the new one loads — and so nothing has to be reset synchronously
   // inside the effect (which trips react-hooks/set-state-in-effect).
@@ -261,13 +272,17 @@ export default function EnquiryManagement({
 
   const toast = (msg) => { setSuccessMsg(msg); setTimeout(() => setSuccessMsg(''), 4000) }
 
-  // ── Reply roster for an enquiry this company SENT ─────────────
+  // ── Reply roster for the selected enquiry ─────────────────────
   // A broadcast is N sibling rows sharing one enq_code, so the panel fetches the
   // whole roster in one call instead of making the user hop between rows.
+  // We fetch for EVERY opened enquiry (not only ones we sent) so the admin's
+  // Received view also shows the reply cards — mirroring the wholesaler app,
+  // which renders the Replies section whenever any reply exists. The backend
+  // scopes the roster per-recipient, so this never leaks other parties' replies.
   // `selectedId` (not `selected`) is the dependency: the object identity changes
   // on every reply we send, which would refetch needlessly.
   const selectedId    = selected ? eid(selected) : null
-  const wantsReplies  = !!selectedId && directionOf(selected, user) === 'sent'
+  const wantsReplies  = !!selectedId
 
   useEffect(() => {
     if (!wantsReplies) return undefined
@@ -283,10 +298,12 @@ export default function EnquiryManagement({
   const repliesLoading = wantsReplies && replyState.id !== selectedId
 
   // ── Conversation thread (buyer ↔ seller messages + operator notes) ──
-  // Loaded for every selected enquiry. Keyed by enquiry id so the panel never
-  // shows the previous enquiry's thread while the new one is loading.
-  const messages       = selectedId && threadState.id === selectedId ? threadState.data : null
-  const messagesLoading = !!selectedId && threadState.id !== selectedId
+  // The chat thread is keyed by whichever row is active: a specific seller's
+  // row when a reply card opened the chat (messageModal.sellerId), otherwise the
+  // selected anchor. This keeps each seller's conversation separate.
+  const activeThreadId  = messageModal.sellerId || selectedId
+  const messages        = activeThreadId && threadState.id === activeThreadId ? threadState.data : null
+  const messagesLoading = !!activeThreadId && threadState.id !== activeThreadId
 
   const loadMessages = (id) => {
     if (!id) return
@@ -319,6 +336,12 @@ export default function EnquiryManagement({
   // this company and needs its own reply.
   const dirRows = dirTab === 'sent' ? groupBroadcasts(dirFiltered) : dirFiltered
 
+  // Does the SENT tab have any unseen activity? Group the sent broadcasts and
+  // ask the seen-tracker if any one changed since it was last opened — drives
+  // the green notification dot on the "Sent" tab button.
+  const sentHasNewActivity = groupBroadcasts(enquiries.filter(e => directionOf(e, user) === 'sent'))
+    .some(e => enquirySeen.isNew(e, seenMap))
+
   // ── Filtered list ─────────────────────────────────────────────
   const filtered = dirRows.filter(e =>
     (statusFilter === 'All' || e.status === statusFilter) &&
@@ -344,7 +367,14 @@ export default function EnquiryManagement({
       updateEnquiry?.(eid(e), { status: 'Viewed' })
       setSelected({ ...e, status: 'Viewed' })
     }
-    
+
+    // Mark this enquiry (and every sibling of a grouped broadcast) as SEEN at
+    // its latest activity time, then refresh the local map so the green dot on
+    // the Sent tab / row clears immediately. If a reply later bumps
+    // `updated_at`, the dot returns on the next list refresh.
+    enquirySeen.markSeen(eid(e), e.updated_at || e.updatedAt, e.__ids || [])
+    setSeenMap(enquirySeen.getAll())
+
     // Load the conversation thread if needed
     loadMessages(eid(e))
   }
@@ -444,7 +474,6 @@ export default function EnquiryManagement({
       if (!newForm.mobile.trim() || !/^\d{10}$/.test(newForm.mobile)) errs.mobile = 'Valid 10-digit mobile required'
     }
     if (!newForm.product.trim()) errs.product = 'Enter the product name'
-    if (!newForm.location.trim()) errs.location = 'Delivery location required'
     if (!newForm.qty || isNaN(newForm.qty) || +newForm.qty < 1) errs.qty = 'Valid quantity required'
     if (Object.keys(errs).length) { setEnqErrors(errs); return }
 
@@ -595,7 +624,6 @@ export default function EnquiryManagement({
           { label: 'New',         count: dirRows.filter(e => e.status === 'New').length,         dot: '#3B82F6', Icon: Sparkles,     bg: 'linear-gradient(135deg,#3b82f610 0%,#60a5fa18 100%)' },
           { label: 'Viewed',      count: dirRows.filter(e => e.status === 'Viewed').length,      dot: '#06B6D4', Icon: ScanEye,      bg: 'linear-gradient(135deg,#06b6d410 0%,#22d3ee18 100%)' },
           { label: 'Replied',     count: dirRows.filter(e => e.status === 'Replied').length,     dot: '#F59E0B', Icon: Reply,        bg: 'linear-gradient(135deg,#f59e0b10 0%,#fbbf2418 100%)' },
-          { label: 'Negotiation', count: dirRows.filter(e => e.status === 'Negotiation').length, dot: '#F97316', Icon: Handshake,    bg: 'linear-gradient(135deg,#f9731610 0%,#fb923c18 100%)' },
           { label: 'Confirmed',   count: dirRows.filter(e => e.status === 'Confirmed').length,   dot: '#10B981', Icon: BadgeCheck,   bg: 'linear-gradient(135deg,#10b98110 0%,#34d39918 100%)' },
           { label: 'Cancelled',   count: dirRows.filter(e => e.status === 'Cancelled').length,   dot: '#EF4444', Icon: Ban,          bg: 'linear-gradient(135deg,#ef444410 0%,#f8717118 100%)' },
         ].map(({ label, count, dot, Icon, bg }) => {
@@ -664,6 +692,7 @@ export default function EnquiryManagement({
               onClick={() => setDirTab(t.key)}
               title={t.hint}
               style={{
+                position: 'relative',
                 padding: '9px 18px', borderRadius: 10, cursor: 'pointer',
                 fontSize: 13, fontWeight: 700,
                 border: `1.5px solid ${active ? 'var(--primary)' : 'var(--border)'}`,
@@ -672,6 +701,15 @@ export default function EnquiryManagement({
               }}
             >
               {t.label} ({n})
+              {/* Green notification dot — only on the Sent tab, only when some
+                  sent broadcast has unseen activity. Clears per-enquiry on open. */}
+              {t.key === 'sent' && sentHasNewActivity && (
+                <span style={{
+                  position: 'absolute', top: 6, right: 8,
+                  width: 9, height: 9, borderRadius: 5,
+                  background: '#10b981', border: '1.5px solid #fff',
+                }} />
+              )}
             </button>
           )
         })}
@@ -720,10 +758,25 @@ export default function EnquiryManagement({
               </tr>
             </thead>
             <tbody>
-              {filtered.map(e => (
+              {filtered.map(e => {
+                const isNewActivity = enquirySeen.isNew(e, seenMap)
+                return (
                 <tr key={eid(e)}>
                   <td style={{ color: 'var(--primary)', fontWeight: 700, fontSize: 12 }}>
-                    {enqCode(e)}
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      {/* Green "new activity" dot — a reply/message/cancel/status
+                          change since this enquiry was last opened in this browser. */}
+                      {isNewActivity && (
+                        <span style={{ width: 8, height: 8, borderRadius: 4, background: '#10b981', flexShrink: 0 }} />
+                      )}
+                      {enqCode(e)}
+                      {isNewActivity && (
+                        <span style={{
+                          fontSize: 9, fontWeight: 800, letterSpacing: 0.5, color: '#fff',
+                          background: '#10b981', borderRadius: 6, padding: '1px 5px',
+                        }}>NEW</span>
+                      )}
+                    </span>
                   </td>
                   <td>
                     {/* Sent tab: show product as primary label (not "N recipients") */}
@@ -805,7 +858,8 @@ export default function EnquiryManagement({
                     </div>
                   </td>
                 </tr>
-              ))}
+                )
+              })}
               {filtered.length === 0 && (
                 <tr>
                   <td colSpan={9} style={{ textAlign: 'center', padding: 32, color: 'var(--text-muted)' }}>
@@ -828,7 +882,7 @@ export default function EnquiryManagement({
 
             {/* Header */}
             <div className="modal-header">
-              <span className="modal-title">Enquiry Details � {enqCode(selected)}</span>
+              <span className="modal-title">Enquiry Details · {enqCode(selected)}</span>
               <button className="btn-ghost" onClick={() => setSelected(null)}><X style={{ width: 16 }} /></button>
             </div>
 
@@ -927,7 +981,7 @@ export default function EnquiryManagement({
               {wantsReplies && (
                 <div style={{ marginBottom: 20 }}>
                   {repliesLoading && (
-                    <div style={{ textAlign: 'center', padding: 20, color: '#64748b', fontSize: 13 }}>Loading�</div>
+                    <div style={{ textAlign: 'center', padding: 20, color: '#64748b', fontSize: 13 }}>Loading…</div>
                   )}
                   {replies && (
                     <>
@@ -936,33 +990,97 @@ export default function EnquiryManagement({
                           <div style={{ fontSize: 11, fontWeight: 700, color: '#10b981', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
                             <CheckCircle style={{ width: 13 }} /> Replied ({replies.replied.length})
                           </div>
-                          <div style={{ border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }}>
-                            {replies.replied.map((r, idx) => {
-                              const seller = r.company || {}
-                              return (
-                                <div key={String(r.id)} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 12, padding: '12px 16px', background: idx % 2 === 0 ? '#fff' : '#f8fafc', borderBottom: idx < replies.replied.length - 1 ? '1px solid #e2e8f0' : 'none', alignItems: 'center' }}>
+                          {/* One CARD per replier — each with its OWN Message /
+                              Reply / Cancel buttons, matching the wholesaler app. */}
+                          {replies.replied.map((r) => {
+                            const seller = r.company || {}
+                            const isCancelled = selected.status === 'Cancelled'
+                            const isConfirmed = selected.status === 'Confirmed'
+                            const canAct    = !isCancelled
+                            const canCancel = !isCancelled && !isConfirmed
+                            return (
+                              <div key={String(r.id)} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: 14, marginBottom: 10, background: '#fff' }}>
+                                {/* Header: who replied */}
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', paddingBottom: 10, borderBottom: '1px solid #f1f5f9', marginBottom: 10 }}>
                                   <div>
-                                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', marginBottom: 3 }}>{seller.name || '�'}</div>
-                                    {seller.mobile && <div style={{ fontSize: 11, color: '#64748b', display: 'flex', alignItems: 'center', gap: 4 }}><Phone style={{ width: 10 }} />{seller.mobile}</div>}
-                                    {seller.email && <div style={{ fontSize: 11, color: '#64748b', display: 'flex', alignItems: 'center', gap: 4 }}><Mail style={{ width: 10 }} />{seller.email}</div>}
-                                    {r.delivery_timeline && <div style={{ fontSize: 11, color: '#64748b', display: 'flex', alignItems: 'center', gap: 4, marginTop: 2 }}><Truck style={{ width: 10 }} />{r.delivery_timeline}</div>}
+                                    <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginBottom: 4 }}>{seller.name || 'Unknown'}</div>
+                                    {seller.mobile && <div style={{ fontSize: 11.5, color: '#64748b', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 2 }}><Phone style={{ width: 11 }} />{seller.mobile}</div>}
+                                    {seller.email && <div style={{ fontSize: 11.5, color: '#64748b', display: 'flex', alignItems: 'center', gap: 4, marginBottom: 2 }}><Mail style={{ width: 11 }} />{seller.email}</div>}
+                                    {(seller.city || seller.state) && <div style={{ fontSize: 11.5, color: '#64748b', display: 'flex', alignItems: 'center', gap: 4 }}><MapPin style={{ width: 11 }} />{[seller.city, seller.state].filter(Boolean).join(', ')}</div>}
                                   </div>
-                                  <div style={{ textAlign: 'center' }}>
-                                    <div style={{ fontSize: 10, color: '#64748b', marginBottom: 3 }}>Offered Price</div>
-                                    <div style={{ fontSize: 15, fontWeight: 800, color: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
-                                      <DollarSign style={{ width: 12 }} />{Number(r.offered_price || 0).toLocaleString()}
-                                    </div>
-                                  </div>
-                                  <div style={{ textAlign: 'center' }}>
-                                    <div style={{ fontSize: 10, color: '#64748b', marginBottom: 3 }}>Available</div>
-                                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
-                                      <Box style={{ width: 11 }} />{r.available_quantity || 0} {selected.unit || ''}
-                                    </div>
-                                  </div>
+                                  {r.status && <span className={`badge ${STATUS_META[r.status]?.color || 'badge-gray'}`} style={{ fontSize: 10 }}>{r.status}</span>}
                                 </div>
-                              )
-                            })}
-                          </div>
+                                {/* Offer line */}
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, paddingBottom: 10, borderBottom: '1px solid #f1f5f9', marginBottom: 10 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                    <DollarSign style={{ width: 13, color: '#10b981' }} />
+                                    <span style={{ fontSize: 15, fontWeight: 800, color: '#10b981' }}>{Number(r.offered_price || 0).toLocaleString()}</span>
+                                  </div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                    <Box style={{ width: 12, color: '#64748b' }} />
+                                    <span style={{ fontSize: 12.5, color: '#64748b' }}>Avail: {r.available_quantity || 0} {selected.unit || ''}</span>
+                                  </div>
+                                  {r.delivery_timeline && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                      <Truck style={{ width: 12, color: '#64748b' }} />
+                                      <span style={{ fontSize: 12.5, color: '#64748b' }}>{r.delivery_timeline}</span>
+                                    </div>
+                                  )}
+                                </div>
+                                {/* Their message */}
+                                {r.message && (
+                                  <div style={{ background: '#f8fafc', borderRadius: 8, padding: '8px 10px', marginBottom: 10, fontSize: 12.5, color: '#334155' }}>
+                                    {r.message}
+                                  </div>
+                                )}
+                                {/* Per-card actions: Message / Reply / Cancel —
+                                    each targets THIS seller's own enquiry row
+                                    (r.id), so the chat/history shown is only the
+                                    Admin ↔ this-seller conversation, never other
+                                    recipients'. */}
+                                <div style={{ display: 'flex', gap: 8 }}>
+                                  <button className="btn" disabled={!canAct}
+                                    style={{ flex: 1, background: canAct ? '#f97316' : 'transparent', color: canAct ? '#fff' : '#f97316', fontWeight: 700, padding: '9px', fontSize: 12.5, borderRadius: 8, border: '2px solid #f97316', cursor: canAct ? 'pointer' : 'not-allowed', opacity: canAct ? 1 : 0.5, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
+                                    onClick={() => {
+                                      if (!canAct) return
+                                      setReplyModal({ visible: false, seller: null, sellerId: null })
+                                      const willOpen = !(messageModal.visible && messageModal.sellerId === r.id)
+                                      if (willOpen) loadMessages(r.id)
+                                      setMessageModal({ visible: willOpen, seller, sellerId: r.id })
+                                    }}>
+                                    <MessageCircle style={{ width: 13 }} />Message
+                                  </button>
+                                  <button className="btn" disabled={!canAct}
+                                    style={{ flex: 1, background: canAct ? '#f97316' : 'transparent', color: canAct ? '#fff' : '#f97316', fontWeight: 700, padding: '9px', fontSize: 12.5, borderRadius: 8, border: '2px solid #f97316', cursor: canAct ? 'pointer' : 'not-allowed', opacity: canAct ? 1 : 0.5, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
+                                    onClick={() => {
+                                      if (!canAct) return
+                                      setMessageModal({ visible: false, seller: null, sellerId: null })
+                                      const willOpen = !(replyModal.visible && replyModal.sellerId === r.id)
+                                      if (willOpen) {
+                                        setModalReplyForm({ rate: '', available_qty: '', timeline: '', remarks: '' })
+                                        setReplyHistory([])
+                                        enquiryApi.listReplyHistory(r.id)
+                                          .then(h => setReplyHistory(h?.data?.replies || h?.replies || []))
+                                          .catch(() => setReplyHistory([]))
+                                      }
+                                      setReplyModal({ visible: willOpen, seller, sellerId: r.id })
+                                    }}>
+                                    <Reply style={{ width: 13 }} />Reply
+                                  </button>
+                                  <button className="btn" disabled={!canCancel}
+                                    style={{ flex: 1, background: canCancel ? '#ef4444' : 'transparent', color: canCancel ? '#fff' : '#ef4444', fontWeight: 700, padding: '9px', fontSize: 12.5, borderRadius: 8, border: '2px solid #ef4444', cursor: canCancel ? 'pointer' : 'not-allowed', opacity: canCancel ? 1 : 0.5, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
+                                    onClick={() => {
+                                      if (!canCancel) return
+                                      if (window.confirm(`Cancel this reply from ${seller.name || 'this seller'}? This cannot be undone.`)) {
+                                        updateEnquiry?.(r.id, { status: 'Cancelled' })
+                                      }
+                                    }}>
+                                    <Ban style={{ width: 13 }} />{isCancelled ? 'Cancelled' : isConfirmed ? 'Confirmed' : 'Cancel'}
+                                  </button>
+                                </div>
+                              </div>
+                            )
+                          })}
                         </div>
                       )}
                       {!replies.replied?.length && null}
@@ -989,12 +1107,13 @@ export default function EnquiryManagement({
                 // wipe a broadcast nobody has responded to yet.
                 const isSentEnquiry = directionOf(selected, user) === 'sent'
                 // `replies` is null until the roster loads; treat "loading" as
-                // "not yet known" but DO NOT hide everything forever — only the
-                // sent case is gated, and only until the roster says replied>0.
+                // "not yet known" but DO NOT hide everything forever.
                 const hasAnyReply   = !!(replies?.replied?.length)
-                // Received enquiries are addressed TO us — the reply flow is the
-                // normal path there, so they keep the full action row.
-                const showReplyActions = !isSentEnquiry || hasAnyReply
+                // Mirror the wholesaler app: the shared Message/Reply/Cancel row
+                // shows ONLY when there are no reply cards. The moment reply
+                // cards exist (either direction), THEY carry the per-replier
+                // actions, so the shared row would duplicate them — hide it.
+                const showReplyActions = !isSentEnquiry && !hasAnyReply
 
                 // For a sent enquiry with no reply yet, show a quiet note instead
                 // of the action row so the panel explains why there is nothing to do.
@@ -1015,10 +1134,13 @@ export default function EnquiryManagement({
                   )
                 }
 
-                if (!showReplyActions) return null
-
                 return (
                   <>
+                    {/* Shared Message/Reply/Cancel row — RECEIVED enquiries only.
+                        On SENT the per-reply cards above carry their own buttons,
+                        but the chat/reply PANELS below still render so those card
+                        buttons have somewhere to open. */}
+                    {showReplyActions && (
                     <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
 
                       {/* MESSAGE */}
@@ -1120,9 +1242,12 @@ export default function EnquiryManagement({
                         {isCancelled ? 'Cancelled' : isConfirmed ? 'Confirmed' : 'Cancel'}
                       </button>
                     </div>
+                    )}
 
-                    {/* CHAT PANEL — opens below buttons */}
-                    {messageModal.visible && messageModal.sellerId === null && (
+                    {/* CHAT PANEL — opens below the buttons for EITHER the shared
+                        received-row thread (sellerId === null) OR a specific
+                        seller's thread (sellerId === r.id). */}
+                    {messageModal.visible && (
                       <div style={{
                         background: '#fff',
                         border: '2px solid #f97316',
@@ -1139,7 +1264,7 @@ export default function EnquiryManagement({
                           alignItems: 'center',
                         }}>
                           <div style={{ color: '#fff', fontWeight: 700, fontSize: 13 }}>
-                            💬 Chat with {enqRetailer(selected) || 'Enquiry Creator'}
+                            💬 Chat with {messageModal.seller?.name || enqRetailer(selected) || 'Enquiry Creator'}
                           </div>
                           <button
                             style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 16, lineHeight: 1 }}
@@ -1282,11 +1407,14 @@ export default function EnquiryManagement({
                                 data: [...(prev.data || []), optimistic],
                               }))
                               setMessageText('')
+                              // Target the specific seller's row when a seller
+                              // card opened this chat; otherwise the anchor row.
+                              const targetRowId = messageModal.sellerId || eid(selected)
                               try {
                                 const clientId = `c${Date.now()}`
-                                await enquiryApi.sendMessage(eid(selected), text, clientId)
+                                await enquiryApi.sendMessage(targetRowId, text, clientId)
                                 // Reload full thread so all messages show with correct sender_side
-                                loadMessages(eid(selected))
+                                loadMessages(targetRowId)
                                 toast('✓ Message sent')
                               } catch {
                                 // Remove optimistic on failure
@@ -1307,13 +1435,15 @@ export default function EnquiryManagement({
                       </div>
                     )}
 
-                    {/* REPLY FORM — opens below buttons */}
-                    {replyModal.visible && replyModal.sellerId === null && (
+                    {/* REPLY FORM — opens below the buttons for EITHER the shared
+                        received-row (sellerId === null) OR a specific seller's
+                        row (sellerId === r.id). */}
+                    {replyModal.visible && (
                       <div style={{ background: '#fff', border: '2px solid #f97316', borderRadius: 10, overflow: 'hidden', marginBottom: 16 }}>
 
                         {/* Header */}
                         <div style={{ background: '#f97316', padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <div style={{ color: '#fff', fontWeight: 700, fontSize: 13 }}>↩️ Reply to {enqRetailer(selected) || 'Enquiry Creator'}</div>
+                          <div style={{ color: '#fff', fontWeight: 700, fontSize: 13 }}>↩️ Reply to {replyModal.seller?.name || enqRetailer(selected) || 'Enquiry Creator'}</div>
                           <button style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 16 }} onClick={() => setReplyModal({ visible: false, seller: null, sellerId: null })}>✕</button>
                         </div>
 
@@ -1420,12 +1550,15 @@ export default function EnquiryManagement({
                                     remarks:            modalReplyForm.remarks.trim(),
                                     unit:               selected.unit || '',
                                   }
+                                  // Target the specific seller's row when a reply
+                                  // card opened this form; otherwise the anchor row.
+                                  const targetRowId = replyModal.sellerId || eid(selected)
                                   // Save to history (creates new record, never overwrites)
-                                  const saved = await enquiryApi.createReplyHistory(eid(selected), payload)
+                                  const saved = await enquiryApi.createReplyHistory(targetRowId, payload)
                                   const newEntry = saved?.data || saved
                                   setReplyHistory(prev => [...prev, newEntry])
-                                  // Also update enquiry status
-                                  await updateEnquiry?.(eid(selected), { status: 'Replied', offered_price: payload.offered_price, available_quantity: payload.available_quantity, delivery_timeline: payload.delivery_timeline, distributor_reply: payload.remarks })
+                                  // Also update enquiry status on that same row
+                                  await updateEnquiry?.(targetRowId, { status: 'Replied', offered_price: payload.offered_price, available_quantity: payload.available_quantity, delivery_timeline: payload.delivery_timeline, distributor_reply: payload.remarks })
                                   setSelected(prev => ({ ...prev, status: 'Replied', offered_price: payload.offered_price }))
                                   toast(`✓ Reply #${replyHistory.length + 1} sent — ₹${Number(payload.offered_price).toLocaleString()}`)
                                   setModalReplyForm({ rate: '', available_qty: '', timeline: '', remarks: '' })
@@ -1577,39 +1710,11 @@ export default function EnquiryManagement({
                         onChange={e => setNewForm(f => ({ ...f, color: e.target.value }))} />
                     </div>
                   </div>
-                  <div className="form-row" style={{ marginBottom: 0 }}>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">Material</label>
-                      <input className="form-control" placeholder="e.g. Ceramic, Vitrified, Porcelain"
-                        value={newForm.material}
-                        onChange={e => setNewForm(f => ({ ...f, material: e.target.value }))} />
-                    </div>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">Surface</label>
-                      <input className="form-control" placeholder="e.g. Matte, Polished, Anti-skid"
-                        value={newForm.surface}
-                        onChange={e => setNewForm(f => ({ ...f, surface: e.target.value }))} />
-                    </div>
-                  </div>
-                  <div className="form-row" style={{ marginBottom: 0 }}>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">Grade</label>
-                      <input className="form-control" placeholder="e.g. A"
-                        value={newForm.grade}
-                        onChange={e => setNewForm(f => ({ ...f, grade: e.target.value }))} />
-                    </div>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">Thickness</label>
-                      <input className="form-control" placeholder="e.g. 10 mm"
-                        value={newForm.thickness}
-                        onChange={e => setNewForm(f => ({ ...f, thickness: e.target.value }))} />
-                    </div>
-                  </div>
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">Tile Type</label>
-                    <input className="form-control" placeholder="e.g. Floor, Wall, Outdoor"
-                      value={newForm.tile_type}
-                      onChange={e => setNewForm(f => ({ ...f, tile_type: e.target.value }))} />
+                    <label className="form-label">Grade</label>
+                    <input className="form-control" placeholder="e.g. A"
+                      value={newForm.grade}
+                      onChange={e => setNewForm(f => ({ ...f, grade: e.target.value }))} />
                   </div>
                   <div className="form-group" style={{ marginBottom: 0 }}>
                     <label className="form-label">More details</label>
@@ -1662,12 +1767,11 @@ export default function EnquiryManagement({
                     </div>
                   </div>
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">Delivery location *</label>
-                    <input className={`form-control${enqErrors.location ? ' input-error' : ''}`}
+                    <label className="form-label">Delivery location</label>
+                    <input className="form-control"
                       placeholder="City, State — e.g. Mumbai, Maharashtra"
                       value={newForm.location}
                       onChange={e => setNewForm(f => ({ ...f, location: e.target.value }))} />
-                    {enqErrors.location && <div className="form-error">{enqErrors.location}</div>}
                     <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>City / site where you need the material.</div>
                   </div>
                   <div className="form-group" style={{ marginBottom: 0 }}>
@@ -1690,7 +1794,7 @@ export default function EnquiryManagement({
                 }}>
                   <span style={{ fontSize: 16 }}>📢</span>
                   <div style={{ fontSize: 12, color: '#166534', lineHeight: 1.5 }}>
-                    Goes to every wholesaler and the Admin team. Each reply comes back as its own thread so you can compare quotes.
+                    Goes to every retailer, every wholesaler and the Admin team. Each reply comes back as its own thread so you can compare quotes.
                   </div>
                 </div>
               )}

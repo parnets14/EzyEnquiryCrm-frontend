@@ -17,6 +17,7 @@ import {
   X, TrendingUp, ShieldOff, ShieldCheck,
   Wallet, Receipt, Truck, Target,
   IndianRupee, AlertTriangle, ClipboardList, UserCheck,
+  MapPin, Phone, Mail, Package, Tag, Clock, FileText, Hash,
 } from 'lucide-react'
 import { retailerApi } from '../api/retailerApi'
 
@@ -103,6 +104,49 @@ const badgeCell = v => <span className={`badge ${badge(v)}`}>{v || '—'}</span>
 const moneyCell = v => <span style={{ fontWeight: 700 }}>{money(v)}</span>
 const dateCell  = v => <span style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{fmtDate(v)}</span>
 
+// ── Enquiry detail-modal helpers ──────────────────────────────
+// A small section header with an icon, styled like the View-Company modal's
+// KYC block label so the detail view reads as a set of grouped field grids.
+function SectionLabel({ icon: Icon, text }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 18, marginBottom: 10, fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-muted)' }}>
+      <Icon size={13} style={{ color: '#EA580C' }} />{text}
+    </div>
+  )
+}
+
+// A 2-column grid of label/value pairs. `fields` is an array of [label, value]
+// where value may be a string or a React node (badge, money, icon row).
+function FieldGrid({ fields }) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+      {fields.map(([label, val]) => (
+        <div key={label}>
+          <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-muted)', marginBottom: 2 }}>{label}</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', wordBreak: 'break-word' }}>{val ?? '—'}</div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// A full-width label/value row for free-text fields (replies, notes, remarks).
+function NoteRow({ label, value }) {
+  return (
+    <div>
+      <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-muted)', marginBottom: 2 }}>{label}</div>
+      <div style={{
+        fontSize: 13, fontWeight: 500, color: value ? 'var(--text)' : 'var(--text-muted)',
+        whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+        padding: '8px 11px', background: 'var(--bg)', borderRadius: 8, border: '1px solid var(--border)',
+        minHeight: 34,
+      }}>
+        {value || '— no notes —'}
+      </div>
+    </div>
+  )
+}
+
 // ═══════════════════════════════════════════════════════════════
 export default function RetailerManagement() {
   const [tab, setTab] = useState('overview')
@@ -140,6 +184,7 @@ export default function RetailerManagement() {
 
   // modals
   const [viewCompany,    setViewCompany]    = useState(null)
+  const [viewEnquiry,    setViewEnquiry]    = useState(null)
   const [rejectFor,      setRejectFor]      = useState(null)
   const [rejectReason,   setRejectReason]   = useState('')
   const [suspendFor,     setSuspendFor]     = useState(null)
@@ -298,7 +343,7 @@ export default function RetailerManagement() {
 
   const fCompanies = companies.filter(c => match(c.name, c.owner_name, c.mobile, c.email, c.company_code))
   const fOrders    = orders.filter(o    => match(o.order_code, o.company_name, o.customer_name, o.product_name))
-  const fEnquiries = enquiries.filter(e => match(e.enq_code, e.company_name, e.retailer_name, e.product_name))
+  const fEnquiries = enquiries.filter(e => match(e.enq_code, e.company_name, e.retailer_name, e.retailer_mobile, e.product_name, e.product_code, e.location))
   const fUsers     = users.filter(u     => match(u.name, u.mobile, u.email, u.company_name))
   const fSubs      = subs.filter(s      => match(s.company_name, s.plan, s.company_code))
 
@@ -615,18 +660,43 @@ export default function RetailerManagement() {
           </div>
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Code</th><th>Company</th><th>Product</th><th>Qty</th><th>Status</th><th>Date</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>Code</th>
+                  <th>Company</th>
+                  <th>Retailer</th>
+                  <th>Product</th>
+                  <th>Qty</th>
+                  <th>Offered Price</th>
+                  <th>Status</th>
+                  <th>Date</th>
+                  <th style={{ textAlign: 'center' }}>Action</th>
+                </tr>
+              </thead>
               <tbody>
-                {loading && <tr><td colSpan={6} style={{ textAlign: 'center', padding: 30 }}>Loading…</td></tr>}
-                {!loading && fEnquiries.length === 0 && <tr><td colSpan={6} style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>No enquiries found.</td></tr>}
+                {loading && <tr><td colSpan={9} style={{ textAlign: 'center', padding: 30 }}>Loading…</td></tr>}
+                {!loading && fEnquiries.length === 0 && <tr><td colSpan={9} style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>No enquiries found.</td></tr>}
                 {!loading && fEnquiries.map((e, i) => (
-                  <tr key={e._id || i}>
+                  <tr key={e._id || i} style={{ cursor: 'pointer' }} onClick={() => setViewEnquiry(e)}>
                     <td style={{ fontFamily: 'monospace', fontWeight: 700, color: '#F26522', fontSize: 12 }}>{e.enq_code || '—'}</td>
                     <td>{e.company_name || '—'}</td>
-                    <td style={{ fontWeight: 600 }}>{e.product_name || '—'}</td>
+                    <td>
+                      <div style={{ fontWeight: 600 }}>{e.retailer_name || '—'}</div>
+                      {e.retailer_mobile && <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{e.retailer_mobile}</div>}
+                    </td>
+                    <td>
+                      <div style={{ fontWeight: 600 }}>{e.product_name || '—'}</div>
+                      {e.product_code && <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'monospace' }}>{e.product_code}</div>}
+                    </td>
                     <td>{e.qty} {e.unit || ''}</td>
+                    <td>{e.offered_price != null ? <span style={{ fontWeight: 700 }}>₹{Number(e.offered_price).toLocaleString('en-IN')}</span> : '—'}</td>
                     <td><span className={`badge ${badge(e.status)}`}>{e.status}</span></td>
                     <td style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{fmtDate(e.created_at)}</td>
+                    <td style={{ textAlign: 'center' }}>
+                      <button className="btn btn-secondary btn-sm" title="View details" onClick={(ev) => { ev.stopPropagation(); setViewEnquiry(e) }}>
+                        <Eye size={13} style={{ verticalAlign: 'middle' }} />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -1059,6 +1129,79 @@ export default function RetailerManagement() {
             <div className="modal-footer">
               <button className="btn btn-secondary btn-sm" disabled={saving} onClick={() => setPlanFor(null)}>Cancel</button>
               <button className="btn btn-primary btn-sm" disabled={saving} onClick={handlePlan}>{saving ? 'Saving…' : 'Update Plan'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ Enquiry Detail ═════════════════════════════════════ */}
+      {viewEnquiry && (
+        <div className="modal-overlay" onClick={() => setViewEnquiry(null)}>
+          <div className="modal" style={{ maxWidth: 720 }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <span className="modal-title">
+                <MessageSquare size={15} style={{ marginRight: 6, verticalAlign: 'middle', color: '#EA580C' }} />
+                Enquiry {viewEnquiry.enq_code ? <span style={{ fontFamily: 'monospace', color: '#F26522' }}>{viewEnquiry.enq_code}</span> : ''}
+              </span>
+              <button className="modal-close" onClick={() => setViewEnquiry(null)}><X size={18} /></button>
+            </div>
+            <div className="modal-body">
+
+              {/* Status + broadcast banner */}
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 18 }}>
+                <span className={`badge ${badge(viewEnquiry.status)}`} style={{ fontSize: 12, padding: '5px 12px' }}>{viewEnquiry.status || '—'}</span>
+                {viewEnquiry.broadcast_audience && (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 11px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: '#EFF6FF', color: '#2563EB', border: '1px solid #BFDBFE' }}>
+                    <Tag size={11} />Broadcast → {viewEnquiry.broadcast_audience}
+                  </span>
+                )}
+                {viewEnquiry.company_name && (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 11px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: '#F5F3FF', color: '#7C3AED', border: '1px solid #DDD6FE' }}>
+                    <Building2 size={11} />{viewEnquiry.company_name}
+                  </span>
+                )}
+              </div>
+
+              {/* Section: Enquiry Info */}
+              <SectionLabel icon={Hash} text="Enquiry Information" />
+              <FieldGrid fields={[
+                ['Enquiry Code',   <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#F26522' }}>{viewEnquiry.enq_code || '—'}</span>],
+                ['Status',         <span className={`badge ${badge(viewEnquiry.status)}`}>{viewEnquiry.status}</span>],
+                ['Created',        fmtDate(viewEnquiry.created_at)],
+                ['Last Updated',   fmtDate(viewEnquiry.updated_at)],
+              ]} />
+
+              {/* Section: Retailer / Buyer */}
+              <SectionLabel icon={UserCheck} text="Retailer / Buyer Details" />
+              <FieldGrid fields={[
+                ['Retailer Name',  viewEnquiry.retailer_name],
+                ['Mobile',         viewEnquiry.retailer_mobile ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Phone size={11} />{viewEnquiry.retailer_mobile}</span> : '—'],
+                ['Email',          viewEnquiry.retailer_email ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Mail size={11} />{viewEnquiry.retailer_email}</span> : '—'],
+                ['Location',       viewEnquiry.location ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><MapPin size={11} />{viewEnquiry.location}</span> : '—'],
+                ['Owning Company', viewEnquiry.company_name],
+              ]} />
+
+              {/* Section: Product & Pricing */}
+              <SectionLabel icon={Package} text="Product & Pricing" />
+              <FieldGrid fields={[
+                ['Product Name',   <span style={{ fontWeight: 700 }}>{viewEnquiry.product_name || '—'}</span>],
+                ['Product Code',   viewEnquiry.product_code ? <span style={{ fontFamily: 'monospace' }}>{viewEnquiry.product_code}</span> : '—'],
+                ['Quantity',       viewEnquiry.qty != null ? `${viewEnquiry.qty} ${viewEnquiry.unit || ''}` : '—'],
+                ['Offered Price',  viewEnquiry.offered_price != null ? <span style={{ fontWeight: 700, color: '#059669' }}>₹{Number(viewEnquiry.offered_price).toLocaleString('en-IN')}</span> : '—'],
+                ['Available Qty',  viewEnquiry.available_quantity != null ? `${viewEnquiry.available_quantity} ${viewEnquiry.unit || ''}` : '—'],
+                ['Delivery Timeline', viewEnquiry.delivery_timeline || '—'],
+              ]} />
+
+              {/* Section: Negotiation & Notes */}
+              <SectionLabel icon={FileText} text="Negotiation & Notes" />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <NoteRow label="Distributor Reply"  value={viewEnquiry.distributor_reply} />
+                <NoteRow label="Negotiation Note"   value={viewEnquiry.negotiation_note} />
+                <NoteRow label="Remarks"            value={viewEnquiry.remarks} />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary btn-sm" onClick={() => setViewEnquiry(null)}>Close</button>
             </div>
           </div>
         </div>
