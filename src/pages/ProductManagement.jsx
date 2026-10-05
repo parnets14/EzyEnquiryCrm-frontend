@@ -341,15 +341,21 @@ ${(p.image_urls||[]).filter(Boolean).length > 0 ? `
 }
 
 // â”€â”€ Searchable Dropdown Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-function SearchableSelect({ label, required, placeholder, value, onChange, options, disabled }) {
+function SearchableSelect({ label, required, placeholder, value, onChange, options, disabled, onCreate, createLabel = 'Add', onDelete }) {
   const [open, setOpen]   = useState(false)
   const [q, setQ]         = useState('')
+  const [creating, setCreating] = useState(false)
   const ref               = useRef()
 
   const selected = options.find(o => o.value === value)
   const filtered = options.filter(o =>
     (o.label || '').toLowerCase().includes(q.toLowerCase())
   )
+
+  // Show an inline "+ Add" row when the typed text doesn't already exist.
+  const trimmed = q.trim()
+  const existsExact = options.some(o => (o.label || '').trim().toLowerCase() === trimmed.toLowerCase())
+  const canCreate = !!onCreate && trimmed.length > 0 && !existsExact
 
   // Close on outside click
   useEffect(() => {
@@ -359,6 +365,18 @@ function SearchableSelect({ label, required, placeholder, value, onChange, optio
   }, [])
 
   const pick = (val) => { onChange(val); setOpen(false); setQ('') }
+
+  const handleCreate = async () => {
+    if (!canCreate || creating) return
+    setCreating(true)
+    try {
+      const newVal = await onCreate(trimmed)
+      if (newVal) pick(newVal)
+      else { setOpen(false); setQ('') }
+    } finally {
+      setCreating(false)
+    }
+  }
 
   return (
     <div ref={ref} style={{ position:'relative' }}>
@@ -409,8 +427,10 @@ function SearchableSelect({ label, required, placeholder, value, onChange, optio
               style={{ padding:'7px 14px', fontSize:13, color:'var(--text-muted)', cursor:'pointer' }}
               onMouseDown={() => pick('')}
             >— None —</div>
-            {filtered.length === 0 && (
-              <div style={{ padding:'10px 14px', fontSize:12, color:'var(--text-muted)' }}>No results</div>
+            {filtered.length === 0 && !canCreate && (
+              <div style={{ padding:'10px 14px', fontSize:12, color:'var(--text-muted)' }}>
+                {onCreate ? 'Type a name above, then click “+ Add” to create it' : 'No results'}
+              </div>
             )}
             {filtered.map(o => (
               <div
@@ -421,13 +441,45 @@ function SearchableSelect({ label, required, placeholder, value, onChange, optio
                   background: o.value === value ? 'var(--primary-light)' : 'transparent',
                   color: o.value === value ? 'var(--primary)' : 'var(--text)',
                   fontWeight: o.value === value ? 600 : 400,
+                  display:'flex', alignItems:'center', justifyContent:'space-between', gap:8,
                 }}
                 onMouseEnter={e => { if (o.value !== value) e.currentTarget.style.background='var(--bg)' }}
                 onMouseLeave={e => { if (o.value !== value) e.currentTarget.style.background='transparent' }}
               >
-                {o.label}
+                <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1 }}>{o.label}</span>
+                {onDelete && (
+                  <button
+                    type="button"
+                    title="Delete"
+                    aria-label={`Delete ${o.label}`}
+                    onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); onDelete(o.value, o.label) }}
+                    style={{
+                      display:'flex', alignItems:'center', justifyContent:'center',
+                      width:22, height:22, flexShrink:0, padding:0,
+                      background:'transparent', border:'none', borderRadius:5,
+                      color:'var(--text-muted)', cursor:'pointer',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.background='#fef2f2'; e.currentTarget.style.color='#dc2626' }}
+                    onMouseLeave={e => { e.currentTarget.style.background='transparent'; e.currentTarget.style.color='var(--text-muted)' }}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                )}
               </div>
             ))}
+            {canCreate && (
+              <div
+                onMouseDown={(e) => { e.preventDefault(); handleCreate() }}
+                style={{
+                  padding:'9px 14px', fontSize:13, cursor: creating ? 'wait' : 'pointer',
+                  borderTop:'1px solid var(--border)', color:'var(--primary)', fontWeight:600,
+                  display:'flex', alignItems:'center', gap:6, background:'var(--primary-light)',
+                }}
+              >
+                <Plus size={14} />
+                {creating ? 'Adding…' : <>{createLabel} “{trimmed}”</>}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -822,7 +874,7 @@ function PriceDiscountInput({ label, required, priceValue, onPriceChange, discou
 // ══════════════════════════════════════════════════════════════
 // PRODUCT FORM MODAL
 // ══════════════════════════════════════════════════════════════
-function ProductFormModal({ editProduct, brands, categories, subCategories, warehouses = [], onSave, onClose, saving }) {
+function ProductFormModal({ editProduct, brands, categories, subCategories, warehouses = [], onSave, onClose, saving, onCreateCategory, onCreateBrand, onCreateSubCategory, onDeleteCategory, onDeleteBrand, onDeleteSubCategory }) {
   const [form, setForm]         = useState(() => {
     if (!editProduct) return EMPTY_FORM
     const explicitType =
@@ -1376,6 +1428,16 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
                   }))
                 }}
                 options={catOpts}
+                onCreate={onCreateCategory}
+                createLabel="Add category"
+                onDelete={onDeleteCategory
+                  ? async (id) => {
+                      const ok = await onDeleteCategory(id)
+                      if (ok && String(form.category_id) === String(id)) {
+                        setForm(f => ({ ...f, category_id: '', sub_category_id: '' }))
+                      }
+                    }
+                  : undefined}
               />
               {errors.category_id && <span className="form-error">{errors.category_id}</span>}
             </div>
@@ -1383,11 +1445,23 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
             <div>
               <SearchableSelect
                 label={`Sub-Category${categoryHasSubs ? ' *' : ''}`}
-                placeholder={form.category_id ? (categoryHasSubs ? 'Search subcategories...' : 'No sub-categories') : 'Select a category first'}
+                placeholder={form.category_id ? 'Search or add subcategory...' : 'Select a category first'}
                 value={form.sub_category_id}
                 onChange={v => set('sub_category_id', v)}
                 options={subCatOpts}
-                disabled={!form.category_id || !categoryHasSubs}
+                disabled={!form.category_id}
+                onCreate={form.category_id && onCreateSubCategory
+                  ? (name) => onCreateSubCategory(name, form.category_id)
+                  : undefined}
+                createLabel="Add sub-category"
+                onDelete={onDeleteSubCategory
+                  ? async (id) => {
+                      const ok = await onDeleteSubCategory(id)
+                      if (ok && String(form.sub_category_id) === String(id)) {
+                        setForm(f => ({ ...f, sub_category_id: '' }))
+                      }
+                    }
+                  : undefined}
               />
               {errors.sub_category_id && <span className="form-error">{errors.sub_category_id}</span>}
             </div>
@@ -1399,6 +1473,16 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
                 value={form.brand_id}
                 onChange={v => set('brand_id', v)}
                 options={brandOpts}
+                onCreate={onCreateBrand}
+                createLabel="Add brand"
+                onDelete={onDeleteBrand
+                  ? async (id) => {
+                      const ok = await onDeleteBrand(id)
+                      if (ok && String(form.brand_id) === String(id)) {
+                        setForm(f => ({ ...f, brand_id: '' }))
+                      }
+                    }
+                  : undefined}
               />
               {errors.brand_id && <span className="form-error">{errors.brand_id}</span>}
             </div>
@@ -2311,6 +2395,8 @@ function ProductAccessModal({ product, onClose, onSaved, onError }) {
 export default function ProductManagement({
   products = [], categories = [], subCategories = [], brands = [], warehouses = [],
   addProduct, updateProduct, deleteProduct, loadingData,
+  addCategory, addBrand, addSubCategory,
+  deleteCategory, deleteBrand, deleteSubCategory,
   // mode: 'admin' (default) shows only Admin-created products.
   //       'external' shows only Wholesaler/Retailer-created products (read-only view).
   mode = 'admin',
@@ -3039,6 +3125,45 @@ export default function ProductManagement({
           onSave={handleSave}
           onClose={closeModal}
           saving={saving}
+          onCreateCategory={async (name) => {
+            const code = name.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '-').slice(0, 20)
+            const r = await addCategory?.({ name: name.trim(), code, is_active: true })
+            if (r?.success === false) { alert(r.message || 'Failed to add category'); return null }
+            const c = r?.data
+            return c ? (c._id || c.id) : null
+          }}
+          onCreateBrand={async (name) => {
+            const code = name.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '-').slice(0, 20)
+            const r = await addBrand?.({ name: name.trim(), code, is_active: true })
+            if (r?.success === false) { alert(r.message || 'Failed to add brand'); return null }
+            const b = r?.data
+            return b ? (b._id || b.id) : null
+          }}
+          onCreateSubCategory={async (name, categoryId) => {
+            const code = name.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '-').slice(0, 20)
+            const r = await addSubCategory?.({ name: name.trim(), code, category_id: categoryId, is_active: true })
+            if (r?.success === false) { alert(r.message || 'Failed to add sub-category'); return null }
+            const s = r?.data
+            return s ? (s._id || s.id) : null
+          }}
+          onDeleteCategory={async (id, name) => {
+            if (!window.confirm(`Delete category "${name}"?\nThis will fail if it has sub-categories or products.`)) return false
+            const r = await deleteCategory?.(id)
+            if (r?.success === false) { alert(r.message || 'Failed to delete category'); return false }
+            return true
+          }}
+          onDeleteBrand={async (id, name) => {
+            if (!window.confirm(`Delete brand "${name}"?`)) return false
+            const r = await deleteBrand?.(id)
+            if (r?.success === false) { alert(r.message || 'Failed to delete brand'); return false }
+            return true
+          }}
+          onDeleteSubCategory={async (id, name) => {
+            if (!window.confirm(`Delete sub-category "${name}"?`)) return false
+            const r = await deleteSubCategory?.(id)
+            if (r?.success === false) { alert(r.message || 'Failed to delete sub-category'); return false }
+            return true
+          }}
         />
       )}
 
