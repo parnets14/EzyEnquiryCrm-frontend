@@ -96,9 +96,9 @@ const NAV_CONFIG = [
   {
     type: 'section', key: 'b2b', label: 'Sales & Orders', icon: ShoppingCart,
     items: [
-      { to: '/marketplace/enquiry-management',  icon: MessageSquare, label: 'Enquiries & Quotes', moduleKey: MODULES.ENQUIRIES,  badgeKey: 'enquiries' },
-      { to: '/marketplace/order-management',    icon: ShoppingCart,  label: 'Orders',     moduleKey: MODULES.ORDERS,    badgeKey: 'orders' },
-      { to: '/marketplace/dispatch-management', icon: Truck,         label: 'Deliveries',  moduleKey: MODULES.DISPATCHES, badgeKey: 'dispatch' },
+      { to: '/marketplace/enquiry-management',  icon: MessageSquare, label: 'Quotation Management', moduleKey: MODULES.ENQUIRIES,  badgeKey: 'enquiries' },
+      { to: '/marketplace/order-management',    icon: ShoppingCart,  label: 'Order Management',     moduleKey: MODULES.ORDERS,    badgeKey: 'orders' },
+      { to: '/marketplace/dispatch-management', icon: Truck,         label: 'Dispatch Management',  moduleKey: MODULES.DISPATCHES, badgeKey: 'dispatch' },
     ],
   },
 
