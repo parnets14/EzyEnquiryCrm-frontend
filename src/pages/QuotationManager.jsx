@@ -1344,6 +1344,29 @@ function ViewModal({ q, onClose, onPrint }) {
 }
 
 // ── Print helper ───────────────────────────────────────────────
+// Convert a number to Indian-system words (e.g. 96000 -> "Ninety Six Thousand").
+function numberToIndianWords(num) {
+  num = Math.round(parseFloat(num) || 0)
+  if (num === 0) return 'Zero'
+  const ones = ['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen']
+  const tens = ['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety']
+  const two = (n) => n < 20 ? ones[n] : tens[Math.floor(n/10)] + (n%10 ? ' ' + ones[n%10] : '')
+  const three = (n) => {
+    const h = Math.floor(n/100), r = n%100
+    return (h ? ones[h] + ' Hundred' + (r ? ' ' : '') : '') + (r ? two(r) : '')
+  }
+  let words = ''
+  const crore = Math.floor(num/10000000); num %= 10000000
+  const lakh  = Math.floor(num/100000);   num %= 100000
+  const thou  = Math.floor(num/1000);      num %= 1000
+  const hund  = num
+  if (crore) words += three(crore) + ' Crore '
+  if (lakh)  words += three(lakh)  + ' Lakh '
+  if (thou)  words += three(thou)  + ' Thousand '
+  if (hund)  words += three(hund)
+  return words.trim()
+}
+
 function printQuotation(q) {
   if (!q) return
 
@@ -1360,238 +1383,187 @@ function printQuotation(q) {
   const fmtINR = (n) => '₹' + (parseFloat(n)||0).toLocaleString('en-IN', { minimumFractionDigits:2, maximumFractionDigits:2 })
   const fmtD   = (d) => d ? new Date(d).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}) : '—'
 
-  // build one card per product
-  const productCards = (q.items||[]).map((it, i) => {
+  // ── Tally-style number helpers ──
+  const fmtNum = (n) => (parseFloat(n)||0).toLocaleString('en-IN', { minimumFractionDigits:2, maximumFractionDigits:2 })
+  const fmtDueD = (d) => d ? new Date(d).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'2-digit'}).replace(/ /g,'-') : ''
+
+  // amount (before GST) and total qty for the voucher table
+  const totalQty = (q.items||[]).reduce((s,r) => s+(parseFloat(r.qty)||0), 0)
+  const taxableTotal = (q.items||[]).reduce((s,r) => {
+    const amt = (parseFloat(r.qty)||0) * (parseFloat(r.rate)||0)
+    return s + (amt - amt * (parseFloat(r.disc)||0) / 100)
+  }, 0)
+  // Round off to the nearest rupee for the grand total line (Tally behaviour)
+  const gstTotalAmt = (q.items||[]).reduce((s,r) => {
+    const amt = (parseFloat(r.qty)||0) * (parseFloat(r.rate)||0)
+    const taxable = amt - amt * (parseFloat(r.disc)||0) / 100
+    return s + taxable * (parseFloat(r.gst_percent)||0) / 100
+  }, 0)
+  const preRound = taxableTotal + gstTotalAmt + freight + other
+  const roundedGrand = Math.round(preRound)
+  const roundOff = roundedGrand - preRound
+
+  // Build voucher table rows (SI No | Description | HSN | Part No | Due on | Qty | Rate | per | Disc% | Amount)
+  const voucherRows = (q.items||[]).map((it, i) => {
     const amt     = (parseFloat(it.qty)||0) * (parseFloat(it.rate)||0)
     const discAmt = amt * (parseFloat(it.disc)||0) / 100
-    const taxable = amt - discAmt
-    const gst     = taxable * (parseFloat(it.gst_percent)||0) / 100
-    const rowTotal = taxable + gst
-
-    // spec chips row builder
-    const chip = (label, val, green) => val
-      ? `<div class="chip ${green?'chip-green':''}"><span class="chip-lbl">${label}</span><span class="chip-val">${val}</span></div>`
-      : ''
-
+    const lineAmt = amt - discAmt
+    const unit = it.unit || 'BOX'
     return `
-    <div class="product-card">
-      <!-- card header -->
-      <div class="pc-header">
-        <div style="display:flex;align-items:center;gap:10px">
-          <span class="pc-num">${i+1}</span>
-          <div>
-            <div class="pc-name">${it.product_name||'—'}</div>
-            ${it.product_code ? `<div class="pc-code">${it.product_code}</div>` : ''}
-          </div>
-        </div>
-        <div style="text-align:right">
-          <div class="pc-total-lbl">Row Total</div>
-          <div class="pc-total-val">${fmtINR(rowTotal)}</div>
-        </div>
-      </div>
-
-      <!-- spec chips row 1 -->
-      <div class="chips-row">
-        ${chip('Brand', it.brand_name)}
-        ${chip('Category', it.category_name)}
-        ${chip('Sub-Category', it.sub_category_name)}
-        ${chip('Size', it.size)}
-        ${chip('Finish', it.finish)}
-        ${chip('Tile Type', it.tile_type)}
-        ${chip('Grade', it.grade)}
-        ${chip('Color', it.color)}
-        ${chip('HSN Code', it.hsn_code)}
-        ${chip('Unit', it.unit)}
-        ${chip('MRP', it.mrp ? fmtINR(it.mrp) : '', true)}
-        ${chip('Retail Price', it.retail_price ? fmtINR(it.retail_price) : '', true)}
-        ${chip('Dealer Price', it.dealer_price ? fmtINR(it.dealer_price) : '', true)}
-        ${chip('Purchase Price', it.purchase_price ? fmtINR(it.purchase_price) : '')}
-        ${chip('Pcs/Box', it.pcs_per_box ? String(it.pcs_per_box) : '')}
-        ${chip('Sqft/Box', it.sqft_per_box ? String(it.sqft_per_box) : '')}
-      </div>
-
-      <!-- pricing summary bar -->
-      <div class="pricing-bar">
-        <div class="pb-cell">
-          <div class="pb-lbl">Qty</div>
-          <div class="pb-val" style="color:#2563EB">${it.qty||0} ${it.unit||''}</div>
-        </div>
-        <div class="pb-sep"></div>
-        <div class="pb-cell">
-          <div class="pb-lbl">Rate</div>
-          <div class="pb-val">${fmtINR(it.rate)}</div>
-        </div>
-        <div class="pb-sep"></div>
-        <div class="pb-cell">
-          <div class="pb-lbl">Amount</div>
-          <div class="pb-val">${fmtINR(amt)}</div>
-        </div>
-        <div class="pb-sep"></div>
-        <div class="pb-cell">
-          <div class="pb-lbl">Discount</div>
-          <div class="pb-val" style="color:#D97706">${it.disc||0}% = ${fmtINR(discAmt)}</div>
-        </div>
-        <div class="pb-sep"></div>
-        <div class="pb-cell">
-          <div class="pb-lbl">GST</div>
-          <div class="pb-val" style="color:#7C3AED">${it.gst_percent||0}% = ${fmtINR(gst)}</div>
-        </div>
-        <div class="pb-sep"></div>
-        <div class="pb-cell pb-total">
-          <div class="pb-lbl">Row Total</div>
-          <div class="pb-val" style="color:#FD5C02;font-size:15px;font-weight:900">${fmtINR(rowTotal)}</div>
-        </div>
-      </div>
-    </div>`
+      <tr>
+        <td class="c-si">${i+1}</td>
+        <td class="c-desc"><b>${it.product_name||'—'}</b></td>
+        <td class="c-hsn">${it.hsn_code||''}</td>
+        <td class="c-part">${it.product_code||''}</td>
+        <td class="c-due">${fmtDueD(q.quotation_date || q.valid_until)}</td>
+        <td class="c-qty"><b>${(parseFloat(it.qty)||0).toLocaleString('en-IN')} ${unit.toUpperCase()}</b></td>
+        <td class="c-rate">${fmtNum(it.rate)}</td>
+        <td class="c-per">${unit.toUpperCase()}</td>
+        <td class="c-disc">${it.disc ? it.disc + ' %' : ''}</td>
+        <td class="c-amt"><b>${fmtNum(lineAmt)}</b></td>
+      </tr>`
   }).join('')
 
-  const statusColors = {
-    draft:'#64748B', sent:'#2563EB', accepted:'#059669',
-    converted:'#6B7280', expired:'#D97706', cancelled:'#DC2626',
+  // Amount in words (Indian system)
+  const amountInWords = numberToIndianWords(roundedGrand)
+
+  // Seller company details — fall back to BDM defaults if not supplied on the record.
+  const seller = {
+    name:    q.company_name    || 'EzyEnquiry',
+    address: q.company_address || 'Sy. No. 15, Rampura Village, Virgonagar Post,\nBidrahalli Hobli, Bengaluru 560049',
+    state:   q.company_state   || 'Karnataka, Code : 29',
+    email:   q.company_email   || 'bdmtiles@gmail.com',
   }
-  const statusBg = {
-    draft:'#F1F5F9', sent:'#EFF6FF', accepted:'#ECFDF5',
-    converted:'#F3F4F6', expired:'#FFFBEB', cancelled:'#FEF2F2',
-  }
-  const st  = (q.status||'draft').toLowerCase()
-  const stC = statusColors[st] || '#64748B'
-  const stB = statusBg[st]     || '#F1F5F9'
-  const stL = st.charAt(0).toUpperCase() + st.slice(1)
+  const buyerName  = q.customer_name  || '—'
+  const buyerPhone = q.customer_phone || ''
+  const buyerAddr  = q.shipping_address || q.billing_address || q.customer_address || ''
+  const voucherNo  = q.quotation_no || q.order_no || 'PREVIEW'
+
+  const sellerAddrHtml = seller.address.replace(/\n/g, '<br/>')
+  const buyerAddrHtml  = (buyerAddr || '').replace(/\n/g, '<br/>')
 
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Quotation – ${q.quotation_no||'Preview'}</title>
+<title>Sales Order – ${voucherNo}</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:'Segoe UI',system-ui,Arial,sans-serif;font-size:13px;color:#01152D;background:#fff;padding:36px 44px}
-  /* ── Header ── */
-  .doc-header{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:16px;margin-bottom:22px;border-bottom:3px solid #FD5C02}
-  .brand-name{font-size:26px;font-weight:900;color:#01152D;letter-spacing:-0.5px}
-  .brand-tag{font-size:11px;color:#94A3B8;margin-top:3px}
-  .qt-badge{font-size:16px;font-family:monospace;font-weight:900;color:#FD5C02;background:#FFF3EC;padding:5px 16px;border-radius:8px;display:inline-block;border:1.5px solid #FFD9BE}
-  .status-pill{display:inline-block;padding:3px 12px;border-radius:20px;font-size:11px;font-weight:700;margin-top:7px;background:${stB};color:${stC}}
-  .print-dt{font-size:11px;color:#94A3B8;margin-top:5px}
-  /* ── Info grid ── */
-  .info-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:22px}
-  .info-box{background:#F8FAFC;border:1px solid #E2E8F0;border-radius:9px;padding:11px 14px}
-  .info-lbl{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:#94A3B8;margin-bottom:4px}
-  .info-val{font-size:13px;font-weight:700;color:#01152D;word-break:break-word}
-  .info-sub{font-size:11px;color:#64748B;margin-top:2px}
-  /* ── Section title ── */
-  .sec-title{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#FD5C02;padding-bottom:7px;margin-bottom:14px;border-bottom:2px solid #FFF3EC}
-  /* ── Product card ── */
-  .product-card{border:1.5px solid #E2E8F0;border-radius:10px;overflow:hidden;margin-bottom:14px;page-break-inside:avoid}
-  .pc-header{display:flex;justify-content:space-between;align-items:center;padding:11px 16px;background:linear-gradient(135deg,#FFF9F5,#FFF3EC);border-bottom:1px solid #FFD9BE}
-  .pc-num{width:26px;height:26px;border-radius:50%;background:#FD5C02;color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;flex-shrink:0}
-  .pc-name{font-weight:800;font-size:14px;color:#01152D}
-  .pc-code{font-size:10px;font-family:monospace;font-weight:700;color:#FD5C02;margin-top:2px}
-  .pc-total-lbl{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#94A3B8;margin-bottom:2px}
-  .pc-total-val{font-size:19px;font-weight:900;color:#FD5C02}
-  /* ── Chips ── */
-  .chips-row{display:flex;flex-wrap:wrap;gap:6px;padding:10px 14px;background:#fff;border-bottom:1px solid #F1F5F9}
-  .chip{display:inline-flex;align-items:center;gap:4px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:5px;padding:3px 8px;font-size:11px}
-  .chip-lbl{color:#94A3B8;font-weight:600;font-size:10px}
-  .chip-val{color:#01152D;font-weight:700}
-  .chip-green{background:#F0FDF4;border-color:#A7F3D0}
-  .chip-green .chip-val{color:#059669}
-  /* ── Pricing bar ── */
-  .pricing-bar{display:flex;align-items:center;background:linear-gradient(135deg,#FFF9F5,#FFF3EC);padding:12px 16px;gap:0}
-  .pb-cell{flex:1;text-align:center;padding:0 6px}
-  .pb-lbl{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#94A3B8;margin-bottom:3px}
-  .pb-val{font-size:12px;font-weight:700;color:#374151}
-  .pb-sep{width:1px;height:30px;background:#FFD9BE;flex-shrink:0}
-  .pb-total{background:rgba(253,92,2,.07);border-radius:7px;padding:4px 10px}
-  /* ── Totals ── */
-  .totals-wrap{display:flex;justify-content:flex-end;margin:10px 0 22px}
-  .totals-box{width:320px;background:#F8FAFC;border:1.5px solid #E2E8F0;border-radius:10px;padding:16px 20px}
-  .t-row{display:flex;justify-content:space-between;font-size:12px;color:#64748B;margin-bottom:8px;align-items:center}
-  .t-row span:last-child{font-weight:600;color:#01152D}
-  .t-grand{display:flex;justify-content:space-between;align-items:center;border-top:2px solid #FD5C02;padding-top:11px;margin-top:6px}
-  .t-grand span:first-child{font-weight:800;font-size:14px;color:#01152D}
-  .t-grand span:last-child{font-weight:900;font-size:20px;color:#FD5C02}
-  /* ── Remarks / Terms ── */
-  .note-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:22px}
-  .note-box{background:#F8FAFC;border:1px solid #E2E8F0;border-radius:9px;padding:13px 16px}
-  .note-lbl{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:#94A3B8;margin-bottom:7px}
-  .note-val{font-size:12px;line-height:1.7;color:#374151}
-  /* ── Footer ── */
-  .doc-footer{display:flex;justify-content:space-between;align-items:center;border-top:1px solid #E2E8F0;padding-top:12px;margin-top:8px;font-size:11px;color:#94A3B8}
-  /* ── Print ── */
-  @media print{
-    body{padding:18px 22px;font-size:12px}
-    .product-card{page-break-inside:avoid}
-    .no-print{display:none}
-  }
+  body{font-family:'Times New Roman',Georgia,serif;font-size:12px;color:#000;background:#fff;padding:24px 28px}
+  .title{text-align:center;font-weight:700;font-size:15px;margin-bottom:10px;letter-spacing:.5px}
+  table{border-collapse:collapse;width:100%}
+  .frame{border:1px solid #000}
+  /* ── Top info block ── */
+  .top td{border:1px solid #000;vertical-align:top;padding:4px 7px}
+  .seller-name{font-weight:700;font-size:13px}
+  .lbl{font-size:10px;color:#333}
+  .val{font-weight:700}
+  .party-lbl{font-size:11px;color:#333;border-top:1px solid #000;padding-top:3px}
+  /* ── Items table ── */
+  .items{margin-top:-1px}
+  .items th{border:1px solid #000;padding:4px 6px;font-size:11px;font-weight:700;background:#fff}
+  .items td{border-left:1px solid #000;border-right:1px solid #000;padding:3px 6px;font-size:11px;vertical-align:top}
+  .c-si{text-align:center;width:28px}
+  .c-desc{min-width:220px}
+  .c-hsn{text-align:center}
+  .c-part{text-align:center}
+  .c-due{text-align:center;font-style:italic}
+  .c-qty{text-align:right;white-space:nowrap}
+  .c-rate{text-align:right}
+  .c-per{text-align:center}
+  .c-disc{text-align:center}
+  .c-amt{text-align:right;white-space:nowrap}
+  .items .spacer td{border-left:1px solid #000;border-right:1px solid #000;height:140px}
+  .subtotal-row td{border:1px solid #000;border-left:1px solid #000;border-right:1px solid #000;text-align:right;font-weight:700;padding:3px 6px}
+  .roundoff td{border-left:1px solid #000;border-right:1px solid #000;padding:2px 6px;font-size:11px;font-style:italic;font-weight:700;text-align:right}
+  .total-row td{border:1px solid #000;font-weight:700;padding:4px 6px}
+  .words{border:1px solid #000;border-top:none;padding:5px 7px}
+  .words-lbl{font-size:10px;color:#333}
+  .words-val{font-weight:700;font-size:12px}
+  .eoe{text-align:right;font-style:italic;font-size:11px;padding:2px 7px}
+  @media print{ body{padding:12px 16px} .no-print{display:none} }
 </style>
 </head>
 <body>
 
-<!-- ── Document Header ── -->
-<div class="doc-header">
-  <div>
-    <div class="brand-name">Quotation</div>
-    <div class="brand-tag">EzyEnquiry ERP · Generated Document</div>
-  </div>
-  <div style="text-align:right">
-    <div class="qt-badge">${q.quotation_no||'QT-PREVIEW'}</div>
-    <div><span class="status-pill">${stL}</span></div>
-    <div class="print-dt">Printed: ${fmtD(new Date())}</div>
-  </div>
-</div>
+<div class="title">SALES ORDER</div>
 
-<!-- ── Info Cards ── -->
-<div class="info-grid">
-  <div class="info-box">
-    <div class="info-lbl">Customer / Retailer</div>
-    <div class="info-val">${q.customer_name||'—'}</div>
-    ${q.enquiry_no ? `<div class="info-sub">Enquiry: ${q.enquiry_no}</div>` : ''}
-  </div>
-  <div class="info-box">
-    <div class="info-lbl">Mobile</div>
-    <div class="info-val">${q.customer_phone||'—'}</div>
-    ${q.customer_email ? `<div class="info-sub">${q.customer_email}</div>` : ''}
-  </div>
-  <div class="info-box">
-    <div class="info-lbl">Quotation Date</div>
-    <div class="info-val">${fmtD(q.quotation_date)}</div>
-    <div class="info-sub">Valid until: ${fmtD(q.valid_until)}</div>
-  </div>
-  <div class="info-box">
-    <div class="info-lbl">Quotation #</div>
-    <div class="info-val" style="font-family:monospace;color:#FD5C02">${q.quotation_no||'—'}</div>
-    <div class="info-sub">Status: ${stL}</div>
-  </div>
-</div>
+<!-- ── Top info block ── -->
+<table class="frame top">
+  <tr>
+    <td rowspan="3" style="width:52%">
+      <div class="seller-name">${seller.name}</div>
+      <div>${sellerAddrHtml}</div>
+      <div>State Name : ${seller.state}</div>
+      <div>E-Mail : ${seller.email}</div>
+    </td>
+    <td style="width:24%"><div class="lbl">Voucher No.</div><div class="val">${voucherNo}</div></td>
+    <td style="width:24%"><div class="lbl">Dated</div><div class="val">${fmtDueD(q.quotation_date)}</div></td>
+  </tr>
+  <tr>
+    <td><div class="lbl">Buyer's Ref./Order No.</div><div class="val">${q.enquiry_no || voucherNo}</div></td>
+    <td><div class="lbl">Mode/Terms of Payment</div><div class="val">${q.payment_terms || ''}</div></td>
+  </tr>
+  <tr>
+    <td><div class="lbl">Dispatched through</div><div class="val">${q.dispatch_through || ''}</div></td>
+    <td><div class="lbl">Destination</div><div class="val">${q.destination || ''}</div></td>
+  </tr>
+  <tr>
+    <td style="border-top:1px solid #000">
+      <div class="party-lbl">Consignee (Ship to)</div>
+      <div class="val">${buyerName}${buyerPhone ? ' (' + buyerPhone + ')' : ''}</div>
+      <div>${buyerAddrHtml}</div>
+    </td>
+    <td colspan="2" rowspan="2"><div class="lbl">Terms of Delivery</div><div>${q.terms || ''}</div></td>
+  </tr>
+  <tr>
+    <td>
+      <div class="party-lbl">Buyer (Bill to)</div>
+      <div class="val">${buyerName}${buyerPhone ? ' (' + buyerPhone + ')' : ''}</div>
+      <div>${buyerAddrHtml}</div>
+    </td>
+  </tr>
+</table>
 
-<!-- ── Products Section ── -->
-<div class="sec-title">Products / Items (${(q.items||[]).length})</div>
-${productCards}
+<!-- ── Items table ── -->
+<table class="frame items">
+  <thead>
+    <tr>
+      <th class="c-si">Sl<br/>No.</th>
+      <th class="c-desc">Description of Goods</th>
+      <th class="c-hsn">HSN/SAC</th>
+      <th class="c-part">Part No.</th>
+      <th class="c-due">Due on</th>
+      <th class="c-qty">Quantity</th>
+      <th class="c-rate">Rate</th>
+      <th class="c-per">per</th>
+      <th class="c-disc">Disc. %</th>
+      <th class="c-amt">Amount</th>
+    </tr>
+  </thead>
+  <tbody>
+    ${voucherRows}
+    <tr class="spacer"><td class="c-si"></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+    <tr class="subtotal-row">
+      <td colspan="9" style="text-align:right;border-right:1px solid #000">&nbsp;</td>
+      <td class="c-amt">${fmtNum(taxableTotal + gstTotalAmt + freight + other)}</td>
+    </tr>
+    ${roundOff ? `<tr class="roundoff"><td colspan="9" style="text-align:right"><i>Round Off</i></td><td class="c-amt">${roundOff < 0 ? '(-)' : ''}${fmtNum(Math.abs(roundOff))}</td></tr>` : ''}
+    <tr class="total-row">
+      <td colspan="5" style="text-align:right">Total</td>
+      <td class="c-qty">${totalQty.toLocaleString('en-IN')} ${(q.items?.[0]?.unit||'BOX').toUpperCase()}</td>
+      <td colspan="3"></td>
+      <td class="c-amt">₹ ${fmtNum(roundedGrand)}</td>
+    </tr>
+  </tbody>
+</table>
 
-<!-- ── Totals ── -->
-<div class="totals-wrap">
-  <div class="totals-box">
-    <div class="t-row"><span>Subtotal</span><span>${fmtINR(subtotal)}</span></div>
-    <div class="t-row"><span style="color:#7C3AED">GST Amount</span><span style="color:#7C3AED">${fmtINR(gstAmt)}</span></div>
-    ${freight ? `<div class="t-row"><span>Freight Charges</span><span>${fmtINR(freight)}</span></div>` : ''}
-    ${other   ? `<div class="t-row"><span>Other Charges</span><span>${fmtINR(other)}</span></div>` : ''}
-    <div class="t-grand"><span>Grand Total</span><span>${fmtINR(grand)}</span></div>
-  </div>
-</div>
-
-<!-- ── Remarks + Terms ── -->
-${(q.remarks || q.terms) ? `
-<div class="note-grid">
-  ${q.remarks ? `<div class="note-box"><div class="note-lbl">Remarks</div><div class="note-val">${q.remarks}</div></div>` : ''}
-  ${q.terms   ? `<div class="note-box"><div class="note-lbl">Terms &amp; Conditions</div><div class="note-val">${q.terms}</div></div>` : ''}
-</div>` : ''}
-
-<!-- ── Footer ── -->
-<div class="doc-footer">
-  <span>EzyEnquiry ERP · Quotation ${q.quotation_no||''}</span>
-  <span>This is a computer-generated document.</span>
+<!-- ── Amount in words ── -->
+<div class="words">
+  <span class="words-lbl">Amount Chargeable (in words)</span>
+  <span class="eoe" style="float:right">E. &amp; O.E</span>
+  <div class="words-val">INR ${amountInWords} Only</div>
 </div>
 
 <script>window.onload = () => window.print()<\/script>
@@ -1608,7 +1580,7 @@ ${(q.remarks || q.terms) ? `
     const url  = URL.createObjectURL(blob)
     const a    = document.createElement('a')
     a.href = url
-    a.download = `Quotation_${q.quotation_no||'draft'}.html`
+    a.download = `SalesOrder_${voucherNo||'draft'}.html`
     document.body.appendChild(a); a.click()
     document.body.removeChild(a)
     setTimeout(() => URL.revokeObjectURL(url), 5000)
