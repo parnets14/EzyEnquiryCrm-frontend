@@ -483,9 +483,6 @@ export default function WholesalerManagement() {
                     <td>
                       {e.recipient_count > 1 ? (
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
-                          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)' }}>
-                            {e.recipient_count} recipients
-                          </span>
                           {e.status_rollup?.replied   > 0 && <span className="badge badge-green" style={{ fontSize: 10 }}>{e.status_rollup.replied} replied</span>}
                           {e.status_rollup?.viewed    > 0 && <span className="badge badge-blue"  style={{ fontSize: 10 }}>{e.status_rollup.viewed} viewed</span>}
                           {e.status_rollup?.new       > 0 && <span className="badge badge-gray"  style={{ fontSize: 10 }}>{e.status_rollup.new} new</span>}
@@ -738,7 +735,7 @@ export default function WholesalerManagement() {
                   <>
                     <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-muted)', marginBottom: 8 }}>
                       <MessageSquare size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />
-                      Replies ({replied.length} of {replied.length + awaiting.length} responded)
+                      Replies
                     </div>
                     {replied.length === 0 && (
                       <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '4px 0' }}>No one has replied yet.</div>
@@ -764,20 +761,6 @@ export default function WholesalerManagement() {
                         </div>
                       ))}
                     </div>
-                    {awaiting.length > 0 && (
-                      <div style={{ marginTop: 12 }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6 }}>
-                          AWAITING REPLY ({awaiting.length})
-                        </div>
-                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                          {awaiting.map(a => (
-                            <span key={a.id} className="badge badge-gray" style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                              <Building2 size={10} />{a.company?.name || '—'}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
                   </>
                 )
               })()}
