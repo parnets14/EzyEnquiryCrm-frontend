@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Package, ShoppingCart, MessageSquare, Users, CreditCard,
   RefreshCw, Search, Eye, Trash2, CheckCircle, XCircle,
-  TrendingUp, Building2, AlertCircle, X, FileText,
+  TrendingUp, Building2, AlertCircle, X, FileText, Clock,
 } from 'lucide-react'
 import { wholesalerApi } from '../api/wholesalerApi'
 
@@ -480,7 +480,21 @@ export default function WholesalerManagement() {
                     <td>{e.retailer_name || '—'}</td>
                     <td style={{ fontWeight: 600 }}>{e.product_name || '—'}</td>
                     <td>{e.qty} {e.unit || ''}</td>
-                    <td><span className={`badge ${badge(e.status)}`}>{e.status}</span></td>
+                    <td>
+                      {e.recipient_count > 1 ? (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)' }}>
+                            {e.recipient_count} recipients
+                          </span>
+                          {e.status_rollup?.replied   > 0 && <span className="badge badge-green" style={{ fontSize: 10 }}>{e.status_rollup.replied} replied</span>}
+                          {e.status_rollup?.viewed    > 0 && <span className="badge badge-blue"  style={{ fontSize: 10 }}>{e.status_rollup.viewed} viewed</span>}
+                          {e.status_rollup?.new       > 0 && <span className="badge badge-gray"  style={{ fontSize: 10 }}>{e.status_rollup.new} new</span>}
+                          {e.status_rollup?.cancelled > 0 && <span className="badge badge-red"   style={{ fontSize: 10 }}>{e.status_rollup.cancelled} cancelled</span>}
+                        </div>
+                      ) : (
+                        <span className={`badge ${badge(e.status)}`}>{e.status}</span>
+                      )}
+                    </td>
                     <td style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{fmtDate(e.created_at)}</td>
                     <td>
                       <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
@@ -677,17 +691,19 @@ export default function WholesalerManagement() {
       {/* View Enquiry */}
       {viewEnquiry && (
         <div className="modal-overlay" onClick={() => setViewEnquiry(null)}>
-          <div className="modal" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+          <div className="modal" style={{ maxWidth: 720 }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <span className="modal-title"><MessageSquare size={15} style={{ marginRight: 6, verticalAlign: 'middle' }} />Enquiry — {viewEnquiry.enq_code || '—'}</span>
               <button className="modal-close" onClick={() => setViewEnquiry(null)}><X size={18} /></button>
             </div>
             <div className="modal-body">
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              {/* Basic info grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
                 {[
                   ['Company', viewEnquiry.company_name], ['Retailer', viewEnquiry.retailer_name],
                   ['Product', viewEnquiry.product_name], ['Qty', `${viewEnquiry.qty ?? '—'} ${viewEnquiry.unit || ''}`],
                   ['Status', viewEnquiry.status], ['Date', fmtDate(viewEnquiry.created_at)],
+                  ['Offered Price', viewEnquiry.offered_price != null ? money(viewEnquiry.offered_price) : '—'],
                 ].map(([label, val]) => (
                   <div key={label}>
                     <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-muted)', marginBottom: 2 }}>{label}</div>
@@ -695,12 +711,76 @@ export default function WholesalerManagement() {
                   </div>
                 ))}
               </div>
+
               {viewEnquiry.note && (
-                <div style={{ marginTop: 12 }}>
+                <div style={{ marginBottom: 16 }}>
                   <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-muted)', marginBottom: 2 }}>Note</div>
                   <div style={{ fontSize: 13 }}>{viewEnquiry.note}</div>
                 </div>
               )}
+
+              {/* Reply roster — who answered, who is still silent */}
+              {(() => {
+                const replied  = viewEnquiry.replies?.replied  || []
+                const awaiting = viewEnquiry.replies?.awaiting || []
+                const isBroadcast = (viewEnquiry.recipient_count || 1) > 1 || replied.length + awaiting.length > 1
+                if (!isBroadcast) {
+                  // Single-recipient: show simple note fields
+                  return (viewEnquiry.distributor_reply || viewEnquiry.negotiation_note || viewEnquiry.remarks) ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {viewEnquiry.distributor_reply && <div style={{ fontSize: 12 }}><b>Reply:</b> {viewEnquiry.distributor_reply}</div>}
+                      {viewEnquiry.negotiation_note  && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}><b>Note:</b> {viewEnquiry.negotiation_note}</div>}
+                      {viewEnquiry.remarks           && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}><b>Remarks:</b> {viewEnquiry.remarks}</div>}
+                    </div>
+                  ) : null
+                }
+                return (
+                  <>
+                    <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-muted)', marginBottom: 8 }}>
+                      <MessageSquare size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />
+                      Replies ({replied.length} of {replied.length + awaiting.length} responded)
+                    </div>
+                    {replied.length === 0 && (
+                      <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '4px 0' }}>No one has replied yet.</div>
+                    )}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {replied.map(rep => (
+                        <div key={rep.id} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', background: 'var(--bg)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+                            <span style={{ fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                              <Building2 size={13} style={{ color: '#7C3AED' }} />
+                              {rep.company?.name || '—'}
+                              {rep.company?.company_code && <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-muted)' }}>({rep.company.company_code})</span>}
+                            </span>
+                            <span className={`badge ${badge(rep.status)}`} style={{ fontSize: 11 }}>{rep.status}</span>
+                          </div>
+                          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: 12 }}>
+                            <span><span style={{ color: 'var(--text-muted)' }}>Price: </span><b style={{ color: '#059669' }}>{rep.offered_price != null ? `₹${Number(rep.offered_price).toLocaleString('en-IN')}` : '—'}</b></span>
+                            <span><span style={{ color: 'var(--text-muted)' }}>Available: </span><b>{rep.available_quantity != null ? `${rep.available_quantity} ${rep.unit || ''}` : '—'}</b></span>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Clock size={11} style={{ color: 'var(--text-muted)' }} />{rep.delivery_timeline || '—'}</span>
+                          </div>
+                          {rep.message && <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text)' }}>{rep.message}</div>}
+                          {rep.negotiation_note && <div style={{ marginTop: 4, fontSize: 12, color: 'var(--text-muted)' }}>Note: {rep.negotiation_note}</div>}
+                        </div>
+                      ))}
+                    </div>
+                    {awaiting.length > 0 && (
+                      <div style={{ marginTop: 12 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6 }}>
+                          AWAITING REPLY ({awaiting.length})
+                        </div>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          {awaiting.map(a => (
+                            <span key={a.id} className="badge badge-gray" style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                              <Building2 size={10} />{a.company?.name || '—'}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )
+              })()}
             </div>
             <div className="modal-footer">
               <button className="btn btn-secondary btn-sm" onClick={() => setViewEnquiry(null)}>Close</button>
