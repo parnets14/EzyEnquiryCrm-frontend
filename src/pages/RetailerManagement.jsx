@@ -696,9 +696,10 @@ export default function RetailerManagement() {
                           <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)' }}>
                             {e.recipient_count} recipients
                           </span>
-                          {e.status_rollup?.replied > 0 && <span className="badge badge-green" style={{ fontSize: 10 }}>{e.status_rollup.replied} replied</span>}
-                          {e.status_rollup?.viewed  > 0 && <span className="badge badge-blue"  style={{ fontSize: 10 }}>{e.status_rollup.viewed} viewed</span>}
-                          {e.status_rollup?.new     > 0 && <span className="badge badge-gray"  style={{ fontSize: 10 }}>{e.status_rollup.new} new</span>}
+                          {e.status_rollup?.replied   > 0 && <span className="badge badge-green" style={{ fontSize: 10 }}>{e.status_rollup.replied} replied</span>}
+                          {e.status_rollup?.viewed    > 0 && <span className="badge badge-blue"  style={{ fontSize: 10 }}>{e.status_rollup.viewed} viewed</span>}
+                          {e.status_rollup?.new       > 0 && <span className="badge badge-gray"  style={{ fontSize: 10 }}>{e.status_rollup.new} new</span>}
+                          {e.status_rollup?.cancelled > 0 && <span className="badge badge-red"   style={{ fontSize: 10 }}>{e.status_rollup.cancelled} cancelled</span>}
                         </div>
                       ) : (
                         <span className={`badge ${badge(e.status)}`}>{e.status}</span>
