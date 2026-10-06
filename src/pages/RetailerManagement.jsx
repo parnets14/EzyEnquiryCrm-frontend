@@ -690,7 +690,20 @@ export default function RetailerManagement() {
                     </td>
                     <td>{e.qty} {e.unit || ''}</td>
                     <td>{e.offered_price != null ? <span style={{ fontWeight: 700 }}>₹{Number(e.offered_price).toLocaleString('en-IN')}</span> : '—'}</td>
-                    <td><span className={`badge ${badge(e.status)}`}>{e.status}</span></td>
+                    <td>
+                      {e.recipient_count > 1 ? (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)' }}>
+                            {e.recipient_count} recipients
+                          </span>
+                          {e.status_rollup?.replied > 0 && <span className="badge badge-green" style={{ fontSize: 10 }}>{e.status_rollup.replied} replied</span>}
+                          {e.status_rollup?.viewed  > 0 && <span className="badge badge-blue"  style={{ fontSize: 10 }}>{e.status_rollup.viewed} viewed</span>}
+                          {e.status_rollup?.new     > 0 && <span className="badge badge-gray"  style={{ fontSize: 10 }}>{e.status_rollup.new} new</span>}
+                        </div>
+                      ) : (
+                        <span className={`badge ${badge(e.status)}`}>{e.status}</span>
+                      )}
+                    </td>
                     <td style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{fmtDate(e.created_at)}</td>
                     <td style={{ textAlign: 'center' }}>
                       <button className="btn btn-secondary btn-sm" title="View details" onClick={(ev) => { ev.stopPropagation(); setViewEnquiry(e) }}>
@@ -1150,11 +1163,6 @@ export default function RetailerManagement() {
               {/* Status + broadcast banner */}
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 18 }}>
                 <span className={`badge ${badge(viewEnquiry.status)}`} style={{ fontSize: 12, padding: '5px 12px' }}>{viewEnquiry.status || '—'}</span>
-                {viewEnquiry.broadcast_audience && (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 11px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: '#EFF6FF', color: '#2563EB', border: '1px solid #BFDBFE' }}>
-                    <Tag size={11} />Broadcast → {viewEnquiry.broadcast_audience}
-                  </span>
-                )}
                 {viewEnquiry.company_name && (
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 11px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: '#F5F3FF', color: '#7C3AED', border: '1px solid #DDD6FE' }}>
                     <Building2 size={11} />{viewEnquiry.company_name}
@@ -1192,13 +1200,68 @@ export default function RetailerManagement() {
                 ['Delivery Timeline', viewEnquiry.delivery_timeline || '—'],
               ]} />
 
-              {/* Section: Negotiation & Notes */}
-              <SectionLabel icon={FileText} text="Negotiation & Notes" />
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <NoteRow label="Distributor Reply"  value={viewEnquiry.distributor_reply} />
-                <NoteRow label="Negotiation Note"   value={viewEnquiry.negotiation_note} />
-                <NoteRow label="Remarks"            value={viewEnquiry.remarks} />
-              </div>
+              {/* Section: Replies roster — who answered, and who is still silent */}
+              {(() => {
+                const replied  = viewEnquiry.replies?.replied  || []
+                const awaiting = viewEnquiry.replies?.awaiting || []
+                const isBroadcast = (viewEnquiry.recipient_count || 1) > 1 || replied.length + awaiting.length > 1
+                // Single-recipient enquiry: keep the simple notes view.
+                if (!isBroadcast) {
+                  return (
+                    <>
+                      <SectionLabel icon={FileText} text="Negotiation & Notes" />
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                        <NoteRow label="Distributor Reply"  value={viewEnquiry.distributor_reply} />
+                        <NoteRow label="Negotiation Note"   value={viewEnquiry.negotiation_note} />
+                        <NoteRow label="Remarks"            value={viewEnquiry.remarks} />
+                      </div>
+                    </>
+                  )
+                }
+                return (
+                  <>
+                    <SectionLabel icon={MessageSquare} text={`Replies (${replied.length} of ${replied.length + awaiting.length} responded)`} />
+                    {replied.length === 0 && (
+                      <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '8px 0' }}>No wholesaler has replied yet.</div>
+                    )}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {replied.map(rep => (
+                        <div key={rep.id} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', background: 'var(--bg)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+                            <span style={{ fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                              <Building2 size={13} style={{ color: '#7C3AED' }} />
+                              {rep.company?.name || '—'}
+                              {rep.company?.company_code && <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-muted)' }}>({rep.company.company_code})</span>}
+                            </span>
+                            <span className={`badge ${badge(rep.status)}`} style={{ fontSize: 11 }}>{rep.status}</span>
+                          </div>
+                          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: 12 }}>
+                            <span><span style={{ color: 'var(--text-muted)' }}>Price: </span><b style={{ color: '#059669' }}>{rep.offered_price != null ? `₹${Number(rep.offered_price).toLocaleString('en-IN')}` : '—'}</b></span>
+                            <span><span style={{ color: 'var(--text-muted)' }}>Available: </span><b>{rep.available_quantity != null ? `${rep.available_quantity} ${rep.unit || ''}` : '—'}</b></span>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Clock size={11} style={{ color: 'var(--text-muted)' }} />{rep.delivery_timeline || '—'}</span>
+                          </div>
+                          {rep.message && <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text)' }}>{rep.message}</div>}
+                          {rep.negotiation_note && <div style={{ marginTop: 4, fontSize: 12, color: 'var(--text-muted)' }}>Note: {rep.negotiation_note}</div>}
+                        </div>
+                      ))}
+                    </div>
+                    {awaiting.length > 0 && (
+                      <div style={{ marginTop: 12 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', marginBottom: 6 }}>
+                          AWAITING REPLY ({awaiting.length})
+                        </div>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          {awaiting.map(a => (
+                            <span key={a.id} className="badge badge-gray" style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                              <Building2 size={10} />{a.company?.name || '—'}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )
+              })()}
             </div>
             <div className="modal-footer">
               <button className="btn btn-secondary btn-sm" onClick={() => setViewEnquiry(null)}>Close</button>
