@@ -8,9 +8,7 @@ import {
 import { hrApi } from '../api/hrApi'
 import { employeeMasterApi } from '../api/employeeMasterApi'
 
-// ─── Constants (fallbacks if master data not yet created) ─────
-const FALLBACK_DEPARTMENTS  = ['Sales', 'Accounts', 'Warehouse', 'Management', 'HR', 'IT']
-const FALLBACK_DESIGNATIONS = ['Sales Executive', 'Accountant', 'Warehouse Staff', 'Manager', 'HR Manager', 'IT Executive']
+// ─── Constants ────────────────────────────────────────────────
 const STATUSES_ATT  = ['Present', 'Absent', 'Late', 'Half Day', 'On Leave', 'Holiday', 'Week Off']
 const PAYMENT_MODES = ['Bank Transfer', 'Cash', 'Cheque', 'UPI']
 const MONTH_NAMES   = ['January','February','March','April','May','June','July','August','September','October','November','December']
@@ -94,8 +92,11 @@ export default function EmployeeManagement({
   const [masterDepts,  setMasterDepts]  = useState([])
   const [masterDesigs, setMasterDesigs] = useState([])
 
-  useEffect(() => {
-    // Load departments and designations from Employee Master
+  // Load Departments & Designations from Employee Master. Exposed as a callback
+  // so it can be re-run whenever the Add/Edit Employee modal opens — that way a
+  // department/designation just added in Employee Master shows up without a
+  // full page reload.
+  const loadMasterData = useCallback(() => {
     Promise.allSettled([
       employeeMasterApi.listDepartments(),
       employeeMasterApi.listDesignations(),
@@ -111,20 +112,23 @@ export default function EmployeeManagement({
     })
   }, [])
 
-  // Derive list of active department names (fall back to static if none configured)
-  const deptNames = masterDepts.filter(d => d.is_active !== false).map(d => d.name)
-  const allDeptNames = deptNames.length > 0 ? deptNames : FALLBACK_DEPARTMENTS
+  useEffect(() => { loadMasterData() }, [loadMasterData])
 
-  // Designations filtered by selected department name
+  // Active department names — driven ONLY by what the admin added in Employee
+  // Master (no hardcoded fallback, so the dropdown mirrors the master data).
+  const allDeptNames = masterDepts.filter(d => d.is_active !== false).map(d => d.name)
+
+  // Designations under the selected department — strictly from master data.
+  // Returns [] when no department is chosen or the department has none, so the
+  // dropdown shows a prompt instead of stale hardcoded values.
   const getDesigForDept = (deptName) => {
-    if (!deptName) return FALLBACK_DESIGNATIONS
+    if (!deptName) return []
     const deptObj = masterDepts.find(d => d.name === deptName)
-    if (!deptObj) return FALLBACK_DESIGNATIONS
-    const filtered = masterDesigs
+    if (!deptObj) return []
+    return masterDesigs
       .filter(dg => dg.is_active !== false &&
         String(dg.department_id?._id || dg.department_id) === String(deptObj._id || deptObj.id))
       .map(dg => dg.name)
-    return filtered.length > 0 ? filtered : FALLBACK_DESIGNATIONS
   }
 
   // ── Tab & global ──────────────────────────────────────────
@@ -139,6 +143,9 @@ export default function EmployeeManagement({
   const [branchFilter, setBranchFilter] = useState('')
   const [showModal,    setShowModal]    = useState(false)
   const [editEmp,      setEditEmp]      = useState(null)   // null = add, object = edit
+
+  // Refresh master Department/Designation lists each time the modal opens.
+  useEffect(() => { if (showModal) loadMasterData() }, [showModal, loadMasterData])
   const [form,         setForm]         = useState(EMPTY_FORM)
   const [errors,       setErrors]       = useState({})
   const [saving,       setSaving]       = useState(false)
@@ -329,8 +336,8 @@ export default function EmployeeManagement({
       mobile:      emp.mobile      || '',
       email:       emp.email       || '',
       join_date:   emp.join_date ? new Date(emp.join_date).toISOString().split('T')[0] : '',
-      department:  emp.department  || 'Sales',
-      designation: emp.designation || 'Sales Executive',
+      department:  emp.department  || '',
+      designation: emp.designation || '',
       salary:      String(emp.salary || ''),
       emp_code:    emp.emp_code    || '',
       branch:      emp.branch      || '',
@@ -1218,17 +1225,26 @@ export default function EmployeeManagement({
                   <label className="form-label">Department</label>
                   <select className="form-control" value={form.department}
                     onChange={e => setForm(p => ({ ...p, department: e.target.value, designation: '' }))}>
-                    <option value="">Select Department</option>
+                    <option value="">{allDeptNames.length ? 'Select Department' : 'No departments — add in Employee Master'}</option>
                     {allDeptNames.map(d => <option key={d}>{d}</option>)}
                   </select>
                 </div>
                 <div className="form-group">
                   <label className="form-label">Designation</label>
-                  <select className="form-control" value={form.designation}
-                    onChange={e => setForm(p => ({ ...p, designation: e.target.value }))}>
-                    <option value="">Select Designation</option>
-                    {getDesigForDept(form.department).map(d => <option key={d}>{d}</option>)}
-                  </select>
+                  {(() => {
+                    const desigs = getDesigForDept(form.department)
+                    return (
+                      <select className="form-control" value={form.designation} disabled={!form.department}
+                        onChange={e => setForm(p => ({ ...p, designation: e.target.value }))}>
+                        <option value="">
+                          {!form.department
+                            ? 'Select a department first'
+                            : desigs.length ? 'Select Designation' : 'No designations for this department'}
+                        </option>
+                        {desigs.map(d => <option key={d}>{d}</option>)}
+                      </select>
+                    )
+                  })()}
                 </div>
               </div>
               <div className="form-row">
