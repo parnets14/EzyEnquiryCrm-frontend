@@ -29,9 +29,17 @@ const badge = s => STATUS_BADGE[s] || 'badge-gray'
 const PLANS = ['Free', 'Basic', 'Standard', 'Premium', 'Enterprise']
 
 // ═══════════════════════════════════════════════════════════════
-export default function WholesalerManagement() {
-  const [tab, setTab] = useState('overview')
+// When a `view` prop is passed (from a dedicated route), that single
+// section is shown and the in-page tab bar is hidden. Without `view`,
+// the original tabbed hub behaviour is kept (back-compat).
+export default function WholesalerManagement({ view }) {
+  const [tab, setTab] = useState(view || 'overview')
   const [page, setPage] = useState(1)
+
+  // Keep the active section in sync with the route-driven `view` prop.
+  useEffect(() => { if (view) setTab(view) }, [view])
+
+  const routed = !!view   // true = dedicated page (no tab bar)
 
   // data
   const [products,  setProducts]  = useState([])
@@ -256,7 +264,7 @@ export default function WholesalerManagement() {
       {/* ── Header ── */}
       <div className="page-header" style={{ marginBottom: 18 }}>
         <div className="page-header-left">
-          <div className="page-title">Wholesaler Management</div>
+          <div className="page-title">{routed ? `Wholesaler ${(TABS.find(t => t.key === tab)?.label || '').replace(/\s*\(\d+\)$/, '')}` : 'Wholesaler Management'}</div>
           <div className="page-desc">Manage wholesaler app companies, products, orders, and subscriptions</div>
         </div>
         <div className="page-header-actions">
@@ -269,14 +277,16 @@ export default function WholesalerManagement() {
 
       {error && <div className="alert alert-warning" style={{ marginBottom: 14 }}><AlertCircle size={15} style={{ marginRight: 8 }} />{error}</div>}
 
-      {/* ── Tabs ── */}
-      <div className="tabs" style={{ marginBottom: 18, flexWrap: 'wrap' }}>
-        {TABS.map(t => (
-          <button key={t.key} className={`tab-btn${tab === t.key ? ' active' : ''}`} onClick={() => { setTab(t.key); setSearch('') }}>
-            {t.label}
-          </button>
-        ))}
-      </div>
+      {/* ── Tabs (only in the legacy hub view; hidden on dedicated pages) ── */}
+      {!routed && (
+        <div className="tabs" style={{ marginBottom: 18, flexWrap: 'wrap' }}>
+          {TABS.map(t => (
+            <button key={t.key} className={`tab-btn${tab === t.key ? ' active' : ''}`} onClick={() => { setTab(t.key); setSearch('') }}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* ══ OVERVIEW ══════════════════════════════════════════ */}
       {tab === 'overview' && (

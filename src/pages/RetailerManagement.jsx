@@ -151,9 +151,17 @@ function NoteRow({ label, value }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-export default function RetailerManagement() {
-  const [tab, setTab] = useState('overview')
+// When a `view` prop is passed (from a dedicated route), that single section
+// is shown and the in-page tab bar is hidden. Without `view`, the original
+// tabbed hub behaviour is kept (back-compat).
+export default function RetailerManagement({ view }) {
+  const [tab, setTab] = useState(view || 'companies')
   const [page, setPage] = useState(1)
+
+  // Keep the active section in sync with the route-driven `view` prop.
+  useEffect(() => { if (view) setTab(view) }, [view])
+
+  const routed = !!view   // true = dedicated page (no tab bar)
 
   // data
   const [companies,   setCompanies]   = useState([])
@@ -463,7 +471,7 @@ export default function RetailerManagement() {
       {/* ── Header ── */}
       <div className="page-header" style={{ marginBottom: 18 }}>
         <div className="page-header-left">
-          <div className="page-title">Retailer Management</div>
+          <div className="page-title">{routed ? `Retailer ${(TABS.find(t => t.key === tab)?.label || '').replace(/\s*\(\d+\)$/, '')}` : 'Retailer Management'}</div>
           <div className="page-desc">Manage retailer app registrations, approvals, orders and subscriptions</div>
         </div>
         <div className="page-header-actions">
@@ -490,17 +498,19 @@ export default function RetailerManagement() {
         </div>
       )}
 
-      {/* ── Tabs ── */}
-      <div className="tabs" style={{ marginBottom: 18, flexWrap: 'wrap' }}>
-        {TABS.map(t => (
-          <button key={t.key} className={`tab-btn${tab === t.key ? ' active' : ''}`} onClick={() => { setTab(t.key); setSearch('') }}>
-            {t.label}
-            {t.key === 'companies' && pendingCount > 0 && (
-              <span style={{ marginLeft: 6, background: '#DC2626', color: '#fff', borderRadius: 20, padding: '1px 7px', fontSize: 10, fontWeight: 800 }}>{pendingCount}</span>
-            )}
-          </button>
-        ))}
-      </div>
+      {/* ── Tabs (only in the legacy hub view; hidden on dedicated pages) ── */}
+      {!routed && (
+        <div className="tabs" style={{ marginBottom: 18, flexWrap: 'wrap' }}>
+          {TABS.map(t => (
+            <button key={t.key} className={`tab-btn${tab === t.key ? ' active' : ''}`} onClick={() => { setTab(t.key); setSearch('') }}>
+              {t.label}
+              {t.key === 'companies' && pendingCount > 0 && (
+                <span style={{ marginLeft: 6, background: '#DC2626', color: '#fff', borderRadius: 20, padding: '1px 7px', fontSize: 10, fontWeight: 800 }}>{pendingCount}</span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* ══ OVERVIEW ══════════════════════════════════════════ */}
       {tab === 'overview' && (

@@ -139,9 +139,23 @@ function AppRoutes() {
         <Route path="product-management/external-products"
           element={<RequireAccess module={MODULES.PRODUCTS}><ProductManagement mode="external" products={products} categories={categories} subCategories={subCategories} brands={brands} {...erpCtx} /></RequireAccess>} />
 
-        {/* ── Wholesaler (new unified hub) ─────────────── */}
+        {/* ── Wholesaler — dedicated per-section pages ─── */}
         <Route path="wholesaler-management"
-          element={<RequireAccess module={MODULES.WHOLESALER_MGMT}><WholesalerManagement /></RequireAccess>} />
+          element={<Navigate to="/wholesaler-management/products" replace />} />
+        <Route path="wholesaler-management/products"
+          element={<RequireAccess module={MODULES.WHOLESALER_MGMT}><WholesalerManagement view="products" /></RequireAccess>} />
+        <Route path="wholesaler-management/purchase-orders"
+          element={<RequireAccess module={MODULES.WHOLESALER_MGMT}><WholesalerManagement view="purchases" /></RequireAccess>} />
+        <Route path="wholesaler-management/product-requests"
+          element={<RequireAccess module={MODULES.WHOLESALER_MGMT}><WholesalerManagement view="requests" /></RequireAccess>} />
+        <Route path="wholesaler-management/orders"
+          element={<RequireAccess module={MODULES.WHOLESALER_MGMT}><WholesalerManagement view="orders" /></RequireAccess>} />
+        <Route path="wholesaler-management/enquiries"
+          element={<RequireAccess module={MODULES.WHOLESALER_MGMT}><WholesalerManagement view="enquiries" /></RequireAccess>} />
+        <Route path="wholesaler-management/users"
+          element={<RequireAccess module={MODULES.WHOLESALER_MGMT}><WholesalerManagement view="users" /></RequireAccess>} />
+        <Route path="wholesaler-management/subscriptions"
+          element={<RequireAccess module={MODULES.WHOLESALER_MGMT}><WholesalerManagement view="subs" /></RequireAccess>} />
         {/* Back-compat: old sub-pages → redirect to unified hub */}
         <Route path="wholesaler/products"         element={<Navigate to="/wholesaler-management" replace />} />
         <Route path="wholesaler/purchase-orders"  element={<Navigate to="/wholesaler-management" replace />} />
@@ -149,9 +163,41 @@ function AppRoutes() {
         <Route path="wholesaler/activity"         element={<Navigate to="/wholesaler-management" replace />} />
         <Route path="wholesaler-items"            element={<Navigate to="/wholesaler-management" replace />} />
 
-        {/* ── Retailer Management ──────────────────────── */}
+        {/* ── Retailer — dedicated per-section pages ───── */}
         <Route path="retailer-management"
-          element={<RequireAccess module={MODULES.RETAILER_MGMT}><RetailerManagement /></RequireAccess>} />
+          element={<Navigate to="/retailer-management/companies" replace />} />
+        <Route path="retailer-management/companies"
+          element={<RequireAccess module={MODULES.RETAILER_MGMT}><RetailerManagement view="companies" /></RequireAccess>} />
+        <Route path="retailer-management/orders"
+          element={<RequireAccess module={MODULES.RETAILER_MGMT}><RetailerManagement view="orders" /></RequireAccess>} />
+        <Route path="retailer-management/enquiries"
+          element={<RequireAccess module={MODULES.RETAILER_MGMT}><RetailerManagement view="enquiries" /></RequireAccess>} />
+        <Route path="retailer-management/sales"
+          element={<RequireAccess module={MODULES.RETAILER_MGMT}><RetailerManagement view="sales" /></RequireAccess>} />
+        <Route path="retailer-management/purchases"
+          element={<RequireAccess module={MODULES.RETAILER_MGMT}><RetailerManagement view="purchases" /></RequireAccess>} />
+        <Route path="retailer-management/expenses"
+          element={<RequireAccess module={MODULES.RETAILER_MGMT}><RetailerManagement view="expenses" /></RequireAccess>} />
+        <Route path="retailer-management/payments"
+          element={<RequireAccess module={MODULES.RETAILER_MGMT}><RetailerManagement view="transactions" /></RequireAccess>} />
+        <Route path="retailer-management/invoices"
+          element={<RequireAccess module={MODULES.RETAILER_MGMT}><RetailerManagement view="invoices" /></RequireAccess>} />
+        <Route path="retailer-management/quotations"
+          element={<RequireAccess module={MODULES.RETAILER_MGMT}><RetailerManagement view="quotations" /></RequireAccess>} />
+        <Route path="retailer-management/customers"
+          element={<RequireAccess module={MODULES.RETAILER_MGMT}><RetailerManagement view="customers" /></RequireAccess>} />
+        <Route path="retailer-management/leads"
+          element={<RequireAccess module={MODULES.RETAILER_MGMT}><RetailerManagement view="leads" /></RequireAccess>} />
+        <Route path="retailer-management/followups"
+          element={<RequireAccess module={MODULES.RETAILER_MGMT}><RetailerManagement view="followups" /></RequireAccess>} />
+        <Route path="retailer-management/inventory"
+          element={<RequireAccess module={MODULES.RETAILER_MGMT}><RetailerManagement view="inventory" /></RequireAccess>} />
+        <Route path="retailer-management/dispatches"
+          element={<RequireAccess module={MODULES.RETAILER_MGMT}><RetailerManagement view="dispatches" /></RequireAccess>} />
+        <Route path="retailer-management/users"
+          element={<RequireAccess module={MODULES.RETAILER_MGMT}><RetailerManagement view="users" /></RequireAccess>} />
+        <Route path="retailer-management/subscriptions"
+          element={<RequireAccess module={MODULES.RETAILER_MGMT}><RetailerManagement view="subs" /></RequireAccess>} />
 
         {/* ── Staff Management ─────────────────────────── */}
         <Route path="staff/staff-management"

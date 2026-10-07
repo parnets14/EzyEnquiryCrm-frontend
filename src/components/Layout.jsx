@@ -47,7 +47,13 @@ const NAV_CONFIG = [
   {
     type: 'section', key: 'wholesaler-mgmt', label: 'Wholesalers', icon: Warehouse,
     items: [
-      { to: '/wholesaler-management', icon: Warehouse, label: 'Wholesaler Overview', moduleKey: MODULES.WHOLESALER_MGMT },
+      { to: '/wholesaler-management/products',         icon: Package,         label: 'Products',         moduleKey: MODULES.WHOLESALER_MGMT },
+      { to: '/wholesaler-management/purchase-orders',  icon: PackagePlus,     label: 'Purchase Orders',  moduleKey: MODULES.WHOLESALER_MGMT },
+      { to: '/wholesaler-management/product-requests', icon: FileText,        label: 'Product Requests', moduleKey: MODULES.WHOLESALER_MGMT },
+      { to: '/wholesaler-management/orders',           icon: ShoppingCart,    label: 'Orders',           moduleKey: MODULES.WHOLESALER_MGMT },
+      { to: '/wholesaler-management/enquiries',        icon: MessageSquare,   label: 'Enquiries',        moduleKey: MODULES.WHOLESALER_MGMT },
+      { to: '/wholesaler-management/users',            icon: Users,           label: 'Users',            moduleKey: MODULES.WHOLESALER_MGMT },
+      { to: '/wholesaler-management/subscriptions',    icon: CreditCard,      label: 'Subscriptions',    moduleKey: MODULES.WHOLESALER_MGMT },
     ],
   },
 
@@ -55,7 +61,22 @@ const NAV_CONFIG = [
   {
     type: 'section', key: 'retailer-mgmt', label: 'Retailers', icon: Store,
     items: [
-      { to: '/retailer-management', icon: Store, label: 'Retailer Overview', moduleKey: MODULES.RETAILER_MGMT },
+      { to: '/retailer-management/companies',    icon: Building2,     label: 'Companies',     moduleKey: MODULES.RETAILER_MGMT },
+      { to: '/retailer-management/orders',       icon: ShoppingCart,  label: 'Orders',        moduleKey: MODULES.RETAILER_MGMT },
+      { to: '/retailer-management/enquiries',    icon: MessageSquare, label: 'Enquiries',     moduleKey: MODULES.RETAILER_MGMT },
+      { to: '/retailer-management/sales',        icon: TrendingUp,    label: 'Sales',         moduleKey: MODULES.RETAILER_MGMT },
+      { to: '/retailer-management/purchases',    icon: PackagePlus,   label: 'Purchases',     moduleKey: MODULES.RETAILER_MGMT },
+      { to: '/retailer-management/expenses',     icon: Receipt,       label: 'Expenses',      moduleKey: MODULES.RETAILER_MGMT },
+      { to: '/retailer-management/payments',     icon: CreditCard,    label: 'Payments',      moduleKey: MODULES.RETAILER_MGMT },
+      { to: '/retailer-management/invoices',     icon: Receipt,       label: 'Invoices',      moduleKey: MODULES.RETAILER_MGMT },
+      { to: '/retailer-management/quotations',   icon: FileEdit,      label: 'Quotations',    moduleKey: MODULES.RETAILER_MGMT },
+      { to: '/retailer-management/customers',    icon: UserCheck,     label: 'Customers',     moduleKey: MODULES.RETAILER_MGMT },
+      { to: '/retailer-management/leads',        icon: Target,        label: 'Leads',         moduleKey: MODULES.RETAILER_MGMT },
+      { to: '/retailer-management/followups',    icon: CalendarClock, label: 'Follow-ups',    moduleKey: MODULES.RETAILER_MGMT },
+      { to: '/retailer-management/inventory',    icon: BarChart3,     label: 'Inventory',     moduleKey: MODULES.RETAILER_MGMT },
+      { to: '/retailer-management/dispatches',   icon: Truck,         label: 'Dispatch',      moduleKey: MODULES.RETAILER_MGMT },
+      { to: '/retailer-management/users',        icon: Users,         label: 'Users',         moduleKey: MODULES.RETAILER_MGMT },
+      { to: '/retailer-management/subscriptions',icon: CreditCard,    label: 'Subscriptions', moduleKey: MODULES.RETAILER_MGMT },
     ],
   },
 
