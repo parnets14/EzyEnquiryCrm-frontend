@@ -370,13 +370,11 @@ function ItemsTable({ rows, onChange, products }) {
                 </div>
 
                 {/* ── ROW 2: More product info (7 cols) ── */}
-                <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:8, marginBottom:12 }}>
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:8, marginBottom:12 }}>
                   {[
                     ['Grade',         row.grade],
                     ['Unit / GST',    row.unit ? `${row.unit} / ${row.gst_percent}%` : ''],
                     ['MRP',           row.mrp       ? `₹${parseFloat(row.mrp).toFixed(2)}`       : ''],
-                    ['Retail Rate',   row.retail_price  ? `₹${parseFloat(row.retail_price).toFixed(2)}`  : ''],
-                    ['Dealer Rate',   row.dealer_price  ? `₹${parseFloat(row.dealer_price).toFixed(2)}`  : ''],
                     ['Purchase Rate', row.purchase_price? `₹${parseFloat(row.purchase_price).toFixed(2)}`: ''],
                     ['Pcs/Box · Sqft/Box', [row.pcs_per_box, row.sqft_per_box].filter(Boolean).join(' · ') || ''],
                   ].map(([label, val]) => (
@@ -1204,16 +1202,14 @@ function ViewModal({ q, onClose, onPrint }) {
                         ))}
                       </div>
 
-                      {/* ── ROW 2: More Product Details (7 cols) ── */}
-                      <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:8, marginBottom:12 }}>
+                      {/* ── ROW 2: More Product Details ── */}
+                      <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:8, marginBottom:12 }}>
                         {[
                           ['Grade',             it.grade],
                           ['Color',             it.color],
                           ['HSN Code',          it.hsn_code],
                           ['Unit / GST',        it.unit ? `${it.unit} / ${it.gst_percent || 0}%` : ''],
                           ['MRP',               it.mrp           ? `₹${parseFloat(it.mrp).toFixed(2)}`            : ''],
-                          ['Retail Price',      it.retail_price  ? `₹${parseFloat(it.retail_price).toFixed(2)}`   : ''],
-                          ['Dealer Price',      it.dealer_price  ? `₹${parseFloat(it.dealer_price).toFixed(2)}`   : ''],
                         ].map(([lbl, val]) => (
                           <div key={lbl}>
                             <div style={{ fontSize:9, fontWeight:700, textTransform:'uppercase',
@@ -1222,7 +1218,7 @@ function ViewModal({ q, onClose, onPrint }) {
                               fontSize:11,
                               fontWeight: val ? 700 : 400,
                               fontStyle: val ? 'normal' : 'italic',
-                              color: (lbl==='MRP'||lbl==='Retail Price'||lbl==='Dealer Price') && val
+                              color: lbl==='MRP' && val
                                 ? '#059669'
                                 : val ? 'var(--text)' : 'var(--text-muted)',
                               background: val ? '#F0FDF4' : 'var(--bg)',

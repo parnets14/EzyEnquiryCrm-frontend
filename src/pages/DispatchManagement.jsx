@@ -1,5 +1,7 @@
 import { useState } from 'react'
-import { Search, Truck, CheckCircle } from 'lucide-react'
+import { Search, Truck, CheckCircle, ChevronLeft, ChevronRight } from 'lucide-react'
+
+const PAGE_SIZE = 10
 
 // API field helpers — backend returns snake_case
 const disId       = d => d._id             || d.id            || ''
@@ -38,6 +40,7 @@ const statusColor = {
 export default function DispatchManagement({ branches = [], dispatches = [], orders = [], markDelivered, markInTransit }) {
   const branchNames = branches.map(b => b.name || b).filter(Boolean)
   const [search,       setSearch]     = useState('')
+  const [page,         setPage]       = useState(1)
   const [branchFilter, setBranchFilter] = useState('All')
   const [successMsg,   setSuccessMsg] = useState('')
 
@@ -66,6 +69,12 @@ export default function DispatchManagement({ branches = [], dispatches = [], ord
     const fallbackOrder = orders.find(o => (o._id || o.id) === (d.order_id || d.orderId))
     return { ...d, _orderObj: orderObj || fallbackOrder }
   })
+
+  // ── Pagination (10 rows per page) ──────────────────────────
+  const total       = enriched.length
+  const totalPages  = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const safePage    = Math.min(page, totalPages)
+  const paged       = enriched.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
 
   return (
     <>
@@ -104,10 +113,10 @@ export default function DispatchManagement({ branches = [], dispatches = [], ord
           <div className="header-actions">
             <div className="search-bar">
               <Search />
-              <input placeholder="Search by order, LR, customer…" value={search} onChange={e => setSearch(e.target.value)} />
+              <input placeholder="Search by order, LR, customer…" value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} />
             </div>
             {branchNames.length > 0 && (
-              <select className="form-control" style={{ width: 160 }} value={branchFilter} onChange={e => setBranchFilter(e.target.value)}>
+              <select className="form-control" style={{ width: 160 }} value={branchFilter} onChange={e => { setBranchFilter(e.target.value); setPage(1) }}>
                 <option value="All">All Branches</option>
                 {branchNames.map(b => <option key={b}>{b}</option>)}
               </select>
@@ -125,7 +134,7 @@ export default function DispatchManagement({ branches = [], dispatches = [], ord
               </tr>
             </thead>
             <tbody>
-              {enriched.map(d => (
+              {paged.map(d => (
                 <tr key={disId(d)}>
                   <td style={{ color: 'var(--primary)', fontWeight: 700 }}>{disCode(d)}</td>
                   <td style={{ fontSize: 12 }}>
@@ -192,6 +201,27 @@ export default function DispatchManagement({ branches = [], dispatches = [], ord
             </tbody>
           </table>
         </div>
+        {totalPages > 1 && (
+          <div className="pagination">
+            <span className="pagination-info">
+              {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, total)} of {total}
+            </span>
+            <button className="pagination-btn" disabled={safePage === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
+              <ChevronLeft size={13} />
+            </button>
+            {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+              const n = totalPages <= 5 ? i + 1 : Math.max(1, Math.min(safePage - 2, totalPages - 4)) + i
+              return (
+                <button key={n} className={`pagination-btn${n === safePage ? ' active' : ''}`} onClick={() => setPage(n)}>
+                  {n}
+                </button>
+              )
+            })}
+            <button className="pagination-btn" disabled={safePage === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>
+              <ChevronRight size={13} />
+            </button>
+          </div>
+        )}
       </div>
 
     </>

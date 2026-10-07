@@ -1,8 +1,8 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import {
   Download, FileText, BarChart3, TrendingUp, Package, Users,
   ShoppingBag, Receipt, UserCog, RefreshCw, AlertCircle,
-  FileSpreadsheet, CheckCircle,
+  FileSpreadsheet, CheckCircle, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -13,6 +13,8 @@ import { profitLossApi } from '../api/financeApi'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import * as XLSX from 'xlsx'
+
+const PAGE_SIZE = 10
 
 // ── Report type config ────────────────────────────────────────
 const REPORT_TYPES = [
@@ -442,6 +444,36 @@ function ReportTable({ type, data, color }) {
   const fmt    = (v) => `₹${(parseFloat(v) || 0).toLocaleString('en-IN')}`
   const fmtDt  = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
 
+  // ── Pagination (10 rows per page) ──────────────────────────
+  const [page, setPage] = useState(1)
+  useEffect(() => { setPage(1) }, [type, rows.length])
+  const total       = rows.length
+  const totalPages  = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const safePage    = Math.min(page, totalPages)
+  const offset      = (safePage - 1) * PAGE_SIZE
+  const paged       = rows.slice(offset, safePage * PAGE_SIZE)
+  const Pager = () => totalPages <= 1 ? null : (
+    <div className="pagination">
+      <span className="pagination-info">
+        {offset + 1}–{Math.min(safePage * PAGE_SIZE, total)} of {total}
+      </span>
+      <button className="pagination-btn" disabled={safePage === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
+        <ChevronLeft size={13} />
+      </button>
+      {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+        const n = totalPages <= 5 ? i + 1 : Math.max(1, Math.min(safePage - 2, totalPages - 4)) + i
+        return (
+          <button key={n} className={`pagination-btn${n === safePage ? ' active' : ''}`} onClick={() => setPage(n)}>
+            {n}
+          </button>
+        )
+      })}
+      <button className="pagination-btn" disabled={safePage === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>
+        <ChevronRight size={13} />
+      </button>
+    </div>
+  )
+
   if (type === 'profit') {
     return (
       <div className="card">
@@ -504,9 +536,9 @@ function ReportTable({ type, data, color }) {
           <table>
             <thead><tr><th>#</th><th>Period</th><th>Revenue (incl. GST)</th><th>Base Amount</th><th>GST</th><th>Orders</th></tr></thead>
             <tbody>
-              {rows.map((r, i) => (
+              {paged.map((r, i) => (
                 <tr key={i}>
-                  <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{i+1}</td>
+                  <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{offset + i + 1}</td>
                   <td style={{ fontWeight: 600 }}>{r.period || '—'}</td>
                   <td style={{ fontWeight: 700, color: 'var(--success)' }}>{fmt(r.total_sales)}</td>
                   <td>{fmt(r.base_amount)}</td>
@@ -523,9 +555,9 @@ function ReportTable({ type, data, color }) {
           <table>
             <thead><tr><th>#</th><th>Supplier</th><th>Total Purchase</th><th>Orders</th><th>Last Date</th></tr></thead>
             <tbody>
-              {rows.map((r, i) => (
+              {paged.map((r, i) => (
                 <tr key={i}>
-                  <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{i+1}</td>
+                  <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{offset + i + 1}</td>
                   <td style={{ fontWeight: 600 }}>{r.supplier_name || '—'}</td>
                   <td style={{ fontWeight: 700, color: '#7C3AED' }}>{fmt(r.total)}</td>
                   <td>{r.count || 0}</td>
@@ -541,12 +573,12 @@ function ReportTable({ type, data, color }) {
           <table>
             <thead><tr><th>#</th><th>Category</th><th>Amount</th><th>Count</th><th>% of Total</th></tr></thead>
             <tbody>
-              {rows.map((r, i) => {
+              {paged.map((r, i) => {
                 const total = Math.max(rows.reduce((a, x) => a + (x.total || 0), 0), 1)
                 const pct = (((r.total || 0) / total) * 100).toFixed(1)
                 return (
                   <tr key={i}>
-                    <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{i+1}</td>
+                    <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{offset + i + 1}</td>
                     <td style={{ fontWeight: 600 }}>{r.category || '—'}</td>
                     <td style={{ fontWeight: 700, color: 'var(--danger)' }}>{fmt(r.total)}</td>
                     <td>{r.count || 0}</td>
@@ -570,9 +602,9 @@ function ReportTable({ type, data, color }) {
           <table>
             <thead><tr><th>#</th><th>Customer</th><th>Orders</th><th>Revenue</th><th>Outstanding</th><th>Last Order</th></tr></thead>
             <tbody>
-              {rows.map((r, i) => (
+              {paged.map((r, i) => (
                 <tr key={i}>
-                  <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{i+1}</td>
+                  <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{offset + i + 1}</td>
                   <td style={{ fontWeight: 700 }}>{r.customer_name || '—'}</td>
                   <td style={{ fontWeight: 600 }}>{r.order_count || 0}</td>
                   <td style={{ fontWeight: 700, color: 'var(--success)' }}>{fmt(r.total_sales)}</td>
@@ -589,9 +621,9 @@ function ReportTable({ type, data, color }) {
           <table>
             <thead><tr><th>#</th><th>Supplier</th><th>Total Purchase</th><th>Orders</th><th>Outstanding</th><th>Last Date</th></tr></thead>
             <tbody>
-              {rows.map((r, i) => (
+              {paged.map((r, i) => (
                 <tr key={i}>
-                  <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{i+1}</td>
+                  <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{offset + i + 1}</td>
                   <td style={{ fontWeight: 700 }}>{r.supplier_name || '—'}</td>
                   <td style={{ fontWeight: 700, color: '#7C3AED' }}>{fmt(r.total)}</td>
                   <td>{r.count || 0}</td>
@@ -610,11 +642,11 @@ function ReportTable({ type, data, color }) {
               <tr><th>#</th><th>Product</th><th>Code</th><th>Category</th><th>Warehouse</th><th>In</th><th>Out</th><th>Current Stock</th><th>Status</th></tr>
             </thead>
             <tbody>
-              {rows.map((r, i) => {
+              {paged.map((r, i) => {
                 const st = r.current_stock === 0 ? 'Out' : r.current_stock <= r.low_stock_alert ? 'Low' : 'OK'
                 return (
                   <tr key={i}>
-                    <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{i+1}</td>
+                    <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{offset + i + 1}</td>
                     <td style={{ fontWeight: 600 }}>{r.product_name || '—'}</td>
                     <td style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--primary)' }}>{r.product_code || '—'}</td>
                     <td style={{ fontSize: 12 }}>{r.category_name || '—'}</td>
@@ -643,9 +675,9 @@ function ReportTable({ type, data, color }) {
               <tr><th>#</th><th>Code</th><th>Name</th><th>Department</th><th>Gross</th><th>Deductions</th><th>Net Salary</th><th>Present Days</th><th>Status</th></tr>
             </thead>
             <tbody>
-              {rows.map((r, i) => (
+              {paged.map((r, i) => (
                 <tr key={i}>
-                  <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{i+1}</td>
+                  <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{offset + i + 1}</td>
                   <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{r.emp_code || '—'}</td>
                   <td style={{ fontWeight: 700 }}>{r.name || '—'}</td>
                   <td style={{ fontSize: 12 }}>{r.department || '—'}</td>
@@ -662,6 +694,7 @@ function ReportTable({ type, data, color }) {
           </table>
         )}
       </div>
+      <Pager />
     </div>
   )
 }

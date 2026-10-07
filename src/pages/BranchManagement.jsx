@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import {
   GitBranch, Plus, Edit2, Trash2, MapPin, Phone, Mail, User,
-  X, Check, Building2, Search, Warehouse, LayoutGrid, List,
-  CheckCircle, XCircle
+  X, Check, Building2, Search, LayoutGrid, List, Eye,
+  CheckCircle, XCircle, ChevronLeft, ChevronRight
 } from 'lucide-react'
+
+const PAGE_SIZE = 10
 
 const EMPTY = { name: '', city: '', state: '', address: '', manager: '', phone: '', email: '', type: '', status: 'Active' }
 
@@ -12,17 +14,18 @@ const STAT_STYLES = {
   All:        { bg: '#EFF6FF', iconBg: '#DBEAFE', iconColor: '#2563EB', textColor: '#1D4ED8', borderColor: '#BFDBFE' },
   Active:     { bg: '#ECFDF5', iconBg: '#D1FAE5', iconColor: '#059669', textColor: '#047857', borderColor: '#A7F3D0' },
   Inactive:   { bg: '#FEF2F2', iconBg: '#FEE2E2', iconColor: '#DC2626', textColor: '#B91C1C', borderColor: '#FECACA' },
-  Warehouses: { bg: '#F5F3FF', iconBg: '#EDE9FE', iconColor: '#7C3AED', textColor: '#6D28D9', borderColor: '#DDD6FE' },
 }
 
 export default function BranchManagement({ branches = [], addBranch, updateBranch, deleteBranch }) {
   const [search,   setSearch]   = useState('')
+  const [page,     setPage]     = useState(1)
   const [filter,   setFilter]   = useState('All')   // 'All' | 'Active' | 'Inactive'
   const [viewMode, setViewMode] = useState('table')  // 'cards' | 'table'
   const [modal,    setModal]    = useState(null)
   const [form,     setForm]     = useState(EMPTY)
   const [editId,   setEditId]   = useState(null)
   const [deleteId, setDeleteId] = useState(null)
+  const [viewItem, setViewItem] = useState(null)   // branch shown in the read-only detail modal
   const [errors,   setErrors]   = useState({})
   const [saving,   setSaving]   = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -36,6 +39,12 @@ export default function BranchManagement({ branches = [], addBranch, updateBranc
       (b.code || '').toLowerCase().includes(search.toLowerCase())
     return matchStatus && matchSearch
   })
+
+  // ── Pagination (10 rows per page) ──────────────────────────
+  const total       = filtered.length
+  const totalPages  = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const safePage    = Math.min(page, totalPages)
+  const paged       = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
 
   const openAdd    = () => { setForm(EMPTY); setErrors({}); setModal('add') }
   const openEdit   = (b) => { setForm({ name: b.name, city: b.city, state: b.state, address: b.address, manager: b.manager, phone: b.phone, email: b.email, type: b.type, status: b.status }); setEditId(b._id || b.id); setErrors({}); setModal('edit') }
@@ -90,13 +99,10 @@ export default function BranchManagement({ branches = [], addBranch, updateBranc
     closeModal()
   }
 
-  const totalWarehouses = branches.reduce((s, b) => s + (b.warehouses || 0), 0)
-
   const stats = [
     { key: 'All',        label: 'Total Branches', value: branches.length,                                      icon: GitBranch  },
     { key: 'Active',     label: 'Active',          value: branches.filter(b => b.status === 'Active').length,   icon: CheckCircle },
     { key: 'Inactive',   label: 'Inactive',        value: branches.filter(b => b.status === 'Inactive').length, icon: XCircle    },
-    { key: 'Warehouses', label: 'Warehouses',      value: totalWarehouses,                                      icon: Warehouse,  noFilter: true },
   ]
 
   const F = (k, label, placeholder, type = 'text', opts = {}) => {
@@ -170,7 +176,7 @@ export default function BranchManagement({ branches = [], addBranch, updateBranc
           return (
             <div
               key={s.key}
-              onClick={() => { if (!s.noFilter) setFilter(active ? 'All' : s.key) }}
+              onClick={() => { if (!s.noFilter) { setFilter(active ? 'All' : s.key); setPage(1) } }}
               style={{
                 background:   active ? st.iconBg : st.bg,
                 border:       `1.5px solid ${active ? st.iconColor : st.borderColor}`,
@@ -206,11 +212,11 @@ export default function BranchManagement({ branches = [], addBranch, updateBranc
         <Search size={14} color="#94A3B8" style={{ flexShrink: 0 }} />
         <input
           value={search}
-          onChange={e => setSearch(e.target.value)}
+          onChange={e => { setSearch(e.target.value); setPage(1) }}
           placeholder="Search by branch name, city, code or manager…"
           style={{ flex: 1, border: 'none', outline: 'none', fontSize: 13, color: '#01152D', background: 'transparent' }}
         />
-        {search && <button onClick={() => setSearch('')} style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', display: 'flex' }}><X size={13} /></button>}
+        {search && <button onClick={() => { setSearch(''); setPage(1) }} style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', display: 'flex' }}><X size={13} /></button>}
 
         {/* Status filter pills */}
         <div style={{ display: 'flex', gap: 6, marginLeft: 8, flexShrink: 0 }}>
@@ -223,7 +229,7 @@ export default function BranchManagement({ branches = [], addBranch, updateBranc
             return (
               <button
                 key={s.key}
-                onClick={() => setFilter(s.key)}
+                onClick={() => { setFilter(s.key); setPage(1) }}
                 style={{
                   padding: '4px 12px', borderRadius: 20, fontSize: 11, fontWeight: 600,
                   border: `1.5px solid ${active ? s.color : s.border}`,
@@ -268,15 +274,14 @@ export default function BranchManagement({ branches = [], addBranch, updateBranc
                   <th>Phone</th>
                   <th>Email</th>
                   <th>Type</th>
-                  <th>Warehouses</th>
                   <th>Status</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
-                  <tr><td colSpan={10} style={{ textAlign: 'center', padding: 28, color: 'var(--text-muted)' }}>No branches found</td></tr>
-                ) : filtered.map(b => (
+                  <tr><td colSpan={9} style={{ textAlign: 'center', padding: 28, color: 'var(--text-muted)' }}>No branches found</td></tr>
+                ) : paged.map(b => (
                   <tr key={b._id || b.id}>
                     <td style={{ color: 'var(--primary)', fontWeight: 700, fontSize: 12, whiteSpace: 'nowrap' }}>{b.code}</td>
                     <td>
@@ -323,9 +328,6 @@ export default function BranchManagement({ branches = [], addBranch, updateBranc
                         whiteSpace: 'nowrap',
                       }}>{b.type || '—'}</span>
                     </td>
-                    <td style={{ textAlign: 'center' }}>
-                      <span style={{ fontWeight: 700, color: '#7C3AED' }}>{b.warehouses}</span>
-                    </td>
                     <td>
                       <span style={{
                         display: 'inline-flex', alignItems: 'center', gap: 4,
@@ -343,6 +345,9 @@ export default function BranchManagement({ branches = [], addBranch, updateBranc
                     </td>
                     <td>
                       <div className="table-actions">
+                        <button className="btn btn-ghost btn-xs" title="View" onClick={() => setViewItem(b)} style={{ color: '#2563EB' }}>
+                          <Eye size={13} />
+                        </button>
                         <button className="btn btn-ghost btn-xs" title="Edit" onClick={() => openEdit(b)} style={{ color: '#3B82F6' }}>
                           <Edit2 size={13} />
                         </button>
@@ -356,6 +361,27 @@ export default function BranchManagement({ branches = [], addBranch, updateBranc
               </tbody>
             </table>
           </div>
+          {totalPages > 1 && (
+            <div className="pagination">
+              <span className="pagination-info">
+                {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, total)} of {total}
+              </span>
+              <button className="pagination-btn" disabled={safePage === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
+                <ChevronLeft size={13} />
+              </button>
+              {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                const n = totalPages <= 5 ? i + 1 : Math.max(1, Math.min(safePage - 2, totalPages - 4)) + i
+                return (
+                  <button key={n} className={`pagination-btn${n === safePage ? ' active' : ''}`} onClick={() => setPage(n)}>
+                    {n}
+                  </button>
+                )
+              })}
+              <button className="pagination-btn" disabled={safePage === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>
+                <ChevronRight size={13} />
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -413,14 +439,9 @@ export default function BranchManagement({ branches = [], addBranch, updateBranc
                 </div>
 
                 {/* Footer */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 12, borderTop: '1px solid #F1F5F9' }}>
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#F5F3FF', border: '1px solid #E9D5FF', padding: '4px 10px', borderRadius: 8 }}>
-                    <Warehouse size={13} color="#7C3AED" />
-                    <span style={{ fontSize: 12, color: '#6D28D9', fontWeight: 600 }}>
-                      {b.warehouses} Warehouse{b.warehouses !== 1 ? 's' : ''}
-                    </span>
-                  </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingTop: 12, borderTop: '1px solid #F1F5F9' }}>
                   <div style={{ display: 'flex', gap: 6 }}>
+                    <ActionBtn icon={<Eye size={13} />}    color="#2563EB" bg="#EFF6FF" onClick={() => setViewItem(b)} title="View" />
                     <ActionBtn icon={<Edit2 size={13} />}  color="#3B82F6" bg="#EFF6FF" onClick={() => openEdit(b)}   title="Edit" />
                     <ActionBtn icon={<Trash2 size={13} />} color="#EF4444" bg="#FEF2F2" onClick={() => openDelete(b)} title="Delete" />
                   </div>
@@ -428,6 +449,72 @@ export default function BranchManagement({ branches = [], addBranch, updateBranc
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* ── View (read-only) Modal ── */}
+      {viewItem && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999, padding: 20, backdropFilter: 'blur(2px)' }} onClick={() => setViewItem(null)}>
+          <div style={{ background: '#fff', borderRadius: 18, width: '100%', maxWidth: 540, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }} onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div style={{ padding: '20px 26px', borderBottom: '1px solid #E8EDF3', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 44, height: 44, borderRadius: 11, background: 'linear-gradient(135deg,#FFF3EC,#FFE3D0)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <Building2 size={20} color="#FD5C02" />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 16, fontWeight: 800, color: '#01152D' }}>{viewItem.name}</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, fontFamily: 'monospace', color: '#FD5C02', background: '#FFF3EC', padding: '2px 8px', borderRadius: 5 }}>{viewItem.code}</span>
+                  <span style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                    fontSize: 11, fontWeight: 600, padding: '3px 9px', borderRadius: 20,
+                    background: viewItem.status === 'Active' ? '#ECFDF5' : '#FEF2F2',
+                    color:      viewItem.status === 'Active' ? '#059669'  : '#DC2626',
+                    border:     `1px solid ${viewItem.status === 'Active' ? '#A7F3D0' : '#FECACA'}`,
+                  }}>
+                    {viewItem.status === 'Active' ? <CheckCircle size={10} /> : <XCircle size={10} />}{viewItem.status}
+                  </span>
+                </div>
+                {viewItem.type && <div style={{ fontSize: 12, color: '#94A3B8', marginTop: 2 }}>{viewItem.type}</div>}
+              </div>
+              <button onClick={() => setViewItem(null)} style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', cursor: 'pointer', color: '#94A3B8', borderRadius: 8, padding: 6, display: 'flex' }}><X size={18} /></button>
+            </div>
+
+            {/* Body — label/value grid */}
+            <div style={{ padding: '20px 26px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                {[
+                  ['Branch Code',  viewItem.code],
+                  ['Branch Name',  viewItem.name],
+                  ['Branch Type',  viewItem.type || '—'],
+                  ['Status',       viewItem.status],
+                  ['City',         viewItem.city || '—'],
+                  ['State',        viewItem.state || '—'],
+                  ['Manager',      viewItem.manager || '—'],
+                  ['Phone',        viewItem.phone || '—'],
+                  ['Email',        viewItem.email || '—'],
+                ].map(([label, val]) => (
+                  <div key={label} style={{ background: '#FAFBFC', border: '1px solid #F1F5F9', borderRadius: 9, padding: '10px 13px' }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#94A3B8', marginBottom: 3 }}>{label}</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#01152D', wordBreak: 'break-word' }}>{val}</div>
+                  </div>
+                ))}
+              </div>
+              {/* Full address — spans both columns */}
+              <div style={{ background: '#FAFBFC', border: '1px solid #F1F5F9', borderRadius: 9, padding: '10px 13px', marginTop: 14 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: '#94A3B8', marginBottom: 3 }}>Full Address</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#01152D', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{viewItem.address || '—'}</div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: '14px 26px 22px', borderTop: '1px solid #E8EDF3', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button onClick={() => setViewItem(null)} style={{ padding: '10px 20px', borderRadius: 9, border: '1.5px solid #E2E8F0', background: '#F8FAFC', color: '#64748B', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Close</button>
+              <button onClick={() => { const b = viewItem; setViewItem(null); openEdit(b) }} style={{ padding: '10px 22px', borderRadius: 9, border: 'none', background: 'linear-gradient(135deg,#FD5C02,#FE7722)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 7, boxShadow: '0 4px 14px rgba(253,92,2,0.3)' }}>
+                <Edit2 size={14} /> Edit Branch
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

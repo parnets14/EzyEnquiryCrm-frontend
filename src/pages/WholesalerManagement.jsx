@@ -8,8 +8,11 @@ import {
   Package, ShoppingCart, MessageSquare, Users, CreditCard,
   RefreshCw, Search, Eye, Trash2, CheckCircle, XCircle,
   TrendingUp, Building2, AlertCircle, X, FileText, Clock,
+  ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import { wholesalerApi } from '../api/wholesalerApi'
+
+const PAGE_SIZE = 10
 
 // ─── helpers ─────────────────────────────────────────────────
 const money  = n  => n == null ? '—' : '₹' + Number(n).toLocaleString('en-IN')
@@ -28,6 +31,7 @@ const PLANS = ['Free', 'Basic', 'Standard', 'Premium', 'Enterprise']
 // ═══════════════════════════════════════════════════════════════
 export default function WholesalerManagement() {
   const [tab, setTab] = useState('overview')
+  const [page, setPage] = useState(1)
 
   // data
   const [products,  setProducts]  = useState([])
@@ -95,6 +99,44 @@ export default function WholesalerManagement() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  // Reset to page 1 whenever the active tab or search query changes.
+  useEffect(() => { setPage(1) }, [tab, search])
+
+  // ── Pagination helpers (10 rows per page) ──────────────────
+  // Slice any filtered array down to the current page.
+  const pageSlice = (arr) => {
+    const tp = Math.max(1, Math.ceil(arr.length / PAGE_SIZE))
+    const sp = Math.min(page, tp)
+    return arr.slice((sp - 1) * PAGE_SIZE, sp * PAGE_SIZE)
+  }
+  // Reusable numbered pager (uses the shared `page`/`setPage`/`PAGE_SIZE`).
+  const Pager = ({ total }) => {
+    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+    const safePage   = Math.min(page, totalPages)
+    if (totalPages <= 1) return null
+    return (
+      <div className="pagination">
+        <span className="pagination-info">
+          {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, total)} of {total}
+        </span>
+        <button className="pagination-btn" disabled={safePage === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
+          <ChevronLeft size={13} />
+        </button>
+        {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+          const n = totalPages <= 5 ? i + 1 : Math.max(1, Math.min(safePage - 2, totalPages - 4)) + i
+          return (
+            <button key={n} className={`pagination-btn${n === safePage ? ' active' : ''}`} onClick={() => setPage(n)}>
+              {n}
+            </button>
+          )
+        })}
+        <button className="pagination-btn" disabled={safePage === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>
+          <ChevronRight size={13} />
+        </button>
+      </div>
+    )
+  }
 
   // ── Actions ────────────────────────────────────────────────
   const handleApprove = async (id) => {
@@ -173,7 +215,7 @@ export default function WholesalerManagement() {
   const match = (...vals) => !q || vals.some(v => (v || '').toLowerCase().includes(q))
 
   const fProducts  = products.filter(p  => match(p.product_code, p.name, p.company_name))
-  const fPurchases = purchases.filter(p => match(p.order_code, p.company_name, p.product_name, p.supplier_name))
+  const fPurchases = purchases.filter(p => match(p.purchase_code || p.order_code, p.company_name, p.product_name, p.supplier_name))
   const fRequests  = requests.filter(r  => match(r.req_code, r.company_name, r.product_name))
   const fOrders    = orders.filter(o    => match(o.order_code, o.company_name, o.customer_name, o.product_name))
   const fEnquiries = enquiries.filter(e => match(e.enq_code, e.company_name, e.retailer_name, e.product_name))
@@ -265,7 +307,7 @@ export default function WholesalerManagement() {
                 <tbody>
                   {purchases.filter(p => p.status === 'Pending').slice(0, 8).map(p => (
                     <tr key={p._id}>
-                      <td style={{ fontFamily: 'monospace', fontWeight: 700, color: '#F26522' }}>{p.order_code || '—'}</td>
+                      <td style={{ fontFamily: 'monospace', fontWeight: 700, color: '#F26522' }}>{p.purchase_code || p.order_code || '—'}</td>
                       <td>{p.company_name}</td>
                       <td style={{ fontWeight: 600 }}>{p.product_name || '—'}</td>
                       <td>{p.qty}</td>
@@ -309,7 +351,7 @@ export default function WholesalerManagement() {
               <tbody>
                 {loading && <tr><td colSpan={10} style={{ textAlign: 'center', padding: 30 }}>Loading…</td></tr>}
                 {!loading && fProducts.length === 0 && <tr><td colSpan={10} style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>No products found.</td></tr>}
-                {!loading && fProducts.map(p => (
+                {!loading && pageSlice(fProducts).map(p => (
                   <tr key={p._id}>
                     <td style={{ fontFamily: 'monospace', fontWeight: 700, color: '#F26522', fontSize: 12 }}>{p.product_code || '—'}</td>
                     <td style={{ fontWeight: 600 }}>{p.name}</td>
@@ -331,6 +373,7 @@ export default function WholesalerManagement() {
               </tbody>
             </table>
           </div>
+          <Pager total={fProducts.length} />
         </div>
       )}
 
@@ -349,9 +392,9 @@ export default function WholesalerManagement() {
               <tbody>
                 {loading && <tr><td colSpan={9} style={{ textAlign: 'center', padding: 30 }}>Loading…</td></tr>}
                 {!loading && fPurchases.length === 0 && <tr><td colSpan={9} style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>No purchase orders found.</td></tr>}
-                {!loading && fPurchases.map(p => (
+                {!loading && pageSlice(fPurchases).map(p => (
                   <tr key={p._id}>
-                    <td style={{ fontFamily: 'monospace', fontWeight: 700, color: '#F26522', fontSize: 12 }}>{p.order_code || '—'}</td>
+                    <td style={{ fontFamily: 'monospace', fontWeight: 700, color: '#F26522', fontSize: 12 }}>{p.purchase_code || p.order_code || '—'}</td>
                     <td>{p.company_name}</td>
                     <td>{p.supplier_name || '—'}</td>
                     <td style={{ fontWeight: 600 }}>{p.product_name || '—'}</td>
@@ -380,6 +423,7 @@ export default function WholesalerManagement() {
               </tbody>
             </table>
           </div>
+          <Pager total={fPurchases.length} />
         </div>
       )}
 
@@ -398,7 +442,7 @@ export default function WholesalerManagement() {
               <tbody>
                 {loading && <tr><td colSpan={8} style={{ textAlign: 'center', padding: 30 }}>Loading…</td></tr>}
                 {!loading && fRequests.length === 0 && <tr><td colSpan={8} style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>No product requests found.</td></tr>}
-                {!loading && fRequests.map(r => (
+                {!loading && pageSlice(fRequests).map(r => (
                   <tr key={r._id}>
                     <td style={{ fontFamily: 'monospace', fontWeight: 700, color: '#F26522', fontSize: 12 }}>{r.req_code || r.enq_code || '—'}</td>
                     <td>{r.company_name}</td>
@@ -417,6 +461,7 @@ export default function WholesalerManagement() {
               </tbody>
             </table>
           </div>
+          <Pager total={fRequests.length} />
         </div>
       )}
 
@@ -435,7 +480,7 @@ export default function WholesalerManagement() {
               <tbody>
                 {loading && <tr><td colSpan={9} style={{ textAlign: 'center', padding: 30 }}>Loading…</td></tr>}
                 {!loading && fOrders.length === 0 && <tr><td colSpan={9} style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>No orders found.</td></tr>}
-                {!loading && fOrders.map(o => (
+                {!loading && pageSlice(fOrders).map(o => (
                   <tr key={o._id}>
                     <td style={{ fontFamily: 'monospace', fontWeight: 700, color: '#F26522', fontSize: 12 }}>{o.order_code}</td>
                     <td>{o.company_name}</td>
@@ -455,6 +500,7 @@ export default function WholesalerManagement() {
               </tbody>
             </table>
           </div>
+          <Pager total={fOrders.length} />
         </div>
       )}
 
@@ -473,7 +519,7 @@ export default function WholesalerManagement() {
               <tbody>
                 {loading && <tr><td colSpan={8} style={{ textAlign: 'center', padding: 30 }}>Loading…</td></tr>}
                 {!loading && fEnquiries.length === 0 && <tr><td colSpan={8} style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>No enquiries found.</td></tr>}
-                {!loading && fEnquiries.map(e => (
+                {!loading && pageSlice(fEnquiries).map(e => (
                   <tr key={e._id}>
                     <td style={{ fontFamily: 'monospace', fontWeight: 700, color: '#F26522', fontSize: 12 }}>{e.enq_code || '—'}</td>
                     <td>{e.company_name}</td>
@@ -503,6 +549,7 @@ export default function WholesalerManagement() {
               </tbody>
             </table>
           </div>
+          <Pager total={fEnquiries.length} />
         </div>
       )}
 
@@ -521,7 +568,7 @@ export default function WholesalerManagement() {
               <tbody>
                 {loading && <tr><td colSpan={7} style={{ textAlign: 'center', padding: 30 }}>Loading…</td></tr>}
                 {!loading && fUsers.length === 0 && <tr><td colSpan={7} style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>No users found.</td></tr>}
-                {!loading && fUsers.map(u => (
+                {!loading && pageSlice(fUsers).map(u => (
                   <tr key={u._id}>
                     <td style={{ fontWeight: 600 }}>{u.name}</td>
                     <td>{u.company_name}</td>
@@ -539,6 +586,7 @@ export default function WholesalerManagement() {
               </tbody>
             </table>
           </div>
+          <Pager total={fUsers.length} />
         </div>
       )}
 
@@ -557,7 +605,7 @@ export default function WholesalerManagement() {
               <tbody>
                 {loading && <tr><td colSpan={7} style={{ textAlign: 'center', padding: 30 }}>Loading…</td></tr>}
                 {!loading && fSubs.length === 0 && <tr><td colSpan={7} style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>No companies found.</td></tr>}
-                {!loading && fSubs.map(s => (
+                {!loading && pageSlice(fSubs).map(s => (
                   <tr key={s.company_id}>
                     <td style={{ fontWeight: 600 }}>{s.company_name}</td>
                     <td><span className="badge badge-blue">{s.plan}</span></td>
@@ -575,6 +623,7 @@ export default function WholesalerManagement() {
               </tbody>
             </table>
           </div>
+          <Pager total={fSubs.length} />
         </div>
       )}
 
@@ -620,7 +669,7 @@ export default function WholesalerManagement() {
         <div className="modal-overlay" onClick={() => setViewPurchase(null)}>
           <div className="modal" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <span className="modal-title">Purchase Order — {viewPurchase.order_code}</span>
+              <span className="modal-title">Purchase Order — {viewPurchase.purchase_code || viewPurchase.order_code || '—'}</span>
               <button className="modal-close" onClick={() => setViewPurchase(null)}><X size={18} /></button>
             </div>
             <div className="modal-body">
@@ -807,7 +856,7 @@ export default function WholesalerManagement() {
         <div className="modal-overlay" onClick={() => !saving && setRejectFor(null)}>
           <div className="modal" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <span className="modal-title"><XCircle size={15} style={{ marginRight: 6, verticalAlign: 'middle', color: '#DC2626' }} />Reject Order — {rejectFor.order_code}</span>
+              <span className="modal-title"><XCircle size={15} style={{ marginRight: 6, verticalAlign: 'middle', color: '#DC2626' }} />Reject Order — {rejectFor.purchase_code || rejectFor.order_code || '—'}</span>
               <button className="modal-close" onClick={() => setRejectFor(null)}><X size={18} /></button>
             </div>
             <div className="modal-body">
@@ -849,7 +898,7 @@ export default function WholesalerManagement() {
               <span className="modal-title"><Trash2 size={15} style={{ marginRight: 6, verticalAlign: 'middle', color: '#DC2626' }} />Delete Purchase Order</span>
               <button className="modal-close" onClick={() => setDelPurchase(null)}><X size={18} /></button>
             </div>
-            <div className="modal-body"><p style={{ margin: 0 }}>Delete purchase order <strong>{delPurchase.order_code}</strong>?</p></div>
+            <div className="modal-body"><p style={{ margin: 0 }}>Delete purchase order <strong>{delPurchase.purchase_code || delPurchase.order_code || '—'}</strong>?</p></div>
             <div className="modal-footer">
               <button className="btn btn-secondary btn-sm" disabled={saving} onClick={() => setDelPurchase(null)}>Cancel</button>
               <button className="btn btn-danger btn-sm" disabled={saving} onClick={handleDelPurchase}>{saving ? 'Deleting…' : 'Delete'}</button>

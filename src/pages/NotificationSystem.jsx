@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
-import { Bell, CheckCircle, Package, ShoppingCart, Truck, CreditCard, MessageSquare, Send, X, Megaphone, Trash2 } from 'lucide-react'
+import { Bell, CheckCircle, Package, ShoppingCart, Truck, CreditCard, MessageSquare, Send, X, Megaphone, Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
 import { notificationApi } from '../api/systemApi'
 import { companyApi } from '../api/companyApi'
+
+const PAGE_SIZE = 10
 
 const TYPE_CONFIG = {
   enquiry:  { Icon: MessageSquare, color: '#4F46E5', bg: '#eef2ff',  badgeCls: 'badge-blue'   },
@@ -32,6 +34,7 @@ const TYPE_FILTERS = [
 
 export default function NotificationSystem({ notifications = [], markNotifRead, markAllNotifsRead, deleteNotif, clearAllNotifs }) {
   const [filter, setFilter] = useState('all')
+  const [page, setPage] = useState(1)
   const [clearing, setClearing] = useState(false)
 
   // ── Compose / broadcast (Super Admin) ──────────────────────
@@ -122,6 +125,12 @@ export default function NotificationSystem({ notifications = [], markNotifRead, 
     return n.type === filter
   })
 
+  // ── Pagination (10 rows per page) ──────────────────────────
+  const total       = filtered.length
+  const totalPages  = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const safePage    = Math.min(page, totalPages)
+  const paged       = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+
   const statCards = [
     { label: 'Total',   val: normalizedNotifs.length,                                         color: 'blue'   },
     { label: 'Unread',  val: unreadCount,                                                      color: 'red'    },
@@ -183,7 +192,7 @@ export default function NotificationSystem({ notifications = [], markNotifRead, 
             <button
               key={f.key}
               className={`tab-btn${filter === f.key ? ' active' : ''}`}
-              onClick={() => setFilter(f.key)}
+              onClick={() => { setFilter(f.key); setPage(1) }}
               style={{ fontSize: 12 }}
             >
               {f.label}
@@ -200,7 +209,7 @@ export default function NotificationSystem({ notifications = [], markNotifRead, 
               No notifications in this category
             </div>
           )}
-          {filtered.map(n => {
+          {paged.map(n => {
             const cfg = TYPE_CONFIG[n.type] || TYPE_CONFIG.info
             const timeStr = n.created_at
               ? (typeof n.created_at === 'string' && n.created_at.includes('T')
@@ -257,6 +266,27 @@ export default function NotificationSystem({ notifications = [], markNotifRead, 
             )
           })}
         </div>
+        {totalPages > 1 && (
+          <div className="pagination">
+            <span className="pagination-info">
+              {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, total)} of {total}
+            </span>
+            <button className="pagination-btn" disabled={safePage === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
+              <ChevronLeft size={13} />
+            </button>
+            {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+              const n = totalPages <= 5 ? i + 1 : Math.max(1, Math.min(safePage - 2, totalPages - 4)) + i
+              return (
+                <button key={n} className={`pagination-btn${n === safePage ? ' active' : ''}`} onClick={() => setPage(n)}>
+                  {n}
+                </button>
+              )
+            })}
+            <button className="pagination-btn" disabled={safePage === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>
+              <ChevronRight size={13} />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ── Compose / Broadcast modal (Super Admin) ────────────── */}

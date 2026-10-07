@@ -1,6 +1,8 @@
 import { useState, useMemo } from 'react'
-import { FileBarChart, Search, Filter, Download } from 'lucide-react'
+import { FileBarChart, Search, Filter, Download, ChevronLeft, ChevronRight } from 'lucide-react'
 import { purchaseReportApi } from '../api/purchaseInventoryApi'
+
+const PAGE_SIZE = 10
 
 const REPORT_TYPES = [
   { key: 'register',    label: 'Purchase Register',    fn: p => purchaseReportApi.purchaseRegister(p) },
@@ -26,6 +28,7 @@ export default function PurchaseReports({ purchases = [], products = [], supplie
   const [loading,      setLoading]      = useState(false)
   const [search,       setSearch]       = useState('')
   const [error,        setError]        = useState('')
+  const [page,         setPage]         = useState(1)
 
   const runReport = async () => {
     setLoading(true); setError('')
@@ -44,7 +47,7 @@ export default function PurchaseReports({ purchases = [], products = [], supplie
       // Fallback: derive from local purchases prop
       setData(purchases.slice(0, 50))
     }
-    finally { setLoading(false) }
+    finally { setLoading(false); setPage(1) }
   }
 
   const filtered = useMemo(() => {
@@ -59,6 +62,12 @@ export default function PurchaseReports({ purchases = [], products = [], supplie
     return keys.slice(0, 10)
   }, [filtered])
 
+  // ── Pagination (10 rows per page) ──────────────────────────
+  const total       = filtered.length
+  const totalPages  = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const safePage    = Math.min(page, totalPages)
+  const paged       = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+
   return (
     <div>
       <div className="breadcrumb"><span>Purchase</span><span className="breadcrumb-sep">›</span><span className="breadcrumb-active">Purchase Reports</span></div>
@@ -70,7 +79,7 @@ export default function PurchaseReports({ purchases = [], products = [], supplie
       {/* Report Selector */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 18 }}>
         {REPORT_TYPES.map(r => (
-          <button key={r.key} onClick={() => { setActiveReport(r.key); setData([]) }} style={{ padding: '8px 16px', borderRadius: 8, border: '1.5px solid', fontWeight: 600, fontSize: 13, cursor: 'pointer', background: activeReport === r.key ? '#1E2D4A' : '#fff', color: activeReport === r.key ? '#fff' : '#1E2D4A', borderColor: activeReport === r.key ? '#1E2D4A' : '#E2E8F0' }}>
+          <button key={r.key} onClick={() => { setActiveReport(r.key); setData([]); setPage(1) }} style={{ padding: '8px 16px', borderRadius: 8, border: '1.5px solid', fontWeight: 600, fontSize: 13, cursor: 'pointer', background: activeReport === r.key ? '#1E2D4A' : '#fff', color: activeReport === r.key ? '#fff' : '#1E2D4A', borderColor: activeReport === r.key ? '#1E2D4A' : '#E2E8F0' }}>
             {r.label}
           </button>
         ))}
@@ -106,7 +115,7 @@ export default function PurchaseReports({ purchases = [], products = [], supplie
           <button className="btn btn-primary" onClick={runReport} disabled={loading}>
             <Filter size={14} /> {loading ? 'Generating…' : 'Generate Report'}
           </button>
-          <button className="btn btn-secondary" onClick={() => { setFromDate(''); setToDate(''); setSupplierFilter(''); setProductFilter(''); setData([]) }}>Clear</button>
+          <button className="btn btn-secondary" onClick={() => { setFromDate(''); setToDate(''); setSupplierFilter(''); setProductFilter(''); setData([]); setPage(1) }}>Clear</button>
           {data.length > 0 && (
             <span style={{ fontSize: 12, color: '#64748B', marginLeft: 8 }}>{filtered.length} records</span>
           )}
@@ -122,7 +131,7 @@ export default function PurchaseReports({ purchases = [], products = [], supplie
           <div className="card" style={{ padding: '12px 18px', marginBottom: 14 }}>
             <div style={{ position: 'relative', maxWidth: 320 }}>
               <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} />
-              <input className="form-control" style={{ paddingLeft: 32 }} placeholder="Search results…" value={search} onChange={e => setSearch(e.target.value)} />
+              <input className="form-control" style={{ paddingLeft: 32 }} placeholder="Search results…" value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} />
             </div>
           </div>
           <div className="card" style={{ padding: 0, overflowX: 'auto' }}>
@@ -138,9 +147,9 @@ export default function PurchaseReports({ purchases = [], products = [], supplie
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((row, i) => (
+                {paged.map((row, i) => (
                   <tr key={i} style={{ borderBottom: '1px solid #F1F5F9' }} onMouseEnter={e => e.currentTarget.style.background = '#FAFAFA'} onMouseLeave={e => e.currentTarget.style.background = ''}>
-                    <td style={{ padding: '9px 12px', color: '#94A3B8' }}>{i + 1}</td>
+                    <td style={{ padding: '9px 12px', color: '#94A3B8' }}>{(safePage - 1) * PAGE_SIZE + i + 1}</td>
                     {columns.map(c => (
                       <td key={c} style={{ padding: '9px 12px' }}>
                         {typeof row[c] === 'number' && c.includes('amount') ? fmtC(row[c])
@@ -153,6 +162,27 @@ export default function PurchaseReports({ purchases = [], products = [], supplie
                 ))}
               </tbody>
             </table>
+            {totalPages > 1 && (
+              <div className="pagination">
+                <span className="pagination-info">
+                  {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, total)} of {total}
+                </span>
+                <button className="pagination-btn" disabled={safePage === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
+                  <ChevronLeft size={13} />
+                </button>
+                {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                  const n = totalPages <= 5 ? i + 1 : Math.max(1, Math.min(safePage - 2, totalPages - 4)) + i
+                  return (
+                    <button key={n} className={`pagination-btn${n === safePage ? ' active' : ''}`} onClick={() => setPage(n)}>
+                      {n}
+                    </button>
+                  )
+                })}
+                <button className="pagination-btn" disabled={safePage === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>
+                  <ChevronRight size={13} />
+                </button>
+              </div>
+            )}
           </div>
         </>
       )}

@@ -10,6 +10,8 @@ import {
   CATEGORY_DEFAULT_UNIT, PRODUCT_FIELD_SCHEMA, PRODUCT_TYPES, shortLabelForType,
 } from '../config/productFieldSchema'
 
+const PAGE_SIZE = 10
+
 // â”€â”€ Constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const SIZES = [
   '300x300','300x450','300x600','400x400','450x900',
@@ -1307,12 +1309,7 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
       sqft_per_box:    form.sqft_per_box   ? parseFloat(form.sqft_per_box)    : null,
       weight_per_box:  form.weight_per_box ? parseFloat(form.weight_per_box)  : null,
       purchase_price:  parseFloat(form.purchase_rate)    || 0,
-      landing_cost:    parseFloat(form.landing_cost)     || 0,
       mrp:             parseFloat(form.mrp)              || 0,
-      retail_price:    parseFloat(form.retail_rate)      || 0,
-      wholesale_rate:  parseFloat(form.wholesale_rate)   || 0,
-      retail_discount:   parseFloat(form.retail_discount)   || 0,
-      wholesale_discount:parseFloat(form.wholesale_discount)|| 0,
       min_stock_level: form.min_stock_level !== '' && form.min_stock_level != null ? parseFloat(form.min_stock_level) : null,
       reorder_level:   form.reorder_level   !== '' && form.reorder_level   != null ? parseFloat(form.reorder_level)   : null,
       is_active:       form.status === 'Active',
@@ -1689,16 +1686,9 @@ function ProductFormModal({ editProduct, brands, categories, subCategories, ware
 
           {/* PRICING */}
           <FormSection title="Pricing" />
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:16 }}>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:16 }}>
             <PriceInput label="Purchase Rate"   value={form.purchase_rate}   onChange={v=>set('purchase_rate',v)} />
-            <PriceInput label="Landing Cost"    value={form.landing_cost}    onChange={v=>set('landing_cost',v)} />
             <PriceInput label="MRP"             value={form.mrp}             onChange={v=>set('mrp',v)} />
-          </div>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:12, marginTop:12 }}>
-            <PriceDiscountInput label="Retail Rate"    priceValue={form.retail_rate}    onPriceChange={v=>set('retail_rate',v)}
-              discountValue={form.retail_discount}    onDiscountChange={v=>set('retail_discount',v)}    baseMrp={form.mrp} />
-            <PriceDiscountInput label="Wholesale Rate" priceValue={form.wholesale_rate} onPriceChange={v=>set('wholesale_rate',v)}
-              discountValue={form.wholesale_discount} onDiscountChange={v=>set('wholesale_discount',v)} baseMrp={form.mrp} />
           </div>
 
           </>)}
@@ -1835,13 +1825,7 @@ function ProductViewModal({ product: p, loading, onClose, onEdit, canEdit, canEx
   // pricing array — only show non-zero
   const prices = [
     { label:'MRP',            value: p.mrp,                                primary: true },
-    { label:'Retail Rate',    value: p.retail_price  || p.retail_rate },
-    { label:'Dealer Rate',    value: p.dealer_price  || p.dealer_rate },
-    { label:'Wholesale Rate', value: p.wholesale_rate },
-    { label:'Project Rate',   value: p.project_rate },
     { label:'Purchase Rate',  value: p.purchase_price || p.purchase_rate },
-    { label:'Landing Cost',   value: p.landing_cost },
-    { label:'Min Sell Rate',  value: p.min_selling_rate },
   ].filter(x => (parseFloat(x.value) || 0) > 0)
 
   return (
@@ -2032,26 +2016,6 @@ function ProductViewModal({ product: p, loading, onClose, onEdit, canEdit, canEx
               )}
             </div>
           )}
-
-          {/* ── Sales & Type ── */}
-          {(v(p.sales_type) || v(p.product_type)) && (
-            <div>
-              <SectionTitle icon="🏷️" title="Sales & Product Type" />
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:'10px 16px' }}>
-                <Field label="Sales Type"    value={v(p.sales_type)} />
-                <Field label="Product Type"  value={v(p.product_type)} />
-              </div>
-            </div>
-          )}
-
-          {/* ── Product Flags ── */}
-          <div>
-            <SectionTitle icon="🔖" title="Product Flags" />
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:10 }}>
-              <Flag label="New Arrival" on={!!p.new_arrival} />
-              <Flag label="Featured"    on={!!p.featured} />
-            </div>
-          </div>
 
           {/* ── Timestamps ── */}
           {(p.created_at || p.updated_at) && (
@@ -2412,6 +2376,7 @@ export default function ProductManagement({
   const mayExport = canPerform(MODULES.PRODUCTS, 'export')
 
   const [search,       setSearch]       = useState('')
+  const [page,         setPage]         = useState(1)
   const [filterBrand,  setFilterBrand]  = useState('')
   const [filterCat,    setFilterCat]    = useState('')
   const [filterSubCat, setFilterSubCat] = useState('')
@@ -2537,6 +2502,16 @@ export default function ProductManagement({
     if (filterApp    && (p.application ||'').toLowerCase() !== filterApp.toLowerCase())    return false
     return true
   })
+
+  // ── Pagination (10 rows per page) ──────────────────────────
+  const total       = filtered.length
+  const totalPages  = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const safePage    = Math.min(page, totalPages)
+  const paged       = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+
+  // Reset to the first page whenever the search text or any filter changes,
+  // so the user never lands on an out-of-range page after narrowing results.
+  useEffect(() => { setPage(1) }, [search, filterBrand, filterCat, filterSubCat, filterStatus, filterSize, filterFinish, filterType, filterApp])
 
   const openAdd = () => {
     if (!mayCreate) return fire('You have view-only access. Product creation is not allowed.', 'error')
@@ -2902,7 +2877,7 @@ export default function ProductManagement({
                 </td></tr>
               )}
 
-              {!productTableLoading && filtered.map((p, i) => {
+              {!productTableLoading && paged.map((p, i) => {
                 const id      = p._id || p.id
                 const thumb   = (p.image_urls || []).filter(Boolean)[0]
                 const owner     = p.company_id && typeof p.company_id === 'object' ? p.company_id : null
@@ -2918,7 +2893,7 @@ export default function ProductManagement({
                 ].filter(Boolean)
                 return (
                   <tr key={id}>
-                    <td style={{ color:'var(--text-muted)', fontSize:12 }}>{i+1}</td>
+                    <td style={{ color:'var(--text-muted)', fontSize:12 }}>{(safePage - 1) * PAGE_SIZE + i + 1}</td>
 
                     {/* Product — thumbnail + name + code */}
                     <td>
@@ -3017,10 +2992,11 @@ export default function ProductManagement({
                       {fmtP(p.mrp) && (
                         <div style={{ fontSize:13, fontWeight:800, color:'#FD5C02' }}>{fmtP(p.mrp)}</div>
                       )}
-                      <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:2 }}>
-                        {fmtP(p.retail_price || p.retail_rate) && <span>R: {fmtP(p.retail_price || p.retail_rate)}</span>}
-                        {fmtP(p.dealer_price || p.dealer_rate) && <span> · D: {fmtP(p.dealer_price || p.dealer_rate)}</span>}
-                      </div>
+                      {fmtP(p.purchase_price || p.purchase_rate) && (
+                        <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:2 }}>
+                          Purchase: {fmtP(p.purchase_price || p.purchase_rate)}
+                        </div>
+                      )}
                     </td>
 
                     {/* Status */}
@@ -3035,10 +3011,6 @@ export default function ProductManagement({
                         {p.is_active !== false ? <CheckCircle size={10}/> : <XCircle size={10}/>}
                         {p.is_active !== false ? 'Active' : 'Inactive'}
                       </span>
-                      <div style={{ display:'flex', gap:3, marginTop:4, flexWrap:'wrap' }}>
-                        {p.new_arrival && <span style={{ fontSize:9, background:'#FFF3EC', color:'#FD5C02', borderRadius:4, padding:'1px 5px', fontWeight:700 }}>NEW</span>}
-                        {p.featured    && <span style={{ fontSize:9, background:'#EFF6FF', color:'#3B82F6', borderRadius:4, padding:'1px 5px', fontWeight:700 }}>FEAT</span>}
-                      </div>
                     </td>
 
                     {/* Actions */}
@@ -3112,6 +3084,27 @@ export default function ProductManagement({
             </tbody>
           </table>
         </div>
+        {totalPages > 1 && (
+          <div className="pagination">
+            <span className="pagination-info">
+              {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, total)} of {total}
+            </span>
+            <button className="pagination-btn" disabled={safePage === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
+              <ChevronLeft size={13} />
+            </button>
+            {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+              const n = totalPages <= 5 ? i + 1 : Math.max(1, Math.min(safePage - 2, totalPages - 4)) + i
+              return (
+                <button key={n} className={`pagination-btn${n === safePage ? ' active' : ''}`} onClick={() => setPage(n)}>
+                  {n}
+                </button>
+              )
+            })}
+            <button className="pagination-btn" disabled={safePage === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>
+              <ChevronRight size={13} />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ── MODALS ── */}

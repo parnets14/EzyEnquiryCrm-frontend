@@ -2,6 +2,9 @@ import { useState, useEffect, useMemo } from 'react'
 import { Plus, Search, Trash2, Shield, Check, X, Save, Users, UserCheck, UserX, Crown, Lock, ChevronDown } from 'lucide-react'
 import { rolePermissionApi } from '../api/rolePermissionApi'
 import { PERMISSION_CATALOG } from '../config/permissions'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
+
+const PAGE_SIZE = 10
 
 const ROLES = ['Super Admin', 'Company Owner', 'Manager', 'Accountant', 'Sales Executive', 'Warehouse Staff', 'Retailer', 'Wholesaler']
 
@@ -71,6 +74,7 @@ export default function UserManagement({ users = [], addUser, deleteUser, resetU
   const [mainTab, setMainTab] = useState('users')
   const [search, setSearch]       = useState('')
   const [roleFilter, setRoleFilter] = useState('All')
+  const [page, setPage]           = useState(1)
   const [showModal, setShowModal]   = useState(false)
   const [form, setForm]             = useState(EMPTY_FORM)
   const [errors, setErrors]         = useState({})
@@ -199,6 +203,12 @@ export default function UserManagement({ users = [], addUser, deleteUser, resetU
     ((u.name || '').toLowerCase().includes(search.toLowerCase()) ||
      (u.email || '').toLowerCase().includes(search.toLowerCase()))
   )
+
+  // ── Pagination (10 rows per page) ──────────────────────────
+  const total       = filtered.length
+  const totalPages  = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const safePage    = Math.min(page, totalPages)
+  const paged       = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
 
   const validate = () => {
     const e = {}
@@ -386,9 +396,9 @@ export default function UserManagement({ users = [], addUser, deleteUser, resetU
               </div>
               <div className="header-actions">
                 <div className="search-bar">
-                  <Search /><input placeholder="Search users…" value={search} onChange={e => setSearch(e.target.value)} />
+                  <Search /><input placeholder="Search users…" value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} />
                 </div>
-                <select className="form-control" style={{ width: 160 }} value={roleFilter} onChange={e => setRoleFilter(e.target.value)}>
+                <select className="form-control" style={{ width: 160 }} value={roleFilter} onChange={e => { setRoleFilter(e.target.value); setPage(1) }}>
                   <option value="All">All Roles</option>
                   {ROLES.map(r => <option key={r}>{r}</option>)}
                 </select>
@@ -404,7 +414,7 @@ export default function UserManagement({ users = [], addUser, deleteUser, resetU
                 </thead>
                 <tbody>
                   {loadingData && <tr><td colSpan={6} style={{ textAlign: 'center', padding: 24 }}>Loading…</td></tr>}
-                  {!loadingData && filtered.map(u => {
+                  {!loadingData && paged.map(u => {
                     const id = u._id || u.id
                     const joinedStr = u.created_at
                       ? new Date(u.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
@@ -441,6 +451,27 @@ export default function UserManagement({ users = [], addUser, deleteUser, resetU
                 </tbody>
               </table>
             </div>
+            {totalPages > 1 && (
+              <div className="pagination">
+                <span className="pagination-info">
+                  {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, total)} of {total}
+                </span>
+                <button className="pagination-btn" disabled={safePage === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
+                  <ChevronLeft size={13} />
+                </button>
+                {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                  const n = totalPages <= 5 ? i + 1 : Math.max(1, Math.min(safePage - 2, totalPages - 4)) + i
+                  return (
+                    <button key={n} className={`pagination-btn${n === safePage ? ' active' : ''}`} onClick={() => setPage(n)}>
+                      {n}
+                    </button>
+                  )
+                })}
+                <button className="pagination-btn" disabled={safePage === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>
+                  <ChevronRight size={13} />
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Add User Modal */}

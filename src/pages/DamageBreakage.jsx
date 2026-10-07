@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Plus, Search, X, Eye, CheckCircle, RefreshCw, AlertTriangle } from 'lucide-react'
+import { Plus, Search, X, Eye, CheckCircle, RefreshCw, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react'
 import { damageApi } from '../api/purchaseInventoryApi'
+
+const PAGE_SIZE = 10
 import usePermissions from '../hooks/usePermissions'
 import { MODULES, ACTIONS } from '../config/permissions'
 
@@ -44,6 +46,7 @@ export default function DamageBreakage({ products = [], warehouses = [], invento
   const [loading,      setLoading]      = useState(false)
   const [search,       setSearch]       = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [page,         setPage]         = useState(1)
   const [showModal,    setShowModal]    = useState(false)
   const [viewItem,     setViewItem]     = useState(null)
   const [form,         setForm]         = useState(EMPTY_FORM)
@@ -76,6 +79,12 @@ export default function DamageBreakage({ products = [], warehouses = [], invento
       return matchS && matchQ
     })
   }, [records, search, statusFilter])
+
+  // ── Pagination (10 rows per page) ──────────────────────────
+  const total       = filtered.length
+  const totalPages  = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const safePage    = Math.min(page, totalPages)
+  const paged       = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
 
   const handleSave = async () => {
     if (!form.product_id) return fire('Select a product', 'error')
@@ -140,9 +149,9 @@ export default function DamageBreakage({ products = [], warehouses = [], invento
         <div style={{ display: 'flex', gap: 12 }}>
           <div style={{ position: 'relative', flex: 1 }}>
             <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94A3B8' }} />
-            <input className="form-control" style={{ paddingLeft: 32 }} placeholder="Search damage no, product, warehouse…" value={search} onChange={e => setSearch(e.target.value)} />
+            <input className="form-control" style={{ paddingLeft: 32 }} placeholder="Search damage no, product, warehouse…" value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} />
           </div>
-          <select className="form-control" style={{ width: 160 }} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+          <select className="form-control" style={{ width: 160 }} value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }}>
             <option value="all">All Statuses</option>
             {Object.keys(STATUS_MAP).map(s => <option key={s}>{s}</option>)}
           </select>
@@ -161,7 +170,7 @@ export default function DamageBreakage({ products = [], warehouses = [], invento
           <tbody>
             {loading ? <tr><td colSpan={10} style={{ padding: 40, textAlign: 'center', color: '#94A3B8' }}>Loading…</td></tr>
             : filtered.length === 0 ? <tr><td colSpan={10} style={{ padding: 40, textAlign: 'center', color: '#94A3B8' }}>No damage records found</td></tr>
-            : filtered.map(r => (
+            : paged.map(r => (
               <tr key={r._id} style={{ borderBottom: '1px solid #F1F5F9' }} onMouseEnter={e => e.currentTarget.style.background = '#FAFAFA'} onMouseLeave={e => e.currentTarget.style.background = ''}>
                 <td style={{ padding: '10px 12px', fontWeight: 700, color: '#F26522' }}>{r.damage_no || '—'}</td>
                 <td style={{ padding: '10px 12px' }}>{fmtDate(r.damage_date)}</td>
@@ -184,6 +193,27 @@ export default function DamageBreakage({ products = [], warehouses = [], invento
             ))}
           </tbody>
         </table>
+        {totalPages > 1 && (
+          <div className="pagination">
+            <span className="pagination-info">
+              {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, total)} of {total}
+            </span>
+            <button className="pagination-btn" disabled={safePage === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
+              <ChevronLeft size={13} />
+            </button>
+            {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+              const n = totalPages <= 5 ? i + 1 : Math.max(1, Math.min(safePage - 2, totalPages - 4)) + i
+              return (
+                <button key={n} className={`pagination-btn${n === safePage ? ' active' : ''}`} onClick={() => setPage(n)}>
+                  {n}
+                </button>
+              )
+            })}
+            <button className="pagination-btn" disabled={safePage === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>
+              <ChevronRight size={13} />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Create */}

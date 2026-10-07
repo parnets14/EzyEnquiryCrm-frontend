@@ -2,8 +2,10 @@ import { useState, useMemo, useCallback } from 'react'
 import {
   Plus, Search, Edit2, Trash2, X, CheckCircle, Building2,
   Phone, Mail, MapPin, CreditCard, ChevronDown, Eye,
-  FileText, IndianRupee, Filter, RefreshCw,
+  FileText, IndianRupee, Filter, RefreshCw, ChevronLeft, ChevronRight,
 } from 'lucide-react'
+
+const PAGE_SIZE = 10
 
 // ── Indian states ─────────────────────────────────────────────
 const STATES = [
@@ -34,6 +36,7 @@ export default function SupplierManagement({
   deleteSupplier,
 }) {
   const [search, setSearch]       = useState('')
+  const [page, setPage]           = useState(1)
   const [statusFilter, setStatusFilter] = useState('') // '' | 'active' | 'inactive' | 'outstanding'
   const [stateFilter, setStateFilter]   = useState('')
   const [showModal, setShowModal] = useState(false)
@@ -151,7 +154,13 @@ export default function SupplierManagement({
     })
   , [suppliers, search, statusFilter, stateFilter])
 
-  const resetFilters = () => { setSearch(''); setStatusFilter(''); setStateFilter('') }
+  // ── Pagination (10 rows per page) ──────────────────────────
+  const total       = filtered.length
+  const totalPages  = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const safePage    = Math.min(page, totalPages)
+  const paged       = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+
+  const resetFilters = () => { setSearch(''); setStatusFilter(''); setStateFilter(''); setPage(1) }
   const hasFilters   = search || statusFilter || stateFilter
 
   // ── Stats ─────────────────────────────────────────────────
@@ -217,6 +226,7 @@ export default function SupplierManagement({
                 <div
                   key={s.label}
                   onClick={() => {
+                    setPage(1)
                     if (s.key === '') { setStatusFilter(''); return }
                     setStatusFilter(prev => prev === s.key ? '' : s.key)
                   }}
@@ -257,7 +267,7 @@ export default function SupplierManagement({
               <input
                 placeholder="Search name, mobile, city, GST…"
                 value={search}
-                onChange={e => setSearch(e.target.value)}
+                onChange={e => { setSearch(e.target.value); setPage(1) }}
               />
             </div>
 
@@ -265,7 +275,7 @@ export default function SupplierManagement({
             <div style={{ position: 'relative' }}>
               <select
                 value={statusFilter}
-                onChange={e => setStatusFilter(e.target.value)}
+                onChange={e => { setStatusFilter(e.target.value); setPage(1) }}
                 style={{
                   padding: '7px 32px 7px 11px', border: '1px solid var(--border)',
                   borderRadius: 7, background: statusFilter ? '#FFF3EC' : 'var(--surface)',
@@ -287,7 +297,7 @@ export default function SupplierManagement({
               <div style={{ position: 'relative' }}>
                 <select
                   value={stateFilter}
-                  onChange={e => setStateFilter(e.target.value)}
+                  onChange={e => { setStateFilter(e.target.value); setPage(1) }}
                   style={{
                     padding: '7px 32px 7px 11px', border: '1px solid var(--border)',
                     borderRadius: 7, background: stateFilter ? '#FFF3EC' : 'var(--surface)',
@@ -333,11 +343,11 @@ export default function SupplierManagement({
               </tr>
             </thead>
             <tbody>
-              {filtered.map((s, idx) => {
+              {paged.map((s, idx) => {
                 const id = s._id || s.id
                 return (
                   <tr key={id}>
-                    <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{idx + 1}</td>
+                    <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{(safePage - 1) * PAGE_SIZE + idx + 1}</td>
                     <td>
                       <div style={{ fontWeight: 700, fontSize: 13 }}>{s.name}</div>
                       {s.address && (
@@ -410,6 +420,27 @@ export default function SupplierManagement({
             </tbody>
           </table>
         </div>
+        {totalPages > 1 && (
+          <div className="pagination">
+            <span className="pagination-info">
+              {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, total)} of {total}
+            </span>
+            <button className="pagination-btn" disabled={safePage === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
+              <ChevronLeft size={13} />
+            </button>
+            {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+              const n = totalPages <= 5 ? i + 1 : Math.max(1, Math.min(safePage - 2, totalPages - 4)) + i
+              return (
+                <button key={n} className={`pagination-btn${n === safePage ? ' active' : ''}`} onClick={() => setPage(n)}>
+                  {n}
+                </button>
+              )
+            })}
+            <button className="pagination-btn" disabled={safePage === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>
+              <ChevronRight size={13} />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ══════════ ADD / EDIT MODAL ══════════ */}

@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Search, AlertTriangle, Package, Warehouse as WarehouseIcon, RefreshCw, X,
-  Eye, Edit3, Boxes, ShieldAlert, PackageX, Plus,
+  Eye, Edit3, Boxes, ShieldAlert, PackageX, Plus, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import { inventoryApi } from '../api/inventoryApi'
 import StockAdjustmentModal from '../components/StockAdjustmentModal'
+
+const PAGE_SIZE = 10
 
 /* ─────────────────────────────────────────────────────────────
    Helpers
@@ -40,6 +42,7 @@ export default function InventoryManagement() {
   const [search,       setSearch]       = useState('')
   const [statusFilter, setStatusFilter] = useState('all')   // all | ok | low | out | damaged
   const [warehouseFilter, setWFilter]   = useState('all')
+  const [page, setPage]                 = useState(1)
 
   // Stock Details (View) panel
   const [viewTarget, setViewTarget] = useState(null)   // the inventory row
@@ -103,6 +106,12 @@ export default function InventoryManagement() {
       return matchSearch && matchStatus
     })
   }, [inventory, search, statusFilter])
+
+  // ── Pagination (10 rows per page) ──────────────────────────
+  const total       = filtered.length
+  const totalPages  = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const safePage    = Math.min(page, totalPages)
+  const paged       = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
 
   // ── KPI totals (prefer server summary, fall back to rows) ─
   const kpis = useMemo(() => {
@@ -170,7 +179,7 @@ export default function InventoryManagement() {
 
   const KPI = ({ label, value, icon, color, bg, border, filterKey }) => (
     <div
-      onClick={() => filterKey && setStatusFilter(prev => prev === filterKey ? 'all' : filterKey)}
+      onClick={() => { if (filterKey) { setStatusFilter(prev => prev === filterKey ? 'all' : filterKey); setPage(1) } }}
       style={{
         background: bg, border:`1.5px solid ${border}`, borderRadius:12, padding:'14px 18px',
         display:'flex', alignItems:'center', gap:12, cursor: filterKey ? 'pointer' : 'default',
@@ -219,7 +228,7 @@ export default function InventoryManagement() {
             </div>
           </div>
           <button
-            onClick={() => setStatusFilter(outStockItems.length ? 'out' : 'low')}
+            onClick={() => { setStatusFilter(outStockItems.length ? 'out' : 'low'); setPage(1) }}
             style={{ background:'#d97706', color:'#fff', border:'none', borderRadius:8, padding:'6px 12px', fontSize:12, fontWeight:700, cursor:'pointer', whiteSpace:'nowrap' }}>
             Review
           </button>
@@ -233,9 +242,9 @@ export default function InventoryManagement() {
           <div className="header-actions" style={{ flexWrap:'wrap', gap:8 }}>
             <div className="search-bar">
               <Search size={14}/>
-              <input placeholder="Search product, code, brand, warehouse…" value={search} onChange={e => setSearch(e.target.value)}/>
+              <input placeholder="Search product, code, brand, warehouse…" value={search} onChange={e => { setSearch(e.target.value); setPage(1) }}/>
             </div>
-            <select className="form-control" style={{ width:150 }} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+            <select className="form-control" style={{ width:150 }} value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }}>
               <option value="all">All Status</option>
               <option value="ok">In Stock</option>
               <option value="low">Low Stock</option>
@@ -243,7 +252,7 @@ export default function InventoryManagement() {
               <option value="damaged">Has Damaged</option>
             </select>
             {warehouses.length > 0 && (
-              <select className="form-control" style={{ width:150 }} value={warehouseFilter} onChange={e => setWFilter(e.target.value)}>
+              <select className="form-control" style={{ width:150 }} value={warehouseFilter} onChange={e => { setWFilter(e.target.value); setPage(1) }}>
                 <option value="all">All Warehouses</option>
                 {warehouses.map(w => <option key={w._id||w.id} value={w._id||w.id}>{w.name}</option>)}
               </select>
@@ -292,8 +301,9 @@ export default function InventoryManagement() {
                     : 'No inventory yet. Use “Create Stock Adjustment” to add stock.'}
                 </td></tr>
               )}
-              {!loading && filtered.map((inv, i) => {
+              {!loading && paged.map((inv, i) => {
                 const id    = String(inv._id || inv.id || i)
+                const rowNo = (safePage - 1) * PAGE_SIZE + i + 1
                 const st    = stockStatus(inv)
                 const ss    = STATUS_STYLE[st]
                 const avail = availOf(inv)
@@ -309,7 +319,7 @@ export default function InventoryManagement() {
                 return (
                   <>
                     <tr key={id} className={st === 'out' ? 'row-out' : st === 'low' ? 'row-low' : ''}>
-                      <td style={{ ...td, color:'var(--text-muted)', fontSize:12 }}>{i+1}</td>
+                      <td style={{ ...td, color:'var(--text-muted)', fontSize:12 }}>{rowNo}</td>
 
                       <td style={td}>
                         <div style={{ fontWeight:700, fontSize:13 }}>{inv.product_name || '—'}</div>
@@ -397,6 +407,27 @@ export default function InventoryManagement() {
             </tbody>
           </table>
         </div>
+        {totalPages > 1 && (
+          <div className="pagination">
+            <span className="pagination-info">
+              {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, total)} of {total}
+            </span>
+            <button className="pagination-btn" disabled={safePage === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
+              <ChevronLeft size={13} />
+            </button>
+            {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+              const n = totalPages <= 5 ? i + 1 : Math.max(1, Math.min(safePage - 2, totalPages - 4)) + i
+              return (
+                <button key={n} className={`pagination-btn${n === safePage ? ' active' : ''}`} onClick={() => setPage(n)}>
+                  {n}
+                </button>
+              )
+            })}
+            <button className="pagination-btn" disabled={safePage === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>
+              <ChevronRight size={13} />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ── Quick adjust modal ── */}

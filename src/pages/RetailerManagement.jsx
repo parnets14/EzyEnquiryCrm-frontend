@@ -18,8 +18,11 @@ import {
   Wallet, Receipt, Truck, Target,
   IndianRupee, AlertTriangle, ClipboardList, UserCheck,
   MapPin, Phone, Mail, Package, Tag, Clock, FileText, Hash,
+  ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import { retailerApi } from '../api/retailerApi'
+
+const PAGE_SIZE = 10
 
 // ─── helpers ─────────────────────────────────────────────────
 const money   = n => n == null ? '—' : '₹' + Number(n).toLocaleString('en-IN')
@@ -150,6 +153,7 @@ function NoteRow({ label, value }) {
 // ═══════════════════════════════════════════════════════════════
 export default function RetailerManagement() {
   const [tab, setTab] = useState('overview')
+  const [page, setPage] = useState(1)
 
   // data
   const [companies,   setCompanies]   = useState([])
@@ -277,6 +281,44 @@ export default function RetailerManagement() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  // Reset to page 1 whenever the active tab or search query changes.
+  useEffect(() => { setPage(1) }, [tab, search])
+
+  // ── Pagination helpers (10 rows per page) ──────────────────
+  // Slice any filtered array down to the current page.
+  const pageSlice = (arr) => {
+    const tp = Math.max(1, Math.ceil(arr.length / PAGE_SIZE))
+    const sp = Math.min(page, tp)
+    return arr.slice((sp - 1) * PAGE_SIZE, sp * PAGE_SIZE)
+  }
+  // Reusable numbered pager (uses the shared `page`/`setPage`/`PAGE_SIZE`).
+  const Pager = ({ total }) => {
+    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+    const safePage   = Math.min(page, totalPages)
+    if (totalPages <= 1) return null
+    return (
+      <div className="pagination">
+        <span className="pagination-info">
+          {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, total)} of {total}
+        </span>
+        <button className="pagination-btn" disabled={safePage === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
+          <ChevronLeft size={13} />
+        </button>
+        {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+          const n = totalPages <= 5 ? i + 1 : Math.max(1, Math.min(safePage - 2, totalPages - 4)) + i
+          return (
+            <button key={n} className={`pagination-btn${n === safePage ? ' active' : ''}`} onClick={() => setPage(n)}>
+              {n}
+            </button>
+          )
+        })}
+        <button className="pagination-btn" disabled={safePage === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>
+          <ChevronRight size={13} />
+        </button>
+      </div>
+    )
+  }
 
   // ── Actions ────────────────────────────────────────────────
   const handleApprove = async (id, name) => {
@@ -569,7 +611,7 @@ export default function RetailerManagement() {
                 {!loading && fCompanies.length === 0 && (
                   <tr><td colSpan={8} style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>No retailer companies found.</td></tr>
                 )}
-                {!loading && fCompanies.map(c => (
+                {!loading && pageSlice(fCompanies).map(c => (
                   <tr key={c._id || c.id}>
                     <td>
                       <div style={{ fontWeight: 700, fontSize: 13 }}>{c.name}</div>
@@ -613,6 +655,7 @@ export default function RetailerManagement() {
               </tbody>
             </table>
           </div>
+          <Pager total={fCompanies.length} />
         </div>
       )}
 
@@ -631,7 +674,7 @@ export default function RetailerManagement() {
               <tbody>
                 {loading && <tr><td colSpan={8} style={{ textAlign: 'center', padding: 30 }}>Loading…</td></tr>}
                 {!loading && fOrders.length === 0 && <tr><td colSpan={8} style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>No orders found.</td></tr>}
-                {!loading && fOrders.map((o, i) => (
+                {!loading && pageSlice(fOrders).map((o, i) => (
                   <tr key={o._id || i}>
                     <td style={{ fontFamily: 'monospace', fontWeight: 700, color: '#F26522', fontSize: 12 }}>{o.order_code || '—'}</td>
                     <td>{o.company_name || '—'}</td>
@@ -646,6 +689,7 @@ export default function RetailerManagement() {
               </tbody>
             </table>
           </div>
+          <Pager total={fOrders.length} />
         </div>
       )}
 
@@ -676,7 +720,7 @@ export default function RetailerManagement() {
               <tbody>
                 {loading && <tr><td colSpan={9} style={{ textAlign: 'center', padding: 30 }}>Loading…</td></tr>}
                 {!loading && fEnquiries.length === 0 && <tr><td colSpan={9} style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>No enquiries found.</td></tr>}
-                {!loading && fEnquiries.map((e, i) => (
+                {!loading && pageSlice(fEnquiries).map((e, i) => (
                   <tr key={e._id || i} style={{ cursor: 'pointer' }} onClick={() => setViewEnquiry(e)}>
                     <td style={{ fontFamily: 'monospace', fontWeight: 700, color: '#F26522', fontSize: 12 }}>{e.enq_code || '—'}</td>
                     <td>{e.company_name || '—'}</td>
@@ -713,6 +757,7 @@ export default function RetailerManagement() {
               </tbody>
             </table>
           </div>
+          <Pager total={fEnquiries.length} />
         </div>
       )}
 
@@ -721,7 +766,7 @@ export default function RetailerManagement() {
         <DataTable
           title="Retailer Sales" searchPlaceholder="Search sales…"
           search={search} onSearch={setSearch}
-          rows={fSales} loading={loading} emptyText="No sales recorded by any retailer yet."
+          rows={pageSlice(fSales)} loading={loading} emptyText="No sales recorded by any retailer yet."
           columns={[
             { key: 'sale_code',     header: 'Code',     render: r => codeCell(r.sale_code) },
             { key: 'company_name',  header: 'Company' },
@@ -734,13 +779,14 @@ export default function RetailerManagement() {
           ]}
         />
       )}
+      {tab === 'sales' && <Pager total={fSales.length} />}
 
       {/* ══ PURCHASES (ERP) ═══════════════════════════════════ */}
       {tab === 'purchases' && (
         <DataTable
           title="Retailer Purchases" searchPlaceholder="Search purchases…"
           search={search} onSearch={setSearch}
-          rows={fPurchases} loading={loading} emptyText="No purchases recorded yet."
+          rows={pageSlice(fPurchases)} loading={loading} emptyText="No purchases recorded yet."
           columns={[
             { key: 'purchase_code', header: 'Code',     render: r => codeCell(r.purchase_code) },
             { key: 'company_name',  header: 'Company' },
@@ -753,13 +799,14 @@ export default function RetailerManagement() {
           ]}
         />
       )}
+      {tab === 'purchases' && <Pager total={fPurchases.length} />}
 
       {/* ══ EXPENSES ══════════════════════════════════════════ */}
       {tab === 'expenses' && (
         <DataTable
           title="Retailer Expenses" searchPlaceholder="Search expenses…"
           search={search} onSearch={setSearch}
-          rows={fExpenses} loading={loading} emptyText="No expenses recorded yet."
+          rows={pageSlice(fExpenses)} loading={loading} emptyText="No expenses recorded yet."
           note={`Total across all retailers: ${money(summary?.expenses?.total)} (${summary?.expenses?.count ?? expenses.length} entries)`}
           columns={[
             { key: 'company_name',  header: 'Company' },
@@ -771,13 +818,14 @@ export default function RetailerManagement() {
           ]}
         />
       )}
+      {tab === 'expenses' && <Pager total={fExpenses.length} />}
 
       {/* ══ PAYMENTS / TRANSACTIONS ═══════════════════════════ */}
       {tab === 'transactions' && (
         <DataTable
           title="Retailer Payments" searchPlaceholder="Search payments…"
           search={search} onSearch={setSearch}
-          rows={fTransactions} loading={loading} emptyText="No payments recorded yet."
+          rows={pageSlice(fTransactions)} loading={loading} emptyText="No payments recorded yet."
           note={`Receivable due ${money(summary?.receivable_due)} · Payable due ${money(summary?.payable_due)}`}
           columns={[
             { key: 'txn_code',     header: 'Code',   render: r => codeCell(r.txn_code) },
@@ -791,13 +839,14 @@ export default function RetailerManagement() {
           ]}
         />
       )}
+      {tab === 'transactions' && <Pager total={fTransactions.length} />}
 
       {/* ══ INVOICES ══════════════════════════════════════════ */}
       {tab === 'invoices' && (
         <DataTable
           title="Retailer Invoices" searchPlaceholder="Search invoices…"
           search={search} onSearch={setSearch}
-          rows={fInvoices} loading={loading} emptyText="No invoices yet."
+          rows={pageSlice(fInvoices)} loading={loading} emptyText="No invoices yet."
           columns={[
             { key: 'invoice_no',    header: 'Invoice',  render: r => codeCell(r.invoice_no) },
             { key: 'company_name',  header: 'Company' },
@@ -810,13 +859,14 @@ export default function RetailerManagement() {
           ]}
         />
       )}
+      {tab === 'invoices' && <Pager total={fInvoices.length} />}
 
       {/* ══ QUOTATIONS ════════════════════════════════════════ */}
       {tab === 'quotations' && (
         <DataTable
           title="Retailer Quotations" searchPlaceholder="Search quotations…"
           search={search} onSearch={setSearch}
-          rows={fQuotations} loading={loading} emptyText="No quotations yet."
+          rows={pageSlice(fQuotations)} loading={loading} emptyText="No quotations yet."
           columns={[
             { key: 'quotation_no',  header: 'Quote',    render: r => codeCell(r.quotation_no) },
             { key: 'company_name',  header: 'Company' },
@@ -829,13 +879,14 @@ export default function RetailerManagement() {
           ]}
         />
       )}
+      {tab === 'quotations' && <Pager total={fQuotations.length} />}
 
       {/* ══ CUSTOMERS ═════════════════════════════════════════ */}
       {tab === 'customers' && (
         <DataTable
           title="Retailer Customers" searchPlaceholder="Search customers…"
           search={search} onSearch={setSearch}
-          rows={fCustomers} loading={loading} emptyText="No customers added yet."
+          rows={pageSlice(fCustomers)} loading={loading} emptyText="No customers added yet."
           columns={[
             { key: 'name',         header: 'Name',    render: r => <span style={{ fontWeight: 700 }}>{r.name || '—'}</span> },
             { key: 'company_name', header: 'Company' },
@@ -848,13 +899,14 @@ export default function RetailerManagement() {
           ]}
         />
       )}
+      {tab === 'customers' && <Pager total={fCustomers.length} />}
 
       {/* ══ LEADS ═════════════════════════════════════════════ */}
       {tab === 'leads' && (
         <DataTable
           title="Retailer Leads" searchPlaceholder="Search leads…"
           search={search} onSearch={setSearch}
-          rows={fLeads} loading={loading} emptyText="No leads yet."
+          rows={pageSlice(fLeads)} loading={loading} emptyText="No leads yet."
           columns={[
             { key: 'name',         header: 'Name',    render: r => <span style={{ fontWeight: 700 }}>{r.name || '—'}</span> },
             { key: 'company_name', header: 'Company' },
@@ -866,13 +918,14 @@ export default function RetailerManagement() {
           ]}
         />
       )}
+      {tab === 'leads' && <Pager total={fLeads.length} />}
 
       {/* ══ FOLLOW-UPS ════════════════════════════════════════ */}
       {tab === 'followups' && (
         <DataTable
           title="Retailer Follow-ups" searchPlaceholder="Search follow-ups…"
           search={search} onSearch={setSearch}
-          rows={fFollowups} loading={loading} emptyText="No follow-ups scheduled."
+          rows={pageSlice(fFollowups)} loading={loading} emptyText="No follow-ups scheduled."
           columns={[
             { key: 'company_name',  header: 'Company' },
             { key: 'notes',         header: 'Notes',   render: r => <span style={{ fontSize: 12 }}>{r.notes || '—'}</span> },
@@ -883,13 +936,14 @@ export default function RetailerManagement() {
           ]}
         />
       )}
+      {tab === 'followups' && <Pager total={fFollowups.length} />}
 
       {/* ══ INVENTORY ═════════════════════════════════════════ */}
       {tab === 'inventory' && (
         <DataTable
           title="Retailer Inventory" searchPlaceholder="Search by product or warehouse…"
           search={search} onSearch={setSearch}
-          rows={fInventory} loading={loading} emptyText="No stock records yet."
+          rows={pageSlice(fInventory)} loading={loading} emptyText="No stock records yet."
           note={stockAlerts > 0
             ? `⚠ ${summary?.low_stock || 0} low-stock and ${summary?.out_of_stock || 0} out-of-stock item(s) across all retailers.`
             : 'All stock levels healthy.'}
@@ -905,13 +959,14 @@ export default function RetailerManagement() {
           ]}
         />
       )}
+      {tab === 'inventory' && <Pager total={fInventory.length} />}
 
       {/* ══ DISPATCH ══════════════════════════════════════════ */}
       {tab === 'dispatches' && (
         <DataTable
           title="Retailer Dispatches" searchPlaceholder="Search dispatches…"
           search={search} onSearch={setSearch}
-          rows={fDispatches} loading={loading} emptyText="No dispatches yet."
+          rows={pageSlice(fDispatches)} loading={loading} emptyText="No dispatches yet."
           columns={[
             { key: 'dispatch_code',  header: 'Code',     render: r => codeCell(r.dispatch_code) },
             { key: 'company_name',   header: 'Company' },
@@ -924,6 +979,7 @@ export default function RetailerManagement() {
           ]}
         />
       )}
+      {tab === 'dispatches' && <Pager total={fDispatches.length} />}
 
       {/* ══ USERS ═════════════════════════════════════════════ */}
       {tab === 'users' && (
@@ -940,7 +996,7 @@ export default function RetailerManagement() {
               <tbody>
                 {loading && <tr><td colSpan={6} style={{ textAlign: 'center', padding: 30 }}>Loading…</td></tr>}
                 {!loading && fUsers.length === 0 && <tr><td colSpan={6} style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>No users found.</td></tr>}
-                {!loading && fUsers.map((u, i) => (
+                {!loading && pageSlice(fUsers).map((u, i) => (
                   <tr key={u._id || i}>
                     <td style={{ fontWeight: 600 }}>{u.name}</td>
                     <td>{u.company_name || '—'}</td>
@@ -953,6 +1009,7 @@ export default function RetailerManagement() {
               </tbody>
             </table>
           </div>
+          <Pager total={fUsers.length} />
         </div>
       )}
 
@@ -971,7 +1028,7 @@ export default function RetailerManagement() {
               <tbody>
                 {loading && <tr><td colSpan={7} style={{ textAlign: 'center', padding: 30 }}>Loading…</td></tr>}
                 {!loading && fSubs.length === 0 && <tr><td colSpan={7} style={{ textAlign: 'center', padding: 30, color: 'var(--text-muted)' }}>No subscriptions found.</td></tr>}
-                {!loading && fSubs.map(s => (
+                {!loading && pageSlice(fSubs).map(s => (
                   <tr key={s.company_id}>
                     <td style={{ fontWeight: 600 }}>{s.company_name}</td>
                     <td><span className="badge badge-blue">{s.plan}</span></td>
@@ -990,6 +1047,7 @@ export default function RetailerManagement() {
               </tbody>
             </table>
           </div>
+          <Pager total={fSubs.length} />
         </div>
       )}
 

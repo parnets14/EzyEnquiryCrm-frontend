@@ -1,6 +1,8 @@
 import { useState } from 'react'
-import { Plus, Search, Eye, Pencil, Trash2, MapPin, Users, FileText, IndianRupee, CheckCircle } from 'lucide-react'
+import { Plus, Search, Eye, Pencil, Trash2, MapPin, Users, FileText, IndianRupee, CheckCircle, ChevronLeft, ChevronRight } from 'lucide-react'
 import { customerApi } from '../api/crmApi'
+
+const PAGE_SIZE = 10
 
 const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—')
 const fmtMoney = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`
@@ -16,6 +18,7 @@ const EMPTY_FORM = { name: '', mobile: '', email: '', gst_number: '', address: '
 
 export default function CustomerManagement({ customers = [], addCustomer, updateCustomer, deleteCustomer, loadingData }) {
   const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
   const [selected, setSelected] = useState(null)
   const [detail, setDetail] = useState(null)
   const [detailLoading, setDetailLoading] = useState(false)
@@ -34,6 +37,12 @@ export default function CustomerManagement({ customers = [], addCustomer, update
     (c.mobile || '').includes(search) ||
     (c.city || '').toLowerCase().includes(search.toLowerCase())
   )
+
+  // ── Pagination (10 rows per page) ──────────────────────────
+  const total       = filtered.length
+  const totalPages  = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const safePage    = Math.min(page, totalPages)
+  const paged       = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
 
   const validate = () => {
     const e = {}
@@ -138,7 +147,7 @@ export default function CustomerManagement({ customers = [], addCustomer, update
         <div className="card-header">
           <span className="card-title">Customer List ({filtered.length})</span>
           <div className="header-actions">
-            <div className="search-bar"><Search /><input placeholder="Search customers…" value={search} onChange={e => setSearch(e.target.value)} /></div>
+            <div className="search-bar"><Search /><input placeholder="Search customers…" value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} /></div>
             <button className="btn btn-primary" onClick={openAdd}><Plus />Add Customer</button>
           </div>
         </div>
@@ -147,7 +156,7 @@ export default function CustomerManagement({ customers = [], addCustomer, update
             <thead><tr><th>Customer</th><th>Mobile</th><th>City</th><th>GST</th><th>Added By</th><th>Status</th><th>Actions</th></tr></thead>
             <tbody>
               {loadingData && <tr><td colSpan={7} style={{ textAlign: 'center', padding: 24 }}>Loading…</td></tr>}
-              {!loadingData && filtered.map(c => {
+              {!loadingData && paged.map(c => {
                 const id = c._id || c.id
                 return (
                   <tr key={id}>
@@ -182,6 +191,27 @@ export default function CustomerManagement({ customers = [], addCustomer, update
             </tbody>
           </table>
         </div>
+        {totalPages > 1 && (
+          <div className="pagination">
+            <span className="pagination-info">
+              {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, total)} of {total}
+            </span>
+            <button className="pagination-btn" disabled={safePage === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
+              <ChevronLeft size={13} />
+            </button>
+            {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+              const n = totalPages <= 5 ? i + 1 : Math.max(1, Math.min(safePage - 2, totalPages - 4)) + i
+              return (
+                <button key={n} className={`pagination-btn${n === safePage ? ' active' : ''}`} onClick={() => setPage(n)}>
+                  {n}
+                </button>
+              )
+            })}
+            <button className="pagination-btn" disabled={safePage === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>
+              <ChevronRight size={13} />
+            </button>
+          </div>
+        )}
       </div>
 
       {selected && (() => {

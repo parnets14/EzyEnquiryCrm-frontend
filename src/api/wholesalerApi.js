@@ -44,8 +44,9 @@ Object.assign(wholesalerApi, {
   listUsers:        (params = {}) => api.get('/wholesaler/all-users',        { params: { limit: 200, ...params } }).then(r => r.data),
   listTransactions: (params = {}) => api.get('/wholesaler/all-transactions', { params: { limit: 200, ...params } }).then(r => r.data),
 
-  // Subscriptions (Super Admin): per-company plans, revenue, set plan
-  listSubscriptions: ()          => api.get('/subscriptions/admin/all').then(r => r.data),
+  // Subscriptions (Super Admin): per-company plans, revenue, set plan.
+  // Scoped to wholesaler companies so the Wholesaler hub shows only their plans.
+  listSubscriptions: (params = {}) => api.get('/subscriptions/admin/all', { params: { biz_type: 'Wholesaler', ...params } }).then(r => r.data),
   revenue:           ()          => api.get('/subscriptions/admin/revenue').then(r => r.data),
   setCompanyPlan:    (companyId, data) => api.patch(`/subscriptions/company/${companyId}`, data).then(r => r.data),
 

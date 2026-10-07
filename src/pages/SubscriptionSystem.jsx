@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Crown, Check, X, CreditCard, TrendingUp, Users, Zap, RefreshCw, AlertCircle, CheckCircle } from 'lucide-react'
+import { Crown, Check, X, CreditCard, TrendingUp, Users, Zap, RefreshCw, AlertCircle, CheckCircle, ChevronLeft, ChevronRight } from 'lucide-react'
 import { subscriptionApi } from '../api/systemApi'
 import api from '../api/index'
+
+const PAGE_SIZE = 10
 
 // §25: Required plans
 const PLANS = [
@@ -85,6 +87,7 @@ const PLANS = [
 
 export default function SubscriptionSystem() {
   const [tab,           setTab]           = useState('plans')
+  const [page,          setPage]          = useState(1)
   const [history,       setHistory]       = useState([])
   const [loadingHistory,setLoadingHistory] = useState(false)
   const [showUpgrade,   setShowUpgrade]   = useState(null)
@@ -304,7 +307,7 @@ export default function SubscriptionSystem() {
       <div className="tabs">
         {[['plans','Plans & Pricing'],['history','Billing History']].map(([key, label]) => (
           <button key={key} className={`tab-btn${tab === key ? ' active' : ''}`}
-            onClick={() => setTab(key)}>{label}</button>
+            onClick={() => { setTab(key); setPage(1) }}>{label}</button>
         ))}
       </div>
 
@@ -403,7 +406,13 @@ export default function SubscriptionSystem() {
       )}
 
       {/* ══════════════ BILLING HISTORY TAB ══════════════ */}
-      {tab === 'history' && (
+      {tab === 'history' && (() => {
+        // ── Pagination (10 rows per page) ──────────────────────
+        const total      = history.length
+        const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+        const safePage   = Math.min(page, totalPages)
+        const paged      = history.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+        return (
         <div className="card">
           <div className="card-header">
             <span className="card-title">Billing History</span>
@@ -433,7 +442,7 @@ export default function SubscriptionSystem() {
                         </td>
                       </tr>
                     )
-                    : history.map((h, i) => {
+                    : paged.map((h, i) => {
                         const planMeta = PLANS.find(p => p.key === h.plan)
                         const amt      = parseFloat(h.amount_paid) || 0
                         const gst      = Math.round(amt * 0.18)
@@ -471,8 +480,30 @@ export default function SubscriptionSystem() {
               </tbody>
             </table>
           </div>
+          {totalPages > 1 && (
+            <div className="pagination">
+              <span className="pagination-info">
+                {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, total)} of {total}
+              </span>
+              <button className="pagination-btn" disabled={safePage === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
+                <ChevronLeft size={13} />
+              </button>
+              {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                const n = totalPages <= 5 ? i + 1 : Math.max(1, Math.min(safePage - 2, totalPages - 4)) + i
+                return (
+                  <button key={n} className={`pagination-btn${n === safePage ? ' active' : ''}`} onClick={() => setPage(n)}>
+                    {n}
+                  </button>
+                )
+              })}
+              <button className="pagination-btn" disabled={safePage === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>
+                <ChevronRight size={13} />
+              </button>
+            </div>
+          )}
         </div>
-      )}
+        )
+      })()}
 
       {/* ══════════════ UPGRADE MODAL ══════════════ */}
       {showUpgrade && (

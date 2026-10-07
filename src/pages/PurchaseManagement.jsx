@@ -1,6 +1,8 @@
 import { useState, useMemo, Fragment } from 'react'
-import { Plus, Search, Download, ShoppingBag, CheckCircle, Trash2, X, PackageCheck, Building2, ArrowRight, ChevronDown, RefreshCw, Warehouse, Eye, Pencil, AlertTriangle } from 'lucide-react'
+import { Plus, Search, Download, ShoppingBag, CheckCircle, Trash2, X, PackageCheck, Building2, ArrowRight, ChevronDown, RefreshCw, Warehouse, Eye, Pencil, AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+
+const PAGE_SIZE = 10
 
 /* ── API field helpers ── */
 const purCode     = p => p.purchase_code  || (p._id ? `PUR-${String(p._id).slice(-6).toUpperCase()}` : (p.id || ''))
@@ -39,6 +41,7 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
   const [dateFrom,       setDateFrom]      = useState('')
   const [dateTo,         setDateTo]        = useState('')
   const [statFilter,     setStatFilter]    = useState('')
+  const [page,           setPage]          = useState(1)
   const [showModal,      setShowModal]     = useState(false)
   const [successMsg,     setSuccessMsg]    = useState('')
   const [saving,         setSaving]        = useState(false)
@@ -321,6 +324,12 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
     const matchTo   = !dateTo   || pDate <= dateTo
     return matchSearch && matchSupplier && matchStatus && matchFrom && matchTo
   })
+
+  // ── Pagination (10 rows per page) ──────────────────────────
+  const total       = filtered.length
+  const totalPages  = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const safePage    = Math.min(page, totalPages)
+  const paged       = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
 
   /* ── Export — styled HTML document with product details + print ── */
   const handleExport = () => {
@@ -628,7 +637,7 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
               return (
                 <div
                   key={s.label}
-                  onClick={() => s.filterVal && setStatusFilter(prev => prev === s.filterVal ? '' : s.filterVal)}
+                  onClick={() => { if (s.filterVal) { setStatusFilter(prev => prev === s.filterVal ? '' : s.filterVal); setPage(1) } }}
                   style={{
                     background:   isActive ? st.iconBg : st.bg,
                     border:       `1.5px solid ${isActive ? st.iconColor : st.borderColor}`,
@@ -665,7 +674,7 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
             style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 12, width: '100%', color: 'var(--text)' }}
             placeholder="Search ID, supplier, product…"
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={e => { setSearch(e.target.value); setPage(1) }}
           />
         </div>
 
@@ -674,7 +683,7 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
           className="form-control"
           style={{ flex: 2, minWidth: 0, fontSize: 12, padding: '4px 8px', height: 34 }}
           value={supplierFilter}
-          onChange={e => setSupplierFilter(e.target.value)}
+          onChange={e => { setSupplierFilter(e.target.value); setPage(1) }}
         >
           <option value="">All Suppliers</option>
           {uniqueSuppliers.map(s => <option key={s} value={s}>{s}</option>)}
@@ -685,7 +694,7 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
           className="form-control"
           style={{ flex: 1, minWidth: 0, fontSize: 12, padding: '4px 8px', height: 34 }}
           value={statusFilter}
-          onChange={e => setStatusFilter(e.target.value)}
+          onChange={e => { setStatusFilter(e.target.value); setPage(1) }}
         >
           <option value="">All Status</option>
           <option value="Pending">Pending</option>
@@ -703,7 +712,7 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
             className="form-control"
             style={{ flex: 1, minWidth: 0, fontSize: 12, padding: '4px 6px', height: 34 }}
             value={dateFrom}
-            onChange={e => setDateFrom(e.target.value)}
+            onChange={e => { setDateFrom(e.target.value); setPage(1) }}
           />
         </div>
 
@@ -715,7 +724,7 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
             className="form-control"
             style={{ flex: 1, minWidth: 0, fontSize: 12, padding: '4px 6px', height: 34 }}
             value={dateTo}
-            onChange={e => setDateTo(e.target.value)}
+            onChange={e => { setDateTo(e.target.value); setPage(1) }}
           />
         </div>
 
@@ -724,7 +733,7 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
           <button
             className="btn btn-secondary"
             style={{ fontSize: 12, padding: '4px 10px', height: 34, flexShrink: 0, whiteSpace: 'nowrap' }}
-            onClick={() => { setSearch(''); setSupplierFilter(''); setStatusFilter(''); setDateFrom(''); setDateTo('') }}
+            onClick={() => { setSearch(''); setSupplierFilter(''); setStatusFilter(''); setDateFrom(''); setDateTo(''); setPage(1) }}
           >
             <RefreshCw size={12} /> Reset
           </button>
@@ -766,7 +775,7 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
               </tr>
             </thead>
             <tbody>
-              {filtered.map(p => (
+              {paged.map(p => (
                 <tr key={p._id || p.id}>
                   <td style={{ padding: '11px 14px', color: 'var(--primary)', fontWeight: 700 }}>{purCode(p)}</td>
                   <td style={{ padding: '11px 14px', fontSize: 12 }}>{purDate(p)}</td>
@@ -860,6 +869,27 @@ export default function PurchaseManagement({ purchases = [], addPurchase, update
             </tbody>
           </table>
         </div>
+        {totalPages > 1 && (
+          <div className="pagination">
+            <span className="pagination-info">
+              {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, total)} of {total}
+            </span>
+            <button className="pagination-btn" disabled={safePage === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
+              <ChevronLeft size={13} />
+            </button>
+            {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+              const n = totalPages <= 5 ? i + 1 : Math.max(1, Math.min(safePage - 2, totalPages - 4)) + i
+              return (
+                <button key={n} className={`pagination-btn${n === safePage ? ' active' : ''}`} onClick={() => setPage(n)}>
+                  {n}
+                </button>
+              )
+            })}
+            <button className="pagination-btn" disabled={safePage === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>
+              <ChevronRight size={13} />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ═══════════ NEW PURCHASE MODAL ═══════════ */}

@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Edit2, Trash2, Layers, Tag } from 'lucide-react'
+import { Plus, Edit2, Trash2, Layers, Tag, ChevronLeft, ChevronRight } from 'lucide-react'
 import { employeeMasterApi } from '../api/employeeMasterApi'
+
+const PAGE_SIZE = 10
 
 // ── Helpers ───────────────────────────────────────────────────
 const fmtDate = (d) => {
@@ -20,6 +22,38 @@ const EMPTY_DESIG = { department_id: '', name: '', description: '', is_active: t
 // ─────────────────────────────────────────────────────────────
 export default function EmployeeMasterManagement() {
   const [tab, setTab] = useState('department')
+  const [page, setPage] = useState(1)
+
+  // ── Pagination (10 rows per page) ──────────────────────────
+  // Shared across tabs; resets whenever the active tab changes.
+  useEffect(() => { setPage(1) }, [tab])
+  const pageSlice = (arr) => arr.slice((Math.min(page, Math.max(1, Math.ceil(arr.length / PAGE_SIZE))) - 1) * PAGE_SIZE, Math.min(page, Math.max(1, Math.ceil(arr.length / PAGE_SIZE))) * PAGE_SIZE)
+  const Pager = ({ total }) => {
+    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+    const safePage   = Math.min(page, totalPages)
+    if (totalPages <= 1) return null
+    return (
+      <div className="pagination">
+        <span className="pagination-info">
+          {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, total)} of {total}
+        </span>
+        <button className="pagination-btn" disabled={safePage === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
+          <ChevronLeft size={13} />
+        </button>
+        {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+          const n = totalPages <= 5 ? i + 1 : Math.max(1, Math.min(safePage - 2, totalPages - 4)) + i
+          return (
+            <button key={n} className={`pagination-btn${n === safePage ? ' active' : ''}`} onClick={() => setPage(n)}>
+              {n}
+            </button>
+          )
+        })}
+        <button className="pagination-btn" disabled={safePage === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>
+          <ChevronRight size={13} />
+        </button>
+      </div>
+    )
+  }
 
   // ── Toast ─────────────────────────────────────────────────
   const [msg,     setMsg]     = useState('')
@@ -326,7 +360,7 @@ export default function EmployeeMasterManagement() {
                     </td>
                   </tr>
                 )}
-                {!deptLoading && departments.map(dept => (
+                {!deptLoading && pageSlice(departments).map(dept => (
                   <tr key={dept._id || dept.id}>
                     <td style={{ color: 'var(--primary)', fontWeight: 700, fontSize: 12 }}>
                       {dept.dept_code || '—'}
@@ -370,6 +404,7 @@ export default function EmployeeMasterManagement() {
               </tbody>
             </table>
           </div>
+          <Pager total={departments.length} />
         </div>
       )}
 
@@ -403,7 +438,7 @@ export default function EmployeeMasterManagement() {
                     </td>
                   </tr>
                 )}
-                {!desigLoading && designations.map(desig => (
+                {!desigLoading && pageSlice(designations).map(desig => (
                   <tr key={desig._id || desig.id}>
                     <td style={{ color: 'var(--primary)', fontWeight: 700, fontSize: 12 }}>
                       {desig.desig_code || '—'}
@@ -452,6 +487,7 @@ export default function EmployeeMasterManagement() {
               </tbody>
             </table>
           </div>
+          <Pager total={designations.length} />
         </div>
       )}
 

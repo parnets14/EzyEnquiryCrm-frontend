@@ -4,8 +4,10 @@ import {
 } from 'recharts'
 import {
   TrendingUp, Search, Download, Plus, RefreshCw, Receipt, IndianRupee,
-  AlertCircle, CheckCircle, Clock,
+  AlertCircle, CheckCircle, Clock, ChevronLeft, ChevronRight,
 } from 'lucide-react'
+
+const PAGE_SIZE = 10
 
 /* ─────────────────────────────────────────────────────────────
    Helpers
@@ -43,6 +45,7 @@ export default function SalesManagement({
   addSale, updateSale,
 }) {
   const [search,      setSearch]      = useState('')
+  const [page,        setPage]        = useState(1)
   const [fromDate,    setFromDate]    = useState(monthStart())
   const [toDate,      setToDate]      = useState(todayStr())
   const [payFilter,   setPayFilter]   = useState('All')
@@ -76,6 +79,12 @@ export default function SalesManagement({
       (s.order_code    || '').toLowerCase().includes(search.toLowerCase())
     )
   ), [rangeFiltered, payFilter, search])
+
+  /* ── Pagination (10 rows per page) ── */
+  const total       = filtered.length
+  const totalPages  = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const safePage    = Math.min(page, totalPages)
+  const paged       = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
 
   /* ── KPIs ── */
   const kpis = useMemo(() => {
@@ -162,6 +171,7 @@ export default function SalesManagement({
     if (key === 'today')  { setFromDate(todayStr());   setToDate(todayStr()) }
     if (key === 'month')  { setFromDate(monthStart()); setToDate(todayStr()) }
     if (key === 'year')   { setFromDate(yearStart());  setToDate(todayStr()) }
+    setPage(1)
   }
 
   return (
@@ -230,15 +240,15 @@ export default function SalesManagement({
           <div className="header-actions" style={{ flexWrap:'wrap', gap:8 }}>
             {/* Date range */}
             <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-              <input type="date" className="form-control" style={{ width:145 }} value={fromDate} onChange={e => setFromDate(e.target.value)} />
+              <input type="date" className="form-control" style={{ width:145 }} value={fromDate} onChange={e => { setFromDate(e.target.value); setPage(1) }} />
               <span style={{ color:'var(--text-muted)', fontSize:12 }}>to</span>
-              <input type="date" className="form-control" style={{ width:145 }} value={toDate}   onChange={e => setToDate(e.target.value)} />
+              <input type="date" className="form-control" style={{ width:145 }} value={toDate}   onChange={e => { setToDate(e.target.value); setPage(1) }} />
             </div>
             <div className="search-bar">
               <Search size={14}/>
-              <input placeholder="Search sale, customer, product…" value={search} onChange={e => setSearch(e.target.value)} />
+              <input placeholder="Search sale, customer, product…" value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} />
             </div>
-            <select className="form-control" style={{ width:140 }} value={payFilter} onChange={e => setPayFilter(e.target.value)}>
+            <select className="form-control" style={{ width:140 }} value={payFilter} onChange={e => { setPayFilter(e.target.value); setPage(1) }}>
               <option value="All">All Payments</option>
               <option value="Paid">Paid</option>
               <option value="Partial">Partial</option>
@@ -279,7 +289,7 @@ export default function SalesManagement({
                   No sales in this period. Sales are created automatically when orders are delivered, or add manually.
                 </td></tr>
               )}
-              {filtered.map(s => {
+              {paged.map(s => {
                 const ps = s.payment_status || 'Pending'
                 const badge = PAYMENT_STATUS[ps] || PAYMENT_STATUS.Pending
                 return (
@@ -332,6 +342,27 @@ export default function SalesManagement({
             )}
           </table>
         </div>
+        {totalPages > 1 && (
+          <div className="pagination">
+            <span className="pagination-info">
+              {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, total)} of {total}
+            </span>
+            <button className="pagination-btn" disabled={safePage === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
+              <ChevronLeft size={13} />
+            </button>
+            {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+              const n = totalPages <= 5 ? i + 1 : Math.max(1, Math.min(safePage - 2, totalPages - 4)) + i
+              return (
+                <button key={n} className={`pagination-btn${n === safePage ? ' active' : ''}`} onClick={() => setPage(n)}>
+                  {n}
+                </button>
+              )
+            })}
+            <button className="pagination-btn" disabled={safePage === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>
+              <ChevronRight size={13} />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ── Add Sale Modal ── */}

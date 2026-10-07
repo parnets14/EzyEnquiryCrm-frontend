@@ -2,9 +2,11 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import {
   Plus, MapPin, Warehouse, Edit2, Trash2, Eye, X, Search,
   CheckCircle, RefreshCw, Package, AlertCircle, ArrowRightLeft,
-  ChevronDown, BarChart3, TrendingDown, TrendingUp,
+  ChevronDown, BarChart3, TrendingDown, TrendingUp, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import { inventoryApi } from '../api/inventoryApi'
+
+const PAGE_SIZE = 10
 
 // ── Constants ─────────────────────────────────────────────────
 const WAREHOUSE_TYPES = ['Main Warehouse', 'Branch Warehouse', 'Transit Hub', 'Cold Storage', 'Depot', 'Other']
@@ -364,6 +366,7 @@ export default function WarehouseManagement({ branches = [] }) {
   const [saving,     setSaving]     = useState(false)
   const [search,     setSearch]     = useState('')
   const [filterActive, setFilterActive] = useState('All')
+  const [page,       setPage]       = useState(1)
   const [toast,      setToast]      = useState('')
   const [errorMsg,   setErrorMsg]   = useState('')
 
@@ -436,6 +439,12 @@ export default function WarehouseManagement({ branches = [] }) {
     return matchSearch && matchActive
   })
 
+  // ── Pagination (10 rows per page) ──────────────────────────
+  const total       = filtered.length
+  const totalPages  = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const safePage    = Math.min(page, totalPages)
+  const paged       = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+
   return (
     <>
       <style>{`@keyframes pulse { 0%,100%{opacity:.6} 50%{opacity:.2} }`}</style>
@@ -474,12 +483,12 @@ export default function WarehouseManagement({ branches = [] }) {
               <Search style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 14, color: 'var(--text-muted)' }} />
               <input className="form-control" style={{ paddingLeft: 32 }}
                 placeholder="Search by name, code, city, manager…"
-                value={search} onChange={e => setSearch(e.target.value)} />
+                value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} />
             </div>
             {['All', 'Active', 'Inactive'].map(f => (
               <button key={f} className={`btn ${filterActive === f ? 'btn-primary' : 'btn-secondary'}`}
                 style={{ padding: '6px 14px', fontSize: 13 }}
-                onClick={() => setFilterActive(f)}>{f}</button>
+                onClick={() => { setFilterActive(f); setPage(1) }}>{f}</button>
             ))}
             <button className="btn btn-secondary btn-sm" onClick={fetchWarehouses} disabled={loading} style={{ marginLeft: 4 }}>
               <RefreshCw style={{ width: 13 }} />
@@ -517,11 +526,11 @@ export default function WarehouseManagement({ branches = [] }) {
                       </td>
                     </tr>
                   )
-                  : filtered.map((wh, idx) => {
+                  : paged.map((wh, idx) => {
                       const id = wh._id || wh.id
                       return (
                         <tr key={id}>
-                          <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{idx + 1}</td>
+                          <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{(safePage - 1) * PAGE_SIZE + idx + 1}</td>
                           <td>
                             <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 12, color: 'var(--primary)' }}>
                               {wh.warehouse_code || '—'}
@@ -598,6 +607,27 @@ export default function WarehouseManagement({ branches = [] }) {
             </tbody>
           </table>
         </div>
+        {totalPages > 1 && (
+          <div className="pagination">
+            <span className="pagination-info">
+              {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, total)} of {total}
+            </span>
+            <button className="pagination-btn" disabled={safePage === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
+              <ChevronLeft size={13} />
+            </button>
+            {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+              const n = totalPages <= 5 ? i + 1 : Math.max(1, Math.min(safePage - 2, totalPages - 4)) + i
+              return (
+                <button key={n} className={`pagination-btn${n === safePage ? ' active' : ''}`} onClick={() => setPage(n)}>
+                  {n}
+                </button>
+              )
+            })}
+            <button className="pagination-btn" disabled={safePage === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>
+              <ChevronRight size={13} />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Modals */}

@@ -2,8 +2,10 @@ import { useState, useCallback, useMemo } from 'react'
 import {
   Search, Eye, Truck, Package, CheckCircle, ClipboardList,
   Layers, Send, ShieldCheck, XCircle, FileText, Box, AlertCircle,
-  History, ArrowRight, ChevronRight, Plus, Trash2, Edit2, X,
+  History, ArrowRight, ChevronLeft, ChevronRight, Plus, Trash2, Edit2, X,
 } from 'lucide-react'
+
+const PAGE_SIZE = 10
 
 // ── Unified 6-stage order lifecycle ─────────────────────────────────────────
 // New → Accepted → Packing → Dispatched → Out for Delivery → Delivered
@@ -140,6 +142,7 @@ export default function OrderManagement({
   }, [employees, users])
 
   const [search,       setSearch]      = useState('')
+  const [page,         setPage]        = useState(1)
   const [statusFilter, setStatusFilter]= useState('All')
   const [branchFilter, setBranchFilter]= useState('All')
   const [selected,     setSelected]    = useState(null)
@@ -343,6 +346,12 @@ export default function OrderManagement({
     return matchStatus&&matchBranch&&matchSearch
   })
 
+  // ── Pagination (10 rows per page) ──────────────────────────
+  const total       = filtered.length
+  const totalPages  = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const safePage    = Math.min(page, totalPages)
+  const paged       = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+
   // Simplified per-row actions:
   //   New            → Accept + Cancel
   //   New            → Accept + Cancel
@@ -463,7 +472,7 @@ export default function OrderManagement({
           const count = orders.filter(o=>toDisplay(o.status)===s).length
           const active = statusFilter===s
           return (
-            <div key={s} onClick={()=>setStatusFilter(active?'All':s)}
+            <div key={s} onClick={()=>{setStatusFilter(active?'All':s);setPage(1)}}
               style={{background:active?iconBg:bg,border:`1.5px solid ${active?ic:bc}`,borderRadius:10,
                 padding:'10px 12px',cursor:'pointer',display:'flex',alignItems:'center',gap:8,
                 boxShadow:active?`0 0 0 3px ${bc}`:'var(--shadow)',transition:'all 0.15s'}}>
@@ -486,15 +495,15 @@ export default function OrderManagement({
           <div className="header-actions">
             <div className="search-bar">
               <Search/>
-              <input placeholder="Search order, customer, product…" value={search} onChange={e=>setSearch(e.target.value)}/>
+              <input placeholder="Search order, customer, product…" value={search} onChange={e=>{setSearch(e.target.value);setPage(1)}}/>
             </div>
             {branchNames.length>0&&(
-              <select className="form-control" style={{width:150}} value={branchFilter} onChange={e=>setBranchFilter(e.target.value)}>
+              <select className="form-control" style={{width:150}} value={branchFilter} onChange={e=>{setBranchFilter(e.target.value);setPage(1)}}>
                 <option value="All">All Branches</option>
                 {branchNames.map(b=><option key={b}>{b}</option>)}
               </select>
             )}
-            <select className="form-control" style={{width:150}} value={statusFilter} onChange={e=>setStatusFilter(e.target.value)}>
+            <select className="form-control" style={{width:150}} value={statusFilter} onChange={e=>{setStatusFilter(e.target.value);setPage(1)}}>
               <option value="All">All Status</option>
               {DISPLAY_STATUSES.map(s=><option key={s}>{s}</option>)}
             </select>
@@ -512,7 +521,7 @@ export default function OrderManagement({
               </tr>
             </thead>
             <tbody>
-              {filtered.map(o=>{
+              {paged.map(o=>{
                 // Get dispatch info for this order from dispatches list
                 const dispatch = dispatches?.find(d=>{
                   const dOrdId = d.order_id?._id || d.order_id || ''
@@ -603,6 +612,27 @@ export default function OrderManagement({
             </tbody>
           </table>
         </div>
+        {totalPages > 1 && (
+          <div className="pagination">
+            <span className="pagination-info">
+              {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, total)} of {total}
+            </span>
+            <button className="pagination-btn" disabled={safePage === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
+              <ChevronLeft size={13} />
+            </button>
+            {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+              const n = totalPages <= 5 ? i + 1 : Math.max(1, Math.min(safePage - 2, totalPages - 4)) + i
+              return (
+                <button key={n} className={`pagination-btn${n === safePage ? ' active' : ''}`} onClick={() => setPage(n)}>
+                  {n}
+                </button>
+              )
+            })}
+            <button className="pagination-btn" disabled={safePage === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>
+              <ChevronRight size={13} />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ══ CREATE / EDIT ORDER MODAL ══ */}

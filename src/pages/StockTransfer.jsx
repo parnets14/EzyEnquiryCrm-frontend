@@ -1,5 +1,7 @@
 import { useState } from 'react'
-import { Plus, Search, ArrowLeftRight, CheckCircle, Clock, XCircle, Eye, Pencil, Trash2 } from 'lucide-react'
+import { Plus, Search, ArrowLeftRight, CheckCircle, Clock, XCircle, Eye, Pencil, Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
+
+const PAGE_SIZE = 10
 
 const statusBadge = { Completed: 'badge-green', 'In Transit': 'badge-cyan', Pending: 'badge-yellow', Cancelled: 'badge-red' }
 
@@ -32,6 +34,7 @@ export default function StockTransfer({
 
   const [search, setSearch]       = useState('')
   const [statusFilter, setStatusFilter] = useState('All')
+  const [page, setPage]           = useState(1)
   const [showModal, setShowModal]  = useState(false)
   const [saving, setSaving]        = useState(false)
   const [form, setForm] = useState({ from: '', to: '', product_id: '', qty: '', reason: 'Restock', notes: '' })
@@ -51,6 +54,12 @@ export default function StockTransfer({
        t.from.toLowerCase().includes(q) ||
        t.to.toLowerCase().includes(q))
   })
+
+  // ── Pagination (10 rows per page) ──────────────────────────
+  const total       = filtered.length
+  const totalPages  = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const safePage    = Math.min(page, totalPages)
+  const paged       = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
 
   const resetForm = () => setForm({ from: '', to: '', product_id: '', qty: '', reason: 'Restock', notes: '' })
 
@@ -131,8 +140,8 @@ export default function StockTransfer({
         <div className="card-header">
           <span className="card-title">Transfer Log ({filtered.length})</span>
           <div className="header-actions">
-            <div className="search-bar"><Search size={14} /><input placeholder="Search transfers…" value={search} onChange={e => setSearch(e.target.value)} /></div>
-            <select className="form-control" style={{ width: 140 }} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+            <div className="search-bar"><Search size={14} /><input placeholder="Search transfers…" value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} /></div>
+            <select className="form-control" style={{ width: 140 }} value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }}>
               <option value="All">All Status</option>
               {['Pending', 'In Transit', 'Completed', 'Cancelled'].map(s => <option key={s}>{s}</option>)}
             </select>
@@ -144,7 +153,7 @@ export default function StockTransfer({
               <tr><th>Transfer ID</th><th>Date</th><th>From Warehouse</th><th>To Warehouse</th><th>Product</th><th>Qty</th><th>Reason</th><th>Approved By</th><th>Status</th><th>Actions</th></tr>
             </thead>
             <tbody>
-              {filtered.map(t => (
+              {paged.map(t => (
                 <tr key={t._id}>
                   <td style={{ color: 'var(--primary)', fontWeight: 700 }}>{t.ref}</td>
                   <td style={{ fontSize: 12 }}>{t.date}</td>
@@ -185,6 +194,27 @@ export default function StockTransfer({
             </tbody>
           </table>
         </div>
+        {totalPages > 1 && (
+          <div className="pagination">
+            <span className="pagination-info">
+              {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, total)} of {total}
+            </span>
+            <button className="pagination-btn" disabled={safePage === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
+              <ChevronLeft size={13} />
+            </button>
+            {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+              const n = totalPages <= 5 ? i + 1 : Math.max(1, Math.min(safePage - 2, totalPages - 4)) + i
+              return (
+                <button key={n} className={`pagination-btn${n === safePage ? ' active' : ''}`} onClick={() => setPage(n)}>
+                  {n}
+                </button>
+              )
+            })}
+            <button className="pagination-btn" disabled={safePage === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>
+              <ChevronRight size={13} />
+            </button>
+          </div>
+        )}
       </div>
 
       {showModal && (

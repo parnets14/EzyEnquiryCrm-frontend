@@ -8,10 +8,13 @@ import {
   Users, UserPlus, Phone, Mail, Lock, Shield, Search, Trash2,
   RefreshCw, CheckCircle, XCircle, Eye, EyeOff, X, Check,
   Send, ShieldCheck, Clock, AlertCircle, User, Layers,
+  ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import { userApi } from '../api/userApi'
 import { invoiceApi } from '../api/financeApi'
 import { hrApi } from '../api/hrApi'
+
+const PAGE_SIZE = 10
 
 // ─── constants ───────────────────────────────────────────────
 const STAFF_ROLES = ['Manager', 'Accountant', 'Sales Executive', 'Warehouse Staff']
@@ -298,6 +301,7 @@ export default function StaffManagement() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch]   = useState('')
   const [roleFilter, setRoleFilter] = useState('All')
+  const [page, setPage]       = useState(1)
   const [toast, setToast]     = useState({ msg: '', ok: true })
 
   // modal state
@@ -468,6 +472,12 @@ export default function StaffManagement() {
     (!q || [s.name, s.mobile, s.email, s.role].some(v => (v || '').toLowerCase().includes(q)))
   )
 
+  // ── Pagination (10 rows per page) ──────────────────────────
+  const total       = filtered.length
+  const totalPages  = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const safePage    = Math.min(page, totalPages)
+  const paged       = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+
   const pendingColl  = collections.filter(c => c.verification_status === 'Pending').length
   const otpColl      = collections.filter(c => c.verification_status === 'OTP Sent').length
   const verifiedColl = collections.filter(c => c.verification_status === 'Verified').length
@@ -566,17 +576,17 @@ export default function StaffManagement() {
       <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #E2E8F0', padding: '10px 14px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10, boxShadow: 'var(--shadow)', flexWrap: 'wrap' }}>
         <Search size={14} color="#94A3B8" style={{ flexShrink: 0 }} />
         <input
-          value={search} onChange={e => setSearch(e.target.value)}
+          value={search} onChange={e => { setSearch(e.target.value); setPage(1) }}
           placeholder="Search by name, mobile, email or role…"
           style={{ flex: 1, minWidth: 160, border: 'none', outline: 'none', fontSize: 13, color: '#01152D', background: 'transparent' }}
         />
-        {search && <button onClick={() => setSearch('')} style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', display: 'flex' }}><X size={13} /></button>}
+        {search && <button onClick={() => { setSearch(''); setPage(1) }} style={{ background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', display: 'flex' }}><X size={13} /></button>}
         <div style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap' }}>
           {['All', ...STAFF_ROLES].map(r => {
             const active = roleFilter === r
             const rm = ROLE_META[r]
             return (
-              <button key={r} onClick={() => setRoleFilter(r)}
+              <button key={r} onClick={() => { setRoleFilter(r); setPage(1) }}
                 style={{ padding: '4px 11px', borderRadius: 20, fontSize: 11, fontWeight: 600, cursor: 'pointer', border: `1.5px solid ${active ? (rm?.color || '#2563EB') : (rm?.border || '#E2E8F0')}`, background: active ? (rm?.color || '#2563EB') : (rm?.bg || '#F4F6F9'), color: active ? '#fff' : (rm?.color || '#64748B'), transition: 'all .13s' }}>
                 {r}
               </button>
@@ -628,11 +638,11 @@ export default function StaffManagement() {
                     )}
                   </td></tr>
                 )}
-                {!loading && filtered.map((s, i) => {
+                {!loading && paged.map((s, i) => {
                   const rm = ROLE_META[s.role] || {}
                   return (
                     <tr key={s._id}>
-                      <td style={{ color: '#94A3B8', fontSize: 12 }}>{i + 1}</td>
+                      <td style={{ color: '#94A3B8', fontSize: 12 }}>{(safePage - 1) * PAGE_SIZE + i + 1}</td>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                           <div style={{ width: 36, height: 36, borderRadius: 9, background: 'linear-gradient(135deg,#FFF3EC,#FFE3D0)', border: '1px solid #FED7B8', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 14, fontWeight: 800, color: '#FD5C02' }}>
@@ -683,6 +693,27 @@ export default function StaffManagement() {
               </tbody>
             </table>
           </div>
+          {totalPages > 1 && (
+            <div className="pagination">
+              <span className="pagination-info">
+                {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, total)} of {total}
+              </span>
+              <button className="pagination-btn" disabled={safePage === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
+                <ChevronLeft size={13} />
+              </button>
+              {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                const n = totalPages <= 5 ? i + 1 : Math.max(1, Math.min(safePage - 2, totalPages - 4)) + i
+                return (
+                  <button key={n} className={`pagination-btn${n === safePage ? ' active' : ''}`} onClick={() => setPage(n)}>
+                    {n}
+                  </button>
+                )
+              })}
+              <button className="pagination-btn" disabled={safePage === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>
+                <ChevronRight size={13} />
+              </button>
+            </div>
+          )}
         </div>
       )}
 

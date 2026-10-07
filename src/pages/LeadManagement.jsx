@@ -1,5 +1,7 @@
 import { useState } from 'react'
-import { Plus, Search, Phone, Mail, Edit2, Trash2 } from 'lucide-react'
+import { Plus, Search, Phone, Mail, Edit2, Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
+
+const PAGE_SIZE = 10
 
 const SOURCES = ['Website', 'WhatsApp', 'Facebook', 'Instagram', 'Google Ads', 'Referral']
 // ── Requirement §10: Exact lead statuses ──
@@ -17,6 +19,7 @@ const EMPTY_FORM = { name: '', mobile: '', email: '', city: '', source: 'WhatsAp
 
 export default function LeadManagement({ leads = [], addLead, updateLead, deleteLead, convertLead, loadingData }) {
   const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
   const [statusFilter, setStatusFilter] = useState('All')
   const [sourceFilter, setSourceFilter] = useState('All')
   const [showModal, setShowModal] = useState(false)
@@ -32,6 +35,12 @@ export default function LeadManagement({ leads = [], addLead, updateLead, delete
     (sourceFilter === 'All' || (l.source || '') === sourceFilter) &&
     ((l.name || '').toLowerCase().includes(search.toLowerCase()) || (l.mobile || '').includes(search))
   )
+
+  // ── Pagination (10 rows per page) ──────────────────────────
+  const total       = filtered.length
+  const totalPages  = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const safePage    = Math.min(page, totalPages)
+  const paged       = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
 
   const validate = () => {
     const e = {}
@@ -83,7 +92,7 @@ export default function LeadManagement({ leads = [], addLead, updateLead, delete
           const borderColor = s === 'Converted' ? 'var(--success)' : s === 'Not Interested' ? 'var(--danger)' : s === 'Interested' ? 'var(--warning)' : s === 'Follow-up' ? 'var(--info)' : 'var(--primary)'
           return (
             <div key={s} className="card" style={{ padding: '14px', textAlign: 'center', cursor: 'pointer', borderTop: `3px solid ${borderColor}` }}
-              onClick={() => setStatusFilter(statusFilter === s ? 'All' : s)}>
+              onClick={() => { setStatusFilter(statusFilter === s ? 'All' : s); setPage(1) }}>
               <div style={{ fontSize: 18, fontWeight: 800 }}>{leads.filter(l => (l.status || 'New') === s).length}</div>
               <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{s}</div>
             </div>
@@ -93,9 +102,9 @@ export default function LeadManagement({ leads = [], addLead, updateLead, delete
 
       {/* Source filter */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-        <button className="chip" style={{ background: sourceFilter === 'All' ? 'var(--primary)' : undefined, color: sourceFilter === 'All' ? '#fff' : undefined, cursor: 'pointer' }} onClick={() => setSourceFilter('All')}>All Sources</button>
+        <button className="chip" style={{ background: sourceFilter === 'All' ? 'var(--primary)' : undefined, color: sourceFilter === 'All' ? '#fff' : undefined, cursor: 'pointer' }} onClick={() => { setSourceFilter('All'); setPage(1) }}>All Sources</button>
         {SOURCES.map(s => (
-          <button key={s} className="chip" style={{ background: sourceFilter === s ? 'var(--primary-light)' : undefined, color: sourceFilter === s ? 'var(--primary)' : undefined, borderColor: sourceFilter === s ? 'var(--primary)' : undefined, cursor: 'pointer' }} onClick={() => setSourceFilter(s)}>
+          <button key={s} className="chip" style={{ background: sourceFilter === s ? 'var(--primary-light)' : undefined, color: sourceFilter === s ? 'var(--primary)' : undefined, borderColor: sourceFilter === s ? 'var(--primary)' : undefined, cursor: 'pointer' }} onClick={() => { setSourceFilter(s); setPage(1) }}>
             {sourceIcon[s]} {s} ({leads.filter(l => (l.source || '') === s).length})
           </button>
         ))}
@@ -105,7 +114,7 @@ export default function LeadManagement({ leads = [], addLead, updateLead, delete
         <div className="card-header">
           <span className="card-title">Leads ({filtered.length})</span>
           <div className="header-actions">
-            <div className="search-bar"><Search /><input placeholder="Search leads…" value={search} onChange={e => setSearch(e.target.value)} /></div>
+            <div className="search-bar"><Search /><input placeholder="Search leads…" value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} /></div>
             <button className="btn btn-primary" onClick={() => { setForm(EMPTY_FORM); setErrors({}); setShowModal(true) }}><Plus />Add Lead</button>
           </div>
         </div>
@@ -114,7 +123,7 @@ export default function LeadManagement({ leads = [], addLead, updateLead, delete
             <thead><tr><th>Lead</th><th>Mobile/Email</th><th>Source</th><th>Notes</th><th>Status</th><th>Date</th><th>Actions</th></tr></thead>
             <tbody>
               {loadingData && <tr><td colSpan={7} style={{ textAlign: 'center', padding: 24 }}>Loading…</td></tr>}
-              {!loadingData && filtered.map(l => {
+              {!loadingData && paged.map(l => {
                 const id = l._id || l.id
                 return (
                   <tr key={id}>
@@ -149,6 +158,27 @@ export default function LeadManagement({ leads = [], addLead, updateLead, delete
             </tbody>
           </table>
         </div>
+        {totalPages > 1 && (
+          <div className="pagination">
+            <span className="pagination-info">
+              {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, total)} of {total}
+            </span>
+            <button className="pagination-btn" disabled={safePage === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
+              <ChevronLeft size={13} />
+            </button>
+            {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+              const n = totalPages <= 5 ? i + 1 : Math.max(1, Math.min(safePage - 2, totalPages - 4)) + i
+              return (
+                <button key={n} className={`pagination-btn${n === safePage ? ' active' : ''}`} onClick={() => setPage(n)}>
+                  {n}
+                </button>
+              )
+            })}
+            <button className="pagination-btn" disabled={safePage === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>
+              <ChevronRight size={13} />
+            </button>
+          </div>
+        )}
       </div>
 
       {showModal && (

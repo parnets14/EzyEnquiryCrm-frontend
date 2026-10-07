@@ -3,6 +3,7 @@ import {
   Plus, Search, Clock, UserCog, CheckCircle, XCircle, Trash2,
   LogIn, LogOut, Download, FileText, DollarSign, Edit2, Eye,
   ChevronDown, AlertCircle, Printer, RefreshCw, Calendar,
+  ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import { hrApi } from '../api/hrApi'
 import { employeeMasterApi } from '../api/employeeMasterApi'
@@ -19,6 +20,8 @@ const EMPTY_FORM = {
   department: '', designation: '',
   salary: '', emp_code: '', branch: '', pan: '', address: '',
 }
+
+const PAGE_SIZE = 10
 
 // ─── Helpers ──────────────────────────────────────────────────
 const fmtDate = (d) => {
@@ -126,6 +129,7 @@ export default function EmployeeManagement({
 
   // ── Tab & global ──────────────────────────────────────────
   const [tab,        setTab]        = useState('list')
+  const [page,       setPage]       = useState(1)
   const [successMsg, setSuccessMsg] = useState('')
   const toast = (msg) => { setSuccessMsg(msg); setTimeout(() => setSuccessMsg(''), 3500) }
 
@@ -264,6 +268,41 @@ export default function EmployeeManagement({
      (e.department || '').toLowerCase().includes(search.toLowerCase()) ||
      (e.emp_code || '').toLowerCase().includes(search.toLowerCase()))
   )
+
+  // ── Pagination (10 rows per page, shared across tabs) ──────
+  // Reset to page 1 whenever the active tab or any list filter changes.
+  useEffect(() => { setPage(1) }, [tab, search, deptFilter, branchFilter, attSearch, attDept, attBranch, attStatusFilt, attDate, salMonth]) // eslint-disable-line react-hooks/exhaustive-deps
+  const pageSlice = (arr) => {
+    const totalPages = Math.max(1, Math.ceil(arr.length / PAGE_SIZE))
+    const safePage   = Math.min(page, totalPages)
+    return arr.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+  }
+  const Pager = ({ total }) => {
+    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+    const safePage   = Math.min(page, totalPages)
+    if (totalPages <= 1) return null
+    return (
+      <div className="pagination">
+        <span className="pagination-info">
+          {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, total)} of {total}
+        </span>
+        <button className="pagination-btn" disabled={safePage === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>
+          <ChevronLeft size={13} />
+        </button>
+        {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+          const n = totalPages <= 5 ? i + 1 : Math.max(1, Math.min(safePage - 2, totalPages - 4)) + i
+          return (
+            <button key={n} className={`pagination-btn${n === safePage ? ' active' : ''}`} onClick={() => setPage(n)}>
+              {n}
+            </button>
+          )
+        })}
+        <button className="pagination-btn" disabled={safePage === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>
+          <ChevronRight size={13} />
+        </button>
+      </div>
+    )
+  }
 
   const totalMonthlySalary = activeEmps.reduce((s, e) => s + (e.salary || 0), 0)
 
@@ -741,7 +780,7 @@ export default function EmployeeManagement({
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(e => (
+                {pageSlice(filtered).map(e => (
                   <tr key={e._id || e.id}>
                     <td style={{ color:'var(--primary)', fontWeight:700, fontSize:12 }}>
                       {e.emp_code || (e._id || e.id)?.toString().slice(-6).toUpperCase()}
@@ -800,6 +839,7 @@ export default function EmployeeManagement({
               </tbody>
             </table>
           </div>
+          <Pager total={filtered.length} />
         </div>
       )}
 
@@ -885,7 +925,7 @@ export default function EmployeeManagement({
                   {attLoading && (
                     <tr><td colSpan={8} style={{ textAlign:'center', padding:20, color:'var(--text-muted)' }}>Loading attendance…</td></tr>
                   )}
-                  {!attLoading && filteredAttn.map(emp => {
+                  {!attLoading && pageSlice(filteredAttn).map(emp => {
                     const id  = String(emp._id || emp.id)
                     const rec = attByEmp[id]
                     const ci    = rec?.check_in  || null
@@ -985,6 +1025,7 @@ export default function EmployeeManagement({
                 </tbody>
               </table>
             </div>
+            <Pager total={filteredAttn.length} />
           </div>
         </>
       )}
@@ -1035,7 +1076,7 @@ export default function EmployeeManagement({
                     </tr>
                   </thead>
                   <tbody>
-                    {activeEmps.map(emp => {
+                    {pageSlice(activeEmps).map(emp => {
                       const id  = String(emp._id || emp.id)
                       const rec = salRecordByEmp[id]
                       const bd  = rec
@@ -1112,6 +1153,7 @@ export default function EmployeeManagement({
                 </table>
               </div>
             )}
+            {!salLoading && <Pager total={activeEmps.length} />}
           </div>
         </>
       )}

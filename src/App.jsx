@@ -257,7 +257,7 @@ function AppRoutes() {
         <Route path="system/document-management"
           element={<RequireAccess module={MODULES.DOCUMENTS}><DocumentManagement /></RequireAccess>} />
         <Route path="system/subscription"   element={<RequireAccess module={MODULES.SUBSCRIPTION}><SubscriptionSystem /></RequireAccess>} />
-        <Route path="system/audit-log"      element={<AuditLog />} />
+        <Route path="system/audit-log"      element={<RequireAccess module={MODULES.AUDIT}><AuditLog /></RequireAccess>} />
         <Route path="system/profile"        element={<RequireAccess module={MODULES.PROFILE}><Profile /></RequireAccess>} />
         <Route path="subscription"          element={<RequireAccess module={MODULES.SUBSCRIPTION}><SubscriptionSystem /></RequireAccess>} />
 

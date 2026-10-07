@@ -41,8 +41,10 @@ export const retailerApi = {
     api.get('/retailer/admin/enquiries', { params }).then(r => r.data),
 
   // ── Subscription plan management ─────────────────────────
+  // Scoped to retailer companies only (biz_type=Retailer) so the Retailer hub
+  // never shows wholesaler/admin plans. Pass a different biz_type to override.
   listSubscriptions: (params = {}) =>
-    api.get('/subscriptions/admin/all', { params }).then(r => r.data),
+    api.get('/subscriptions/admin/all', { params: { biz_type: 'Retailer', ...params } }).then(r => r.data),
 
   setCompanyPlan: (companyId, data) =>
     api.patch(`/subscriptions/company/${companyId}`, data).then(r => r.data),
