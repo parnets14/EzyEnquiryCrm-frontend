@@ -644,18 +644,38 @@ function QuotationModal({ editData, products: propProducts, enquiries, onSave, o
       if (!cancelled) { setModalProducts(enriched); setLoadingProds(false) }
     }
 
+    // Resolve a product's creator type — mirrors Product Management's
+    // "ADDED BY" badge logic (creatorTypeOf) so the quotation dropdown shows
+    // exactly the same admin-added products as the Products page.
+    const creatorTypeOf = (p = {}) => {
+      if (p.created_by_type) return p.created_by_type
+      const role = String(p.created_by?.role || '').toLowerCase()
+      if (role.includes('retail')) return 'Retailer'
+      if (role.includes('whole'))  return 'Wholesaler'
+      if (role.includes('admin'))  return 'Admin'
+      const biz = String(p.company_id?.biz_type || '').toLowerCase()
+      if (biz.includes('retail')) return 'Retailer'
+      if (biz.includes('whole'))  return 'Wholesaler'
+      if (String(p.code || '').toUpperCase().startsWith('RPD-')) return 'Retailer'
+      if (String(p.source || '').toLowerCase() === 'admin') return 'Admin'
+      return 'Unknown'
+    }
+    // Only show products added by Admin in the quotation dropdown.
+    const adminOnly = (list) => (list || []).filter(p => creatorTypeOf(p) === 'Admin')
+
     const tryFetch = async () => {
-      // 1) for-select — works for all roles, Super Admin gets all company products
+      // 1) for-select — works for all roles, Super Admin gets all company products.
+      //    admin_only tells the API to return admin-added products only.
       try {
-        const res  = await api.get('/products/for-select', { params: { limit: 1000 } })
-        const list = parse(res)
+        const res  = await api.get('/products/for-select', { params: { limit: 1000, admin_only: true } })
+        const list = adminOnly(parse(res))
         if (!cancelled && list.length > 0) { await applyProducts(list); return }
       } catch { /* fall through */ }
       // 2) For Super Admin: try /products/admin/all
       if (isSuperAdmin) {
         try {
           const res  = await api.get('/products/admin/all', { params: { limit: 1000 } })
-          const list = parse(res)
+          const list = adminOnly(parse(res))
           if (!cancelled && list.length > 0) { await applyProducts(list); return }
         } catch { /* fall through */ }
       }
@@ -663,10 +683,10 @@ function QuotationModal({ editData, products: propProducts, enquiries, onSave, o
       try {
         const params = isSuperAdmin ? { limit: 1000, all_companies: true } : { limit: 500 }
         const res  = await api.get('/products', { params })
-        const list = parse(res)
+        const list = adminOnly(parse(res))
         if (!cancelled && list.length > 0) { await applyProducts(list); return }
       } catch { /* ignore */ }
-      if (!cancelled && propProducts?.length > 0) { await applyProducts(propProducts); return }
+      if (!cancelled && propProducts?.length > 0) { await applyProducts(adminOnly(propProducts)); return }
       if (!cancelled) setLoadingProds(false)
     }
     tryFetch()

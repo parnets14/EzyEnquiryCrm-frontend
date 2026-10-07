@@ -1,11 +1,156 @@
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import {
   Search, Eye, Truck, Package, CheckCircle, ClipboardList,
   Layers, Send, ShieldCheck, XCircle, FileText, Box, AlertCircle,
   History, ArrowRight, ChevronLeft, ChevronRight, Plus, Trash2, Edit2, X,
 } from 'lucide-react'
+import api from '../api/index'
 
 const PAGE_SIZE = 10
+
+// Roles that must NOT appear in the staff-assignment dropdown. Everything else
+// (any custom/company staff role) is assignable, so the list is never empty
+// just because a role name doesn't match a hard-coded list.
+const NON_STAFF_ROLES = ['Super Admin', 'Retailer', 'Wholesaler', 'Customer']
+
+// ── Image URL helper ──────────────────────────────────────────
+const IMG_BASE = import.meta.env.VITE_API_URL
+  ? import.meta.env.VITE_API_URL.replace('/api', '')
+  : 'https://ezyenquiry-backend.onrender.com'
+function imgUrl(p) {
+  if (!p) return null
+  if (p.startsWith('http')) return p
+  return `${IMG_BASE}${p}`
+}
+
+// ── Resolve a product's creator type — mirrors Product Management's
+// "ADDED BY" badge (creatorTypeOf) so order dropdown shows the same
+// admin-added products as the Products page. ─────────────────────
+function creatorTypeOf(p = {}) {
+  if (p.created_by_type) return p.created_by_type
+  const role = String(p.created_by?.role || '').toLowerCase()
+  if (role.includes('retail')) return 'Retailer'
+  if (role.includes('whole'))  return 'Wholesaler'
+  if (role.includes('admin'))  return 'Admin'
+  const biz = String(p.company_id?.biz_type || '').toLowerCase()
+  if (biz.includes('retail')) return 'Retailer'
+  if (biz.includes('whole'))  return 'Wholesaler'
+  if (String(p.code || '').toUpperCase().startsWith('RPD-')) return 'Retailer'
+  if (String(p.source || '').toLowerCase() === 'admin') return 'Admin'
+  return 'Unknown'
+}
+const isAdminProduct = (p) => creatorTypeOf(p) === 'Admin'
+
+// ── Searchable product dropdown (same UX as Quotation Manager) ─
+function ProductSearch({ value, onChange, products, error }) {
+  const [open, setOpen] = useState(false)
+  const [q,    setQ]    = useState('')
+  const ref             = useRef()
+
+  const filtered = (products || []).filter(p =>
+    (p.name || '').toLowerCase().includes(q.toLowerCase()) ||
+    (p.code || '').toLowerCase().includes(q.toLowerCase()) ||
+    (p.category_name || '').toLowerCase().includes(q.toLowerCase()) ||
+    (p.brand_name || '').toLowerCase().includes(q.toLowerCase())
+  ).slice(0, 50)
+
+  useEffect(() => {
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [])
+
+  const pick = (p) => { onChange(p); setOpen(false); setQ('') }
+
+  const thumb = (p) => {
+    const raw = Array.isArray(p.image_urls) ? p.image_urls.filter(Boolean)[0] : (p.product_image || '')
+    return imgUrl(raw)
+  }
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <input
+        className={`form-control${error ? ' error' : ''}`}
+        placeholder="Search product by name, code, brand…"
+        value={open ? q : (value || '')}
+        onFocus={() => { setOpen(true); setQ('') }}
+        onChange={e => setQ(e.target.value)}
+      />
+      {open && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 1001, marginTop: 2,
+          background: 'var(--surface)', border: '1px solid var(--border)',
+          borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,.14)',
+          maxHeight: 320, overflowY: 'auto',
+        }}>
+          {filtered.length === 0
+            ? <div style={{ padding: '10px 14px', fontSize: 12, color: 'var(--text-muted)' }}>
+                No products found
+              </div>
+            : filtered.map(p => {
+                const imgSrc = thumb(p)
+                return (
+                  <div key={p._id || p.id}
+                    onMouseDown={() => pick(p)}
+                    style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid var(--border)',
+                      display: 'flex', alignItems: 'center', gap: 10 }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  >
+                    {imgSrc
+                      ? <img src={imgSrc} alt={p.name}
+                          style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 6,
+                            border: '1px solid var(--border)', flexShrink: 0, background: '#f8fafc' }}
+                          onError={e => { e.currentTarget.style.display = 'none' }} />
+                      : <div style={{ width: 44, height: 44, borderRadius: 6, flexShrink: 0,
+                          border: '1px solid var(--border)', background: 'var(--bg)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: 18, color: 'var(--text-muted)' }}>📦</div>
+                    }
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 6 }}>
+                        <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--text)',
+                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {p.name}
+                        </span>
+                        <span style={{ fontSize: 10, fontFamily: 'monospace', background: '#FFF3EC',
+                          color: '#FD5C02', padding: '1px 6px', borderRadius: 4, fontWeight: 700,
+                          flexShrink: 0 }}>
+                          {p.code}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2,
+                        display: 'flex', flexWrap: 'wrap', gap: '0 8px' }}>
+                        {p.category_name && <span>📁 {p.category_name}</span>}
+                        {p.brand_name    && <span>🏷 {p.brand_name}</span>}
+                        {p.size          && <span>📐 {p.size}</span>}
+                        {p.finish        && <span>✨ {p.finish}</span>}
+                      </div>
+                      {(p.mrp || p.dealer_price || p.retail_price || p.selling_price) && (
+                        <div style={{ fontSize: 11, color: '#059669', fontWeight: 700, marginTop: 2 }}>
+                          MRP ₹{parseFloat(p.mrp || p.dealer_price || p.retail_price || p.selling_price).toLocaleString('en-IN')}
+                          {p.unit && <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> / {p.unit}</span>}
+                          {p.gst_percent ? <span style={{ color: '#7C3AED', marginLeft: 6 }}>GST {p.gst_percent}%</span> : null}
+                        </div>
+                      )}
+                      {p.available_stock != null && (
+                        <div style={{ fontSize: 10.5, fontWeight: 700, marginTop: 2,
+                          color: Number(p.available_stock) <= 0 ? '#DC2626' : '#0369A1' }}>
+                          {Number(p.available_stock) <= 0
+                            ? 'Out of stock'
+                            : `${Number(p.available_stock).toLocaleString('en-IN')} ${p.unit || ''} in stock`}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })
+          }
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ── Unified 6-stage order lifecycle ─────────────────────────────────────────
 // New → Accepted → Packing → Dispatched → Out for Delivery → Delivered
@@ -92,11 +237,24 @@ const ordQtyNum      = o => Number(o.qty)||0
 const ordDispatched  = o => Number(o.dispatched_qty)||0
 const ordRemaining   = o => Math.max(0, Math.round((ordQtyNum(o)-ordDispatched(o))*100)/100)
 
+// An order counts as assigned once it has a staff user (id or name) attached.
+const isAssigned = o => {
+  const id = typeof o?.assigned_to === 'object' && o?.assigned_to
+    ? (o.assigned_to._id || o.assigned_to)
+    : o?.assigned_to
+  return !!(id || (o?.assigned_to_name || '').trim())
+}
+
 const EMPTY_FORM = {
-  customer_name:'', customer_mobile:'', delivery_address:'',
+  customer_name:'', customer_mobile:'', customer_email:'', delivery_address:'',
   product_id:'', product_name:'', product_code:'', product_size:'',
   product_finish:'', product_color:'', product_category:'', product_brand:'',
-  qty:'', rate:'', gst_percent:'18', branch_id:'', notes:'',
+  // Extra product spec fields shown in the quotation-style card
+  product_sub_category:'', product_tile_type:'', product_grade:'',
+  product_unit:'Pcs', product_mrp:'', product_purchase_rate:'',
+  product_pcs_per_box:'', product_sqft_per_box:'', product_image:'',
+  qty:'1', rate:'', disc:'0', gst_percent:'18', branch_id:'',
+  notes:'', terms:'Prices are subject to change. GST extra as applicable.',
 }
 
 export default function OrderManagement({
@@ -112,30 +270,33 @@ export default function OrderManagement({
   //   2. Users with a staff role (created via Staff Management page)
   // Each entry is normalised to { _id, name, designation, user_id } where
   // user_id is the User._id used as the assignment target.
-  const STAFF_ROLES = ['Manager', 'Accountant', 'Sales Executive', 'Warehouse Staff']
   const assignableStaff = useMemo(() => {
     const out = []
     const seen = new Set()
 
-    // 1. HR employees with a linked user account
-    ;(employees || []).forEach(emp => {
-      if (!emp.user_id || emp.is_active === false) return
-      const uid = typeof emp.user_id === 'object' && emp.user_id
-        ? String(emp.user_id._id || emp.user_id)
-        : String(emp.user_id || '')
-      if (!uid || seen.has(uid)) return
-      seen.add(uid)
-      out.push({ _id: emp._id || uid, name: emp.name, designation: emp.designation || '', user_id: uid })
-    })
-
-    // 2. Users added via Staff Management (staff roles, active)
+    // 1. Users with a login account (any staff role, active, not a buyer/owner)
     ;(users || []).forEach(u => {
       if (u.is_active === false) return
-      if (!STAFF_ROLES.includes(u.role)) return
+      if (NON_STAFF_ROLES.includes(u.role)) return
       const uid = String(u._id || '')
       if (!uid || seen.has(uid)) return
       seen.add(uid)
       out.push({ _id: uid, name: u.name, designation: u.role || '', user_id: uid })
+    })
+
+    // 2. HR employees (staff). Prefer the linked user account as the assignment
+    //    target; if the employee has no login, send the employee id instead —
+    //    the backend resolves either an Employee id or a User id.
+    ;(employees || []).forEach(emp => {
+      if (emp.is_active === false) return
+      const linkedUser = emp.user_id
+        ? (typeof emp.user_id === 'object' ? String(emp.user_id._id || emp.user_id) : String(emp.user_id))
+        : ''
+      // The value sent to the assign API: linked User id if present, else Employee id.
+      const target = linkedUser || String(emp._id || '')
+      if (!target || seen.has(target)) return
+      seen.add(target)
+      out.push({ _id: emp._id || target, name: emp.name, designation: emp.designation || '', user_id: target })
     })
 
     return out.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
@@ -159,6 +320,76 @@ export default function OrderManagement({
   const [formErrors, setFormErrors]= useState({})
   const [saving,     setSaving]    = useState(false)
 
+  // ── Admin-added products for the Create Order dropdown ───────
+  // Fetched fresh (with live stock) the same way the Quotation modal does,
+  // and filtered to admin-added products only. Falls back to the products
+  // prop (also admin-filtered) if the fetch returns nothing.
+  const [modalProducts, setModalProducts] = useState([])
+  useEffect(() => {
+    if (!showCreate) return
+    let cancelled = false
+
+    const parse = (res) => {
+      const p = res?.data ?? res
+      const i = p?.data ?? p
+      return Array.isArray(i) ? i : (Array.isArray(i?.products) ? i.products : [])
+    }
+    const enrichWithStock = async (list) => {
+      try {
+        const res = await api.get('/inventory', { params: { limit: 1000, _t: Date.now() } })
+        const p = res?.data ?? res
+        const invs = Array.isArray(p?.data?.inventory) ? p.data.inventory
+          : Array.isArray(p?.inventory) ? p.inventory
+          : Array.isArray(p?.data) ? p.data : []
+        const stockMap = new Map()
+        for (const inv of invs) {
+          const pid = String(inv.product_id?._id || inv.product_id || '')
+          if (!pid) continue
+          const avail = (Number(inv.available_stock) || 0) > 0 ? Number(inv.available_stock) : (Number(inv.current_stock) || 0)
+          stockMap.set(pid, (stockMap.get(pid) || 0) + avail)
+        }
+        return list.map(pr => {
+          const pid = String(pr._id || pr.id || '')
+          return stockMap.has(pid) ? { ...pr, available_stock: stockMap.get(pid) } : { ...pr, available_stock: pr.available_stock ?? null }
+        })
+      } catch {
+        return list
+      }
+    }
+    const apply = async (list) => {
+      const enriched = await enrichWithStock(list)
+      if (!cancelled) setModalProducts(enriched)
+    }
+
+    // Prefer admin-added products, but never leave the dropdown empty: if the
+    // admin-only filter removes everything (e.g. backend not yet restarted, or
+    // this company has no admin-added products), fall back to the full list.
+    const preferAdmin = (list) => {
+      const all = list || []
+      const admins = all.filter(isAdminProduct)
+      return admins.length > 0 ? admins : all
+    }
+
+    const run = async () => {
+      // 1) for-select with admin_only — server-side admin filter + light payload
+      try {
+        const res  = await api.get('/products/for-select', { params: { limit: 1000, admin_only: true } })
+        const list = preferAdmin(parse(res))
+        if (!cancelled && list.length > 0) { await apply(list); return }
+      } catch { /* fall through */ }
+      // 2) Regular /products fallback
+      try {
+        const res  = await api.get('/products', { params: { limit: 1000 } })
+        const list = preferAdmin(parse(res))
+        if (!cancelled && list.length > 0) { await apply(list); return }
+      } catch { /* ignore */ }
+      // 3) Fall back to the products prop
+      if (!cancelled) await apply(preferAdmin(products))
+    }
+    run()
+    return () => { cancelled = true }
+  }, [showCreate, products])
+
   const [dForm, setDForm] = useState({
     packQty:'',vehicle:'',driver:'',driverMobile:'',transport:'',
     lr:'',dispatchDate:'',expectedDelivery:'',expectedDays:'',branch:'',
@@ -169,31 +400,49 @@ export default function OrderManagement({
     else{setSuccessMsg(msg);setTimeout(()=>setSuccessMsg(''),4000)}
   }
 
-  // Computed totals for form
-  const coAmount = (Number(form.qty)*Number(form.rate))||0
-  const coGst    = Math.round(coAmount*(Number(form.gst_percent)||0)/100)
-  const coTotal  = coAmount+coGst
+  // Computed totals for form (qty × rate, less discount %, plus GST)
+  const coAmount  = (Number(form.qty)*Number(form.rate))||0
+  const coDiscAmt = coAmount*(Number(form.disc)||0)/100
+  const coTaxable = coAmount-coDiscAmt
+  const coGst     = Math.round(coTaxable*(Number(form.gst_percent)||0)/100)
+  const coTotal   = coTaxable+coGst
+  // Effective per-unit rate after discount — sent to the single-product order
+  // API so its qty×rate matches the taxable amount shown here.
+  const coEffRate = Number(form.qty)>0 ? coTaxable/Number(form.qty) : (Number(form.rate)||0)
 
-  // Product select handler — auto-fills all product details
-  const handleProductSelect = (prodId) => {
-    const prod = products.find(p=>(p._id||p.id)===prodId)
+  // Product select handler — auto-fills all product details.
+  // Accepts the full product object chosen from the searchable dropdown.
+  const handleProductSelect = (prod) => {
     if(prod){
+      const rate = prod.mrp || prod.dealer_price || prod.retail_price
+        || prod.selling_price || prod.sellingPrice || prod.selling_rate || ''
       setForm(f=>({
         ...f,
-        product_id:       prodId,
-        product_name:     prod.name||'',
-        product_code:     prod.code||'',
-        product_size:     prod.size||'',
-        product_finish:   prod.finish||'',
-        product_color:    prod.color||'',
-        product_category: prod.category_name||prod.category||'',
-        product_brand:    prod.brand_name||prod.brand||'',
-        rate:             String(prod.selling_price||prod.sellingPrice||prod.selling_rate||''),
-        gst_percent:      String(prod.gst_percent||'18'),
+        product_id:           prod._id || prod.id || '',
+        product_name:         prod.name||'',
+        product_code:         prod.code||'',
+        product_size:         prod.size||'',
+        product_finish:       prod.finish||'',
+        product_color:        prod.color||'',
+        product_category:     prod.category_name||prod.category||'',
+        product_brand:        prod.brand_name||prod.brand||'',
+        product_sub_category: prod.sub_category_name||'',
+        product_tile_type:    prod.tile_type||'',
+        product_grade:        prod.grade||'',
+        product_unit:         'Pcs',
+        product_mrp:          prod.mrp||'',
+        product_purchase_rate:prod.purchase_price||prod.purchase_rate||'',
+        product_pcs_per_box:  prod.pcs_per_box||'',
+        product_sqft_per_box: prod.sqft_per_box||'',
+        product_image:        (Array.isArray(prod.image_urls)?prod.image_urls.filter(Boolean)[0]:'')||prod.product_image||'',
+        rate:                 String(rate||''),
+        gst_percent:          String(prod.gst_percent||'18'),
       }))
     } else {
       setForm(f=>({...f,product_id:'',product_name:'',product_code:'',
-        product_size:'',product_finish:'',product_color:'',product_category:'',product_brand:''}))
+        product_size:'',product_finish:'',product_color:'',product_category:'',product_brand:'',
+        product_sub_category:'',product_tile_type:'',product_grade:'',
+        product_mrp:'',product_purchase_rate:'',product_pcs_per_box:'',product_sqft_per_box:''}))
     }
   }
 
@@ -204,6 +453,7 @@ export default function OrderManagement({
       ...f,
       customer_name:    name,
       customer_mobile:  cust?.mobile||f.customer_mobile,
+      customer_email:   cust?.email||f.customer_email,
       delivery_address: cust?.address||f.delivery_address,
     }))
   }
@@ -225,16 +475,20 @@ export default function OrderManagement({
     const payload = {
       customer_name:    form.customer_name.trim(),
       customer_mobile:  form.customer_mobile.trim(),
+      customer_email:   form.customer_email.trim(),
       delivery_address: form.delivery_address.trim(),
       product_id:       form.product_id||undefined,
       product_name:     form.product_name.trim(),
       product_code:     form.product_code,
+      unit:             form.product_unit||'Pcs',
       qty:              Number(form.qty),
-      rate:             Number(form.rate),
+      // Rate after discount so the order's qty×rate equals the taxable amount.
+      rate:             Number(coEffRate.toFixed(2)),
       gst_percent:      Number(form.gst_percent)||18,
       branch_id:        form.branch_id||undefined,
       branch_name:      branches.find(b=>(b._id||b.id)===form.branch_id)?.name||'',
       notes:            form.notes,
+      terms:            form.terms,
     }
     const res = await addOrder?.(payload)
     setSaving(false)
@@ -372,13 +626,16 @@ export default function OrderManagement({
             onClick={()=>{
               setEditOrder(o)
               setForm({
+                ...EMPTY_FORM,
                 customer_name:o.customer_name||'',customer_mobile:o.customer_mobile||'',
-                delivery_address:o.delivery_address||'',
+                customer_email:o.customer_email||'',delivery_address:o.delivery_address||'',
                 product_id:o.product_id||'',product_name:o.product_name||'',product_code:o.product_code||'',
                 product_size:o.size||'',product_finish:o.finish||'',product_color:o.color||'',
                 product_category:o.category_name||'',product_brand:o.brand_name||'',
-                qty:String(o.qty||''),rate:String(o.rate||''),gst_percent:String(o.gst_percent||'18'),
-                branch_id:o.branch_id||'',notes:o.notes||'',
+                product_sub_category:o.sub_category_name||'',product_tile_type:o.tile_type||'',
+                product_grade:o.grade||'',product_unit:o.unit||'Pcs',
+                qty:String(o.qty||'1'),rate:String(o.rate||''),disc:'0',gst_percent:String(o.gst_percent||'18'),
+                branch_id:o.branch_id||'',notes:o.notes||'',terms:o.terms||EMPTY_FORM.terms,
               })
               setFormErrors({})
               setShowCreate(true)
@@ -405,9 +662,15 @@ export default function OrderManagement({
           </>
         )}
 
-        {/* Pack (remaining) — show whenever quantity still left to dispatch, even if status is Delivered (partial delivery) */}
+        {/* Pack (remaining) — show whenever quantity still left to dispatch, even if status is Delivered (partial delivery).
+            Staff must be assigned before packing can start. */}
         {o.status!=='New'&&o.status!=='Cancelled'&&ordRemaining(o)>0&&(
-          <button className="btn btn-primary btn-xs" disabled={busy} onClick={()=>openPacking(o)}>
+          <button className="btn btn-primary btn-xs" disabled={busy}
+            title={isAssigned(o)?'':'Assign a staff member before packing'}
+            onClick={()=>{
+              if(!isAssigned(o)){ toast('Please assign a staff member before packing this order.',true); return }
+              openPacking(o)
+            }}>
             <Package style={{width:12}}/>{ordDispatched(o)>0?`Pack (${ordRemaining(o)} left)`:'Packing'}
           </button>
         )}
@@ -638,7 +901,7 @@ export default function OrderManagement({
       {/* ══ CREATE / EDIT ORDER MODAL ══ */}
       {showCreate&&(
         <div className="modal-overlay" onClick={()=>setShowCreate(false)}>
-          <div className="modal" style={{maxWidth:620}} onClick={e=>e.stopPropagation()}>
+          <div className="modal" style={{maxWidth:860}} onClick={e=>e.stopPropagation()}>
             <div className="modal-header">
               <span className="modal-title">{editOrder?`Edit Order — ${ordCode(editOrder)}`:'Create New Order'}</span>
               <button className="btn-ghost" onClick={()=>setShowCreate(false)}><X style={{width:16}}/></button>
@@ -665,71 +928,160 @@ export default function OrderManagement({
                   {formErrors.customer_mobile&&<div className="form-error">{formErrors.customer_mobile}</div>}
                 </div>
               </div>
-              <div className="form-group">
-                <label className="form-label">Delivery Address</label>
-                <input className="form-control" placeholder="City, State" value={form.delivery_address} onChange={e=>setForm(f=>({...f,delivery_address:e.target.value}))}/>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Email</label>
+                  <input className={`form-control${formErrors.customer_email?' error':''}`} type="email" placeholder="customer@email.com" value={form.customer_email} onChange={e=>setForm(f=>({...f,customer_email:e.target.value}))}/>
+                  {formErrors.customer_email&&<div className="form-error">{formErrors.customer_email}</div>}
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Delivery Address</label>
+                  <input className="form-control" placeholder="City, State" value={form.delivery_address} onChange={e=>setForm(f=>({...f,delivery_address:e.target.value}))}/>
+                </div>
               </div>
 
               <div className="divider"/>
-              <div style={{fontSize:11,fontWeight:700,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:10}}>Product Details</div>
+              <div style={{fontSize:11,fontWeight:700,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:10}}>Product / Item <span style={{color:'var(--danger)'}}>*</span></div>
 
-              <div className="form-group">
-                <label className="form-label">Product *</label>
-                {products.length>0?(
-                  <select className={`form-control${formErrors.product_name?' error':''}`} value={form.product_id} onChange={e=>handleProductSelect(e.target.value)}>
-                    <option value="">— Select Product —</option>
-                    {products.map(p=><option key={p._id||p.id} value={p._id||p.id}>{p.code?`[${p.code}] `:''}{p.name}</option>)}
-                  </select>
-                ):(
-                  <input className={`form-control${formErrors.product_name?' error':''}`} placeholder="Product name" value={form.product_name} onChange={e=>setForm(f=>({...f,product_name:e.target.value}))}/>
-                )}
-                {formErrors.product_name&&<div className="form-error">{formErrors.product_name}</div>}
-              </div>
+              {/* ── Quotation-style product card ── */}
+              {(() => {
+                const picked = !!form.product_id
+                const lbl  = { fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:'.05em', color:'var(--text-muted)', marginBottom:3, display:'block' }
+                const chip = (val) => ({
+                  fontSize:12, padding:'5px 8px', border:'1px solid var(--border)', borderRadius:6,
+                  minHeight:30, display:'flex', alignItems:'center',
+                  background: val ? '#F8FAFC' : 'var(--bg)',
+                  color: val ? 'var(--text)' : 'var(--text-muted)',
+                  fontWeight: val ? 600 : 400, fontStyle: val ? 'normal' : 'italic',
+                })
+                const priceChip = (val) => ({ ...chip(val), color: val && parseFloat(val) > 0 ? '#059669' : 'var(--text-muted)', fontWeight:700, fontSize:11 })
+                const inp = { fontSize:12, padding:'5px 8px', border:'1px solid var(--border)', borderRadius:6, background:'var(--surface)', color:'var(--text)', outline:'none', width:'100%' }
 
-              {/* Auto-filled product specs */}
-              {(form.product_size||form.product_finish||form.product_color||form.product_category||form.product_brand)&&(
-                <div style={{display:'flex',flexWrap:'wrap',gap:6,marginBottom:12,padding:'10px 12px',background:'var(--bg)',borderRadius:8,border:'1px solid var(--border)'}}>
-                  {[
-                    form.product_code     &&{label:'Code',val:form.product_code},
-                    form.product_category &&{label:'Category',val:form.product_category},
-                    form.product_brand    &&{label:'Brand',val:form.product_brand},
-                    form.product_size     &&{label:'Size',val:form.product_size},
-                    form.product_finish   &&{label:'Finish',val:form.product_finish},
-                    form.product_color    &&{label:'Color',val:form.product_color},
-                  ].filter(Boolean).map(({label,val})=>(
-                    <div key={label} style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:6,padding:'2px 8px',fontSize:11,display:'flex',gap:4}}>
-                      <span style={{color:'var(--text-muted)'}}>{label}:</span>
-                      <span style={{fontWeight:600}}>{val}</span>
+                return (
+                  <div style={{
+                    border:`2px solid ${picked ? '#FD5C02' : 'var(--border)'}`,
+                    borderRadius:12, background:'var(--surface)',
+                    boxShadow: picked ? '0 2px 10px rgba(253,92,2,.09)' : 'var(--shadow)',
+                    overflow:'hidden', marginBottom:12,
+                  }}>
+                    {/* Card top bar: # + Product search + Row total */}
+                    <div style={{ display:'flex', alignItems:'center', gap:10, padding:'12px 16px',
+                      borderBottom:'1px solid var(--border)', background: picked ? '#FFF9F5' : 'var(--bg)' }}>
+                      <span style={{ width:26, height:26, borderRadius:'50%', flexShrink:0,
+                        background: picked ? '#FD5C02' : 'var(--border)', color: picked ? '#fff' : 'var(--text-muted)',
+                        display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:800 }}>1</span>
+
+                      {picked && (
+                        imgUrl(form.product_image) ? (
+                          <img src={imgUrl(form.product_image)} alt={form.product_name}
+                            style={{ width:44, height:44, borderRadius:8, objectFit:'cover', border:'1px solid var(--border)', flexShrink:0, background:'#fff' }}
+                            onError={(e)=>{e.currentTarget.style.display='none'}} />
+                        ) : (
+                          <span style={{ width:44, height:44, borderRadius:8, flexShrink:0, border:'1px solid var(--border)',
+                            background:'var(--bg)', display:'flex', alignItems:'center', justifyContent:'center', color:'var(--text-muted)' }}>
+                            <Package size={18} />
+                          </span>
+                        )
+                      )}
+
+                      <div style={{ flex:1, minWidth:0 }}>
+                        {modalProducts.length>0 ? (
+                          <ProductSearch value={form.product_name} products={modalProducts}
+                            error={!!formErrors.product_name} onChange={handleProductSelect} />
+                        ) : (
+                          <input className={`form-control${formErrors.product_name?' error':''}`} style={{fontSize:12,padding:'5px 8px'}}
+                            placeholder="Product name" value={form.product_name}
+                            onChange={e=>setForm(f=>({...f,product_name:e.target.value}))}/>
+                        )}
+                        {form.product_code && (
+                          <span style={{ fontSize:10, fontFamily:'monospace', fontWeight:800, color:'#FD5C02', marginTop:2, display:'inline-block' }}>
+                            {form.product_code}
+                          </span>
+                        )}
+                      </div>
+
+                      <div style={{ textAlign:'right', flexShrink:0 }}>
+                        <div style={{ fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:'.05em', color:'var(--text-muted)' }}>Row Total</div>
+                        <div style={{ fontSize:18, fontWeight:900, color: coTotal>0 ? '#FD5C02' : 'var(--text-muted)' }}>
+                          ₹{coTotal.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}
+                        </div>
+                      </div>
                     </div>
-                  ))}
-                </div>
-              )}
 
-              <div className="form-row">
-                <div className="form-group">
-                  <label className="form-label">Quantity *</label>
-                  <input className={`form-control${formErrors.qty?' error':''}`} type="number" placeholder="0" value={form.qty} onChange={e=>setForm(f=>({...f,qty:e.target.value}))}/>
-                  {formErrors.qty&&<div className="form-error">{formErrors.qty}</div>}
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Rate (₹) *</label>
-                  <input className={`form-control${formErrors.rate?' error':''}`} type="number" placeholder="0.00" value={form.rate} onChange={e=>setForm(f=>({...f,rate:e.target.value}))}/>
-                  {formErrors.rate&&<div className="form-error">{formErrors.rate}</div>}
-                </div>
-                <div className="form-group">
-                  <label className="form-label">GST %</label>
-                  <select className="form-control" value={form.gst_percent} onChange={e=>setForm(f=>({...f,gst_percent:e.target.value}))}>
-                    {['0','5','12','18','28'].map(g=><option key={g}>{g}</option>)}
-                  </select>
-                </div>
-              </div>
+                    <div style={{ padding:'14px 16px' }}>
+                      {formErrors.product_name && <div className="form-error" style={{marginBottom:8}}>{formErrors.product_name}</div>}
 
-              {/* Live totals */}
-              <div style={{background:'var(--bg)',borderRadius:8,padding:'12px 16px',marginBottom:12,display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12}}>
-                {[{l:'Amount',v:`₹${coAmount.toLocaleString()}`},{l:`GST (${form.gst_percent}%)`,v:`₹${coGst.toLocaleString()}`},{l:'Grand Total',v:`₹${coTotal.toLocaleString()}`,bold:true,color:'var(--success)'}].map(({l,v,bold,color})=>(
-                  <div key={l}><div style={{fontSize:10,color:'var(--text-muted)',fontWeight:700,textTransform:'uppercase',marginBottom:3}}>{l}</div><div style={{fontWeight:bold?800:600,fontSize:bold?16:13,color:color||'var(--text)'}}>{v}</div></div>
-                ))}
-              </div>
+                      {/* ROW 1: spec chips */}
+                      <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:8, marginBottom:10 }}>
+                        {[
+                          ['Code',         form.product_code],
+                          ['Brand',        form.product_brand],
+                          ['Category',     form.product_category],
+                          ['Sub-Category', form.product_sub_category],
+                          ['Size',         form.product_size],
+                          ['Finish',       form.product_finish],
+                          ['Tile Type',    form.product_tile_type],
+                        ].map(([label,val]) => (
+                          <div key={label}><span style={lbl}>{label}</span><div style={chip(val)}>{val || '—'}</div></div>
+                        ))}
+                      </div>
+
+                      {/* ROW 2: more spec chips */}
+                      <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:8, marginBottom:12 }}>
+                        {[
+                          ['Grade',         form.product_grade],
+                          ['Unit / GST',    form.product_unit ? `${form.product_unit} / ${form.gst_percent}%` : ''],
+                          ['MRP',           form.product_mrp ? `₹${parseFloat(form.product_mrp).toFixed(2)}` : ''],
+                          ['Purchase Rate', form.product_purchase_rate ? `₹${parseFloat(form.product_purchase_rate).toFixed(2)}` : ''],
+                          ['Pcs/Box · Sqft/Box', [form.product_pcs_per_box, form.product_sqft_per_box].filter(Boolean).join(' · ') || ''],
+                        ].map(([label,val]) => (
+                          <div key={label}><span style={lbl}>{label}</span><div style={priceChip(val)}>{val || '—'}</div></div>
+                        ))}
+                      </div>
+
+                      {/* ROW 3: editable Qty / Unit / Rate / Disc% */}
+                      <div style={{ display:'grid', gridTemplateColumns:'90px 70px 110px 80px', gap:8, marginBottom:10 }}>
+                        <div>
+                          <span style={lbl}>Qty</span>
+                          <input style={{ ...inp, textAlign:'center', ...(formErrors.qty?{borderColor:'var(--danger)'}:{}) }} type="number" min="1"
+                            value={form.qty} onChange={e=>setForm(f=>({...f,qty:e.target.value}))} />
+                        </div>
+                        <div>
+                          <span style={lbl}>Unit</span>
+                          <div style={{ ...chip('Pcs'), justifyContent:'center', fontWeight:700 }}>{form.product_unit||'Pcs'}</div>
+                        </div>
+                        <div>
+                          <span style={lbl}>Rate (₹)</span>
+                          <input style={{ ...inp, textAlign:'center', ...(formErrors.rate?{borderColor:'var(--danger)'}:{}) }} type="number" min="0" step="0.01"
+                            value={form.rate} onChange={e=>setForm(f=>({...f,rate:e.target.value}))} />
+                        </div>
+                        <div>
+                          <span style={lbl}>Disc%</span>
+                          <input style={{ ...inp, textAlign:'center' }} type="number" min="0" max="100" step="0.01"
+                            value={form.disc} onChange={e=>setForm(f=>({...f,disc:e.target.value}))} />
+                        </div>
+                      </div>
+
+                      {/* ROW 4: computed summary strip */}
+                      <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:8,
+                        background:'var(--bg)', borderRadius:8, padding:'10px 12px', border:'1px solid var(--border)' }}>
+                        {[
+                          ['Qty',      `${form.qty || 0} ${form.product_unit||'Pcs'}`, '#2563EB'],
+                          ['Amount',   `₹${coAmount.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}`, 'var(--text)'],
+                          ['Discount', `₹${coDiscAmt.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}`, '#D97706'],
+                          ['GST Amt',  `₹${coGst.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}`, '#7C3AED'],
+                          ['Total',    `₹${coTotal.toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}`, '#FD5C02'],
+                        ].map(([label,val,color]) => (
+                          <div key={label} style={{ textAlign:'center' }}>
+                            <div style={{ fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:'.05em', color:'var(--text-muted)', marginBottom:3 }}>{label}</div>
+                            <div style={{ fontSize:14, fontWeight:800, color }}>{val}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
 
               {branches.length>0&&(
                 <div className="form-group">
@@ -740,9 +1092,24 @@ export default function OrderManagement({
                   </select>
                 </div>
               )}
-              <div className="form-group">
-                <label className="form-label">Notes</label>
-                <textarea className="form-control" rows={2} placeholder="Optional notes" value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))}/>
+              {/* Remarks + Terms */}
+              <div style={{ background:'#FAFAFA', border:'1.5px solid #E2E8F0', borderRadius:12, padding:'16px 18px', marginTop:4 }}>
+                <div style={{ fontSize:11, fontWeight:800, textTransform:'uppercase', letterSpacing:'.07em',
+                  color:'#64748B', marginBottom:14, paddingBottom:6, borderBottom:'2px solid #F1F5F9' }}>
+                  Remarks &amp; Terms
+                </div>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
+                  <div>
+                    <label className="form-label">Remarks</label>
+                    <textarea className="form-control" rows={3} placeholder="Internal remarks…"
+                      value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))}/>
+                  </div>
+                  <div>
+                    <label className="form-label">Terms &amp; Conditions</label>
+                    <textarea className="form-control" rows={3}
+                      value={form.terms} onChange={e=>setForm(f=>({...f,terms:e.target.value}))}/>
+                  </div>
+                </div>
               </div>
             </div>
             <div className="modal-footer">
@@ -776,6 +1143,12 @@ export default function OrderManagement({
                     onChange={async(e)=>{
                       const newSt=e.target.value
                       if(newSt===selected.status)return
+                      // Require a staff member before moving an order into Packing.
+                      if(newSt==='Packing' && !isAssigned(selected)){
+                        toast('Please assign a staff member before packing this order.',true)
+                        e.target.value=selected.status
+                        return
+                      }
                       await doStatusUpdate(ordId(selected),newSt,'')
                     }}
                   >
