@@ -26,6 +26,21 @@ const statusMeta = {
   Suspended: { color: 'badge-red',    icon: <Ban         style={{ width: 13 }} /> },
 }
 
+// Indian States & Union Territories (for the State dropdown)
+const INDIAN_STATES = [
+  'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh',
+  'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka',
+  'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur', 'Meghalaya', 'Mizoram',
+  'Nagaland', 'Odisha', 'Punjab', 'Rajasthan', 'Sikkim', 'Tamil Nadu',
+  'Telangana', 'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal',
+  'Andaman and Nicobar Islands', 'Chandigarh',
+  'Dadra and Nagar Haveli and Daman and Diu', 'Delhi', 'Jammu and Kashmir',
+  'Ladakh', 'Lakshadweep', 'Puducherry',
+]
+
+// Keep only letters, spaces and common name punctuation ( . & - ' ). Strips digits.
+const lettersOnly = (v) => v.replace(/[^A-Za-z\s.&'-]/g, '')
+
 // Blank company template — no static/mock data. Real records come from the API.
 const BLANK_COMPANY = {
   id: '', name: '', owner: '', bizType: '',
@@ -904,7 +919,7 @@ export default function CompanyRegistration() {
                   <div className="form-row">
                     <div className="form-group">
                       <label className="form-label">Company Name *</label>
-                      <input className="form-control" value={profileForm.name} onChange={e => setProfileForm(p => ({ ...p, name: e.target.value }))} />
+                      <input className="form-control" value={profileForm.name} onChange={e => setProfileForm(p => ({ ...p, name: lettersOnly(e.target.value) }))} />
                     </div>
                     <div className="form-group">
                       <label className="form-label">Owner Name *</label>
@@ -914,7 +929,7 @@ export default function CompanyRegistration() {
                   <div className="form-row">
                     <div className="form-group">
                       <label className="form-label">Mobile</label>
-                      <input className="form-control" value={profileForm.mobile} onChange={e => setProfileForm(p => ({ ...p, mobile: e.target.value }))} />
+                      <input className="form-control" inputMode="numeric" maxLength={10} value={profileForm.mobile} onChange={e => setProfileForm(p => ({ ...p, mobile: e.target.value.replace(/\D/g, '').slice(0, 10) }))} />
                     </div>
                     <div className="form-group">
                       <label className="form-label">Email</label>
@@ -1078,7 +1093,7 @@ export default function CompanyRegistration() {
                 <div className="form-row">
                   <div className="form-group">
                     <label className="form-label">Company Name *</label>
-                    <input className="form-control" placeholder="e.g. Tiles World Pvt Ltd" value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} />
+                    <input className="form-control" placeholder="e.g. Tiles World Pvt Ltd" value={form.name} onChange={e => setForm(p => ({ ...p, name: lettersOnly(e.target.value) }))} />
                     {formErrors.name && <div className="form-error">{formErrors.name}</div>}
                   </div>
                   <div className="form-group">
@@ -1087,7 +1102,7 @@ export default function CompanyRegistration() {
                       className="form-control"
                       placeholder="e.g. Wholesaler, Retailer, Manufacturer…"
                       value={form.bizType}
-                      onChange={e => setForm(p => ({ ...p, bizType: e.target.value }))}
+                      onChange={e => setForm(p => ({ ...p, bizType: lettersOnly(e.target.value) }))}
                     />
                   </div>
                 </div>
@@ -1134,12 +1149,12 @@ export default function CompanyRegistration() {
                 <div className="form-row">
                   <div className="form-group">
                     <label className="form-label">Owner / Contact Name *</label>
-                    <input className="form-control" placeholder="Full name" value={form.owner} onChange={e => setForm(p => ({ ...p, owner: e.target.value }))} />
+                    <input className="form-control" placeholder="Full name" value={form.owner} onChange={e => setForm(p => ({ ...p, owner: lettersOnly(e.target.value) }))} />
                     {formErrors.owner && <div className="form-error">{formErrors.owner}</div>}
                   </div>
                   <div className="form-group">
                     <label className="form-label">Mobile Number *</label>
-                    <input className="form-control" placeholder="10-digit mobile" type="tel" value={form.mobile} onChange={e => setForm(p => ({ ...p, mobile: e.target.value }))} />
+                    <input className="form-control" placeholder="10-digit mobile" type="tel" inputMode="numeric" maxLength={10} value={form.mobile} onChange={e => setForm(p => ({ ...p, mobile: e.target.value.replace(/\D/g, '').slice(0, 10) }))} />
                     {formErrors.mobile && <div className="form-error">{formErrors.mobile}</div>}
                   </div>
                 </div>
@@ -1151,17 +1166,20 @@ export default function CompanyRegistration() {
                   </div>
                   <div className="form-group">
                     <label className="form-label">City</label>
-                    <input className="form-control" placeholder="City" value={form.city} onChange={e => setForm(p => ({ ...p, city: e.target.value }))} />
+                    <input className="form-control" placeholder="City" value={form.city} onChange={e => setForm(p => ({ ...p, city: lettersOnly(e.target.value) }))} />
                   </div>
                 </div>
                 <div className="form-row">
                   <div className="form-group">
                     <label className="form-label">State</label>
-                    <input className="form-control" placeholder="State" value={form.state} onChange={e => setForm(p => ({ ...p, state: e.target.value }))} />
+                    <select className="form-control" value={form.state} onChange={e => setForm(p => ({ ...p, state: e.target.value }))}>
+                      <option value="">Select State</option>
+                      {INDIAN_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
                   </div>
                   <div className="form-group">
                     <label className="form-label">PIN Code</label>
-                    <input className="form-control" placeholder="6-digit PIN" value={form.pin} onChange={e => setForm(p => ({ ...p, pin: e.target.value }))} />
+                    <input className="form-control" placeholder="6-digit PIN" inputMode="numeric" maxLength={6} value={form.pin} onChange={e => setForm(p => ({ ...p, pin: e.target.value.replace(/\D/g, '').slice(0, 6) }))} />
                   </div>
                 </div>
                 <div className="form-row">
@@ -2153,7 +2171,7 @@ export default function CompanyRegistration() {
                   <div className="form-row">
                     <div className="form-group">
                       <label className="form-label">Company Name *</label>
-                      <input className="form-control" value={editForm.name} onChange={e => setEditForm(p => ({ ...p, name: e.target.value }))} />
+                      <input className="form-control" value={editForm.name} onChange={e => setEditForm(p => ({ ...p, name: lettersOnly(e.target.value) }))} />
                     </div>
                     <div className="form-group">
                       <label className="form-label">Business Type <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
@@ -2161,18 +2179,18 @@ export default function CompanyRegistration() {
                         className="form-control"
                         placeholder="e.g. Wholesaler, Retailer, Manufacturer…"
                         value={editForm.bizType || ''}
-                        onChange={e => setEditForm(p => ({ ...p, bizType: e.target.value }))}
+                        onChange={e => setEditForm(p => ({ ...p, bizType: lettersOnly(e.target.value) }))}
                       />
                     </div>
                   </div>
                   <div className="form-row">
                     <div className="form-group">
                       <label className="form-label">Owner Name *</label>
-                      <input className="form-control" value={editForm.owner} onChange={e => setEditForm(p => ({ ...p, owner: e.target.value }))} />
+                      <input className="form-control" value={editForm.owner} onChange={e => setEditForm(p => ({ ...p, owner: lettersOnly(e.target.value) }))} />
                     </div>
                     <div className="form-group">
                       <label className="form-label">Mobile</label>
-                      <input className="form-control" value={editForm.mobile} onChange={e => setEditForm(p => ({ ...p, mobile: e.target.value }))} />
+                      <input className="form-control" inputMode="numeric" maxLength={10} value={editForm.mobile} onChange={e => setEditForm(p => ({ ...p, mobile: e.target.value.replace(/\D/g, '').slice(0, 10) }))} />
                     </div>
                   </div>
                   <div className="form-row">
@@ -2182,17 +2200,20 @@ export default function CompanyRegistration() {
                     </div>
                     <div className="form-group">
                       <label className="form-label">City</label>
-                      <input className="form-control" value={editForm.city} onChange={e => setEditForm(p => ({ ...p, city: e.target.value }))} />
+                      <input className="form-control" value={editForm.city} onChange={e => setEditForm(p => ({ ...p, city: lettersOnly(e.target.value) }))} />
                     </div>
                   </div>
                   <div className="form-row">
                     <div className="form-group">
                       <label className="form-label">State</label>
-                      <input className="form-control" value={editForm.state} onChange={e => setEditForm(p => ({ ...p, state: e.target.value }))} />
+                      <select className="form-control" value={editForm.state} onChange={e => setEditForm(p => ({ ...p, state: e.target.value }))}>
+                        <option value="">Select State</option>
+                        {INDIAN_STATES.map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
                     </div>
                     <div className="form-group">
                       <label className="form-label">PIN Code</label>
-                      <input className="form-control" value={editForm.pin} onChange={e => setEditForm(p => ({ ...p, pin: e.target.value }))} />
+                      <input className="form-control" inputMode="numeric" maxLength={6} value={editForm.pin} onChange={e => setEditForm(p => ({ ...p, pin: e.target.value.replace(/\D/g, '').slice(0, 6) }))} />
                     </div>
                   </div>
                   <div className="form-row">

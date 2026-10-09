@@ -7,6 +7,8 @@ import {
 } from 'lucide-react'
 import { hrApi } from '../api/hrApi'
 import { employeeMasterApi } from '../api/employeeMasterApi'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
 
 // ─── Constants ────────────────────────────────────────────────
 const STATUSES_ATT  = ['Present', 'Absent', 'Late', 'Half Day', 'On Leave', 'Holiday', 'Week Off']
@@ -414,7 +416,16 @@ export default function EmployeeManagement({
     return true
   })
 
+  // Attendance may only be recorded for the current day. Guards against a stale
+  // date (e.g. app left open past midnight) or any attempt to mark a past date.
+  const isToday = () => attDate === new Date().toISOString().split('T')[0]
+  const guardToday = () => {
+    if (!isToday()) { toast('Attendance can only be marked for today'); return false }
+    return true
+  }
+
   const handleCheckIn = async (emp) => {
+    if (!guardToday()) return
     const id = String(emp._id || emp.id)
     const time = nowTime()
     try {
@@ -425,6 +436,7 @@ export default function EmployeeManagement({
   }
 
   const handleCheckOut = async (emp) => {
+    if (!guardToday()) return
     const id = String(emp._id || emp.id)
     const time = nowTime()
     const rec  = attByEmp[id]
@@ -439,6 +451,7 @@ export default function EmployeeManagement({
   }
 
   const handleMarkStatus = async (emp, status) => {
+    if (!guardToday()) return
     const id = String(emp._id || emp.id)
     try {
       await hrApi.markAttendance({ employee_id: id, date: attDate, status })
@@ -450,6 +463,7 @@ export default function EmployeeManagement({
   // Bulk-mark every currently-filtered employee for the selected date. Standard
   // HR convenience for marking a whole team present, or a holiday/week-off.
   const handleBulkMark = async (status) => {
+    if (!guardToday()) return
     const targets = filteredAttn
     if (targets.length === 0) return
     if (!window.confirm(`Mark ${targets.length} employee(s) as "${status}" on ${fmtDate(attDate)}?`)) return
@@ -482,6 +496,7 @@ export default function EmployeeManagement({
 
   const handleSaveAtt = async () => {
     if (!attEditRec) return
+    if (!guardToday()) return
     const id = String(attEditRec.emp._id || attEditRec.emp.id)
     try {
       await hrApi.markAttendance({
@@ -598,52 +613,126 @@ export default function EmployeeManagement({
         }
       : calcSalaryBreakdown(emp.salary || 0)
 
-    const lines = [
-      '═══════════════════════════════════════════════════════',
-      '                      PAYSLIP',
-      `                   ${monthName.toUpperCase()}`,
-      '═══════════════════════════════════════════════════════',
-      `Employee Name  : ${emp.name}`,
-      `Employee ID    : ${emp.emp_code || emp._id || emp.id}`,
-      `Department     : ${emp.department || ''}`,
-      `Designation    : ${emp.designation || ''}`,
-      `Branch         : ${emp.branch || '—'}`,
-      '─────────────────────────────────────────────────────────',
-      'ATTENDANCE SUMMARY',
-      `Working Days   : ${salRec?.working_days ?? 26}`,
-      `Present        : ${salRec?.present_days ?? '—'}`,
-      `Absent         : ${salRec?.absent_days  ?? '—'}`,
-      `Leave          : ${salRec?.leave_days   ?? '—'}`,
-      `Half Day       : ${salRec?.half_days    ?? '—'}`,
-      '─────────────────────────────────────────────────────────',
-      'EARNINGS',
-      `Basic          : ₹${(bd.basic    || 0).toLocaleString('en-IN')}`,
-      `HRA            : ₹${(bd.hra      || 0).toLocaleString('en-IN')}`,
-      `Travel Allow.  : ₹${(bd.travel   || 0).toLocaleString('en-IN')}`,
-      `Special Allow. : ₹${(bd.special  || 0).toLocaleString('en-IN')}`,
-      `Gross Salary   : ₹${(bd.gross    || 0).toLocaleString('en-IN')}`,
-      '─────────────────────────────────────────────────────────',
-      'DEDUCTIONS',
-      `PF             : -₹${(bd.pf_deduction     || 0).toLocaleString('en-IN')}`,
-      `Prof. Tax      : -₹${(bd.pt_deduction     || 0).toLocaleString('en-IN')}`,
-      `Absent Dedn.   : -₹${(bd.absent_deduction || 0).toLocaleString('en-IN')}`,
-      `Total Deductions: -₹${(bd.total_deductions|| 0).toLocaleString('en-IN')}`,
-      '─────────────────────────────────────────────────────────',
-      `NET TAKE-HOME  : ₹${(bd.net_salary || 0).toLocaleString('en-IN')}`,
-      '─────────────────────────────────────────────────────────',
-      `Payment Status : ${salRec?.status || 'Pending'}`,
-      salRec?.payment_date ? `Payment Date   : ${fmtDate(salRec.payment_date)}` : '',
-      salRec?.payment_mode ? `Payment Mode   : ${salRec.payment_mode}` : '',
-      '═══════════════════════════════════════════════════════',
-    ].filter(l => l !== '')
+    // jsPDF's built-in fonts can't render the ₹ glyph, so use "Rs." prefix.
+    const money = (v) => `Rs. ${(v || 0).toLocaleString('en-IN')}`
 
-    const blob = new Blob([lines.join('\n')], { type: 'text/plain' })
-    const url  = URL.createObjectURL(blob)
-    const a    = document.createElement('a')
-    a.href = url
-    a.download = `Payslip_${(emp.name || 'Employee').replace(/\s+/g,'_')}_${salMonth}.txt`
-    a.click()
-    URL.revokeObjectURL(url)
+    const doc   = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+    const pageW = doc.internal.pageSize.getWidth()
+    const M     = 14
+
+    // ── Header ──
+    doc.setFillColor(249, 115, 22) // orange
+    doc.rect(0, 0, pageW, 26, 'F')
+    doc.setTextColor(255, 255, 255)
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(16)
+    doc.text('EzyEnquiry', M, 12)
+    doc.setFontSize(10)
+    doc.setFont('helvetica', 'normal')
+    doc.text('Payslip', M, 19)
+    doc.setFontSize(11)
+    doc.setFont('helvetica', 'bold')
+    doc.text(monthName.toUpperCase(), pageW - M, 15, { align: 'right' })
+
+    doc.setTextColor(33, 33, 33)
+
+    // ── Employee details ──
+    autoTable(doc, {
+      startY: 32,
+      theme: 'plain',
+      styles: { fontSize: 9, cellPadding: 1.2 },
+      columnStyles: {
+        0: { fontStyle: 'bold', cellWidth: 34 },
+        2: { fontStyle: 'bold', cellWidth: 34 },
+      },
+      body: [
+        ['Employee Name', emp.name || '', 'Employee ID', String(emp.emp_code || emp._id || emp.id || '')],
+        ['Department', emp.department || '-', 'Designation', emp.designation || '-'],
+        ['Branch', emp.branch || '-', 'Status', salRec?.status || 'Pending'],
+      ],
+    })
+
+    // ── Attendance summary ──
+    let y = doc.lastAutoTable.finalY + 6
+    doc.setFont('helvetica', 'bold')
+    doc.setFontSize(10)
+    doc.text('Attendance Summary', M, y)
+    autoTable(doc, {
+      startY: y + 2,
+      theme: 'grid',
+      headStyles: { fillColor: [243, 244, 246], textColor: 33, fontStyle: 'bold' },
+      styles: { fontSize: 9, cellPadding: 1.8 },
+      head: [['Working Days', 'Present', 'Absent', 'Leave', 'Half Day']],
+      body: [[
+        String(salRec?.working_days ?? 26),
+        String(salRec?.present_days ?? '-'),
+        String(salRec?.absent_days  ?? '-'),
+        String(salRec?.leave_days   ?? '-'),
+        String(salRec?.half_days    ?? '-'),
+      ]],
+    })
+
+    // ── Earnings & Deductions (side by side) ──
+    y = doc.lastAutoTable.finalY + 6
+    doc.setFont('helvetica', 'bold')
+    doc.text('Earnings', M, y)
+    autoTable(doc, {
+      startY: y + 2,
+      margin: { right: pageW / 2 + 2 },
+      theme: 'grid',
+      headStyles: { fillColor: [34, 197, 94], textColor: 255, fontStyle: 'bold' },
+      styles: { fontSize: 9, cellPadding: 1.8 },
+      columnStyles: { 1: { halign: 'right' } },
+      head: [['Component', 'Amount']],
+      body: [
+        ['Basic', money(bd.basic)],
+        ['HRA', money(bd.hra)],
+        ['Travel Allow.', money(bd.travel)],
+        ['Special Allow.', money(bd.special)],
+        ['Gross Salary', money(bd.gross)],
+      ],
+    })
+    const earnEndY = doc.lastAutoTable.finalY
+
+    doc.setFont('helvetica', 'bold')
+    doc.text('Deductions', pageW / 2 + 2, y)
+    autoTable(doc, {
+      startY: y + 2,
+      margin: { left: pageW / 2 + 2 },
+      theme: 'grid',
+      headStyles: { fillColor: [239, 68, 68], textColor: 255, fontStyle: 'bold' },
+      styles: { fontSize: 9, cellPadding: 1.8 },
+      columnStyles: { 1: { halign: 'right' } },
+      head: [['Component', 'Amount']],
+      body: [
+        ['PF', money(bd.pf_deduction)],
+        ['Professional Tax', money(bd.pt_deduction)],
+        ['Absent Deduction', money(bd.absent_deduction)],
+        ['Total Deductions', money(bd.total_deductions)],
+      ],
+    })
+
+    // ── Net take-home ──
+    y = Math.max(earnEndY, doc.lastAutoTable.finalY) + 8
+    doc.setFillColor(249, 115, 22)
+    doc.rect(M, y, pageW - M * 2, 12, 'F')
+    doc.setTextColor(255, 255, 255)
+    doc.setFontSize(12)
+    doc.setFont('helvetica', 'bold')
+    doc.text('NET TAKE-HOME', M + 4, y + 8)
+    doc.text(money(bd.net_salary), pageW - M - 4, y + 8, { align: 'right' })
+
+    // ── Payment info / footer ──
+    doc.setTextColor(90, 90, 90)
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(8)
+    y += 20
+    if (salRec?.payment_date) { doc.text(`Payment Date: ${fmtDate(salRec.payment_date)}`, M, y); y += 5 }
+    if (salRec?.payment_mode) { doc.text(`Payment Mode: ${salRec.payment_mode}`, M, y); y += 5 }
+    doc.text(`Generated: ${new Date().toLocaleString('en-IN')}`, M, y)
+    doc.text('This is a computer-generated payslip and does not require a signature.', M, y + 5)
+
+    doc.save(`Payslip_${(emp.name || 'Employee').replace(/\s+/g,'_')}_${salMonth}.pdf`)
     toast(`Payslip downloaded for ${emp.name}`)
   }
 
@@ -864,11 +953,12 @@ export default function EmployeeManagement({
               </div>
               <div className="header-actions">
                 <input className="form-control" type="date" value={attDate}
+                  min={new Date().toISOString().split('T')[0]}
                   max={new Date().toISOString().split('T')[0]}
                   onChange={e => {
                     const picked = e.target.value
                     const today  = new Date().toISOString().split('T')[0]
-                    if (picked > today) { toast('Attendance cannot be marked for a future date'); return }
+                    if (picked !== today) { toast('Attendance can only be marked for today'); return }
                     setAttDate(picked)
                   }}
                   style={{ width:160 }} />
