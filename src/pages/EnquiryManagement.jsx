@@ -1643,8 +1643,8 @@ export default function EnquiryManagement({
                       <label className="form-label">Mobile *</label>
                       <input className={`form-control${enqErrors.mobile ? ' input-error' : ''}`}
                         placeholder="10-digit mobile" maxLength={10}
-                        value={newForm.mobile}
-                        onChange={e => setNewForm(f => ({ ...f, mobile: e.target.value.replace(/\D/g,'') }))} />
+                        value={newForm.mobile} inputMode="numeric"
+                        onChange={e => setNewForm(f => ({ ...f, mobile: e.target.value.replace(/\D/g,'').slice(0, 10) }))} />
                       {enqErrors.mobile && <div className="form-error">{enqErrors.mobile}</div>}
                     </div>
                   </div>

@@ -74,6 +74,15 @@ export default function CompanyRegistration() {
   const [otp, setOtp] = useState(['', '', '', '', '', ''])
   const [otpVerified, setOtpVerified] = useState(false)
   const [uploadedDocs, setUploadedDocs] = useState({ gst: null, pan: null, address: null, biz: null })
+  // OTP transport state
+  const [otpSending, setOtpSending] = useState(false)
+  const [otpVerifying, setOtpVerifying] = useState(false)
+  const [devOtp, setDevOtp] = useState('')       // shown on screen in dev mode
+  const [otpTarget, setOtpTarget] = useState('') // the email/mobile the OTP was sent to
+  const [serverVerifiable, setServerVerifiable] = useState(false) // backend owns the OTP
+  // Registration submit state
+  const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState('')
 
   // Open a fresh registration wizard
   const openRegister = () => {
@@ -83,6 +92,10 @@ export default function CompanyRegistration() {
     setOtpSent(false)
     setOtpVerified(false)
     setOtp(['', '', '', '', '', ''])
+    setDevOtp('')
+    setOtpTarget('')
+    setServerVerifiable(false)
+    setSubmitError('')
     setFormErrors({})
     setTab('register')
   }
@@ -248,43 +261,91 @@ export default function CompanyRegistration() {
     const next = [...otp]; next[i] = v; setOtp(next)
     if (v && i < 5) document.getElementById(`cotp-${i + 1}`)?.focus()
   }
-  const verifyOtp = () => {
-    const code = otp.join('')
-    if (code.length === 6) { setOtpVerified(true) }
-    else { setFormErrors({ otp: 'Enter complete 6-digit OTP' }) }
+  // Send a real OTP to the applicant's email (SMS not configured on backend).
+  const sendOtp = async (channel) => {
+    const target = channel === 'mobile' ? form.mobile : form.email
+    const type   = channel === 'mobile' ? 'mobile' : 'email'
+    if (!target) {
+      setFormErrors({ otp: `No ${channel} provided to send the OTP to.` })
+      return
+    }
+    setOtpSending(true)
+    setFormErrors({})
+    try {
+      const res = await companyApi.sendOtp(target, type)
+      // Backend returns { success, data: { sent, otp? } }.
+      // The hosted server runs in production mode and does NOT return the OTP,
+      // and SMS/email delivery isn't configured — so to keep the flow usable we
+      // generate a demo OTP on the client and show it on screen. If the backend
+      // ever does return one (dev mode), we prefer that so server verify works.
+      const serverOtp = res?.data?.otp || res?.otp || ''
+      const code = serverOtp || String(Math.floor(100000 + Math.random() * 900000))
+      setOtpTarget(target)
+      setDevOtp(code)
+      setServerVerifiable(!!serverOtp) // only verify on the server when it owns the OTP
+      setOtpSent(true)
+      setOtp(['', '', '', '', '', ''])
+    } catch (err) {
+      setFormErrors({ otp: err?.response?.data?.message || 'Failed to send OTP. Please try again.' })
+    } finally {
+      setOtpSending(false)
+    }
   }
 
-  // ── Submit registration ──
-  const submitRegistration = () => {
-    const formatDate = (d) => {
-      if (!d) return new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
-      const dt = new Date(d)
-      return dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+  const verifyOtp = async () => {
+    const code = otp.join('')
+    if (code.length !== 6) {
+      setFormErrors({ otp: 'Enter complete 6-digit OTP' })
+      return
     }
-    const newCom = {
-      id: `COM-${String(companies.length + 1).padStart(3, '0')}`,
-      name: form.name, owner: form.owner, mobile: form.mobile,
-      email: form.email, gst: form.gst, pan: form.pan,
-      bizType: form.bizType,
-      city: form.city, state: form.state, pin: form.pin,
-      plan: form.plan,
-      status: form.status,
-      registered: formatDate(form.submittedDate),
-      reviewedBy: '—',
-      docs: {
-        gst: !!uploadedDocs.gst, pan: !!uploadedDocs.pan,
-        address: !!uploadedDocs.address, biz: !!uploadedDocs.biz,
-      },
-      // Store actual File objects for image preview in View modal
-      docFiles: {
-        gst: uploadedDocs.gst || null,
-        pan: uploadedDocs.pan || null,
-        address: uploadedDocs.address || null,
-        biz: uploadedDocs.biz || null,
-      },
+    setOtpVerifying(true)
+    setFormErrors({})
+    try {
+      if (serverVerifiable) {
+        // Backend issued this OTP — let it verify.
+        await companyApi.verifyOtp(otpTarget || form.email, code)
+      } else {
+        // Client-side demo OTP — compare against what we showed on screen.
+        if (code !== devOtp) throw new Error('mismatch')
+      }
+      setOtpVerified(true)
+    } catch (err) {
+      const msg = err?.response?.data?.message
+      setFormErrors({ otp: msg || 'Invalid or expired OTP.' })
+    } finally {
+      setOtpVerifying(false)
     }
-    setCompanies(prev => [newCom, ...prev])
-    setRegStep(4)
+  }
+
+  // ── Submit registration — persists to the backend, then refreshes the queue ──
+  const submitRegistration = async () => {
+    setSubmitting(true)
+    setSubmitError('')
+    // Backend expects snake_case fields (see companyController.createCompany)
+    const payload = {
+      name:              form.name.trim(),
+      owner_name:        form.owner.trim(),
+      biz_type:          form.bizType || 'Wholesaler',
+      mobile:            form.mobile,
+      email:             form.email.trim(),
+      gst_number:        form.gst.trim(),
+      pan_number:        form.pan.trim(),
+      address:           form.address || '',
+      city:              form.city || '',
+      state:             form.state || '',
+      pin_code:          form.pin || '',
+      subscription_plan: form.plan || 'Free',
+    }
+    try {
+      await companyApi.create(payload)
+      // Pull the fresh list from the server so the new company shows in the queue.
+      await fetchApprovalQueue()
+      setRegStep(4)
+    } catch (err) {
+      setSubmitError(err?.response?.data?.message || 'Failed to register the company. Please try again.')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   // ── Admin actions — real API ──
@@ -1278,13 +1339,18 @@ export default function CompanyRegistration() {
                 {!otpSent ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                     <div style={{ padding: '14px 16px', background: 'var(--bg)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><Phone style={{ width: 15, color: 'var(--primary)' }} /><span style={{ fontSize: 13 }}>+91 {form.mobile}</span></div>
-                      <button className="btn btn-primary btn-sm" onClick={() => { setOtpSent(true); setOtp(['', '', '', '', '', '']) }}>Send OTP</button>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><Mail style={{ width: 15, color: 'var(--primary)' }} /><span style={{ fontSize: 13 }}>{form.email}</span></div>
+                      <button className="btn btn-primary btn-sm" disabled={otpSending} onClick={() => sendOtp('email')}>
+                        {otpSending ? 'Sending…' : 'Send OTP'}
+                      </button>
                     </div>
                     <div style={{ padding: '14px 16px', background: 'var(--bg)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><Mail style={{ width: 15, color: 'var(--primary)' }} /><span style={{ fontSize: 13 }}>{form.email}</span></div>
-                      <button className="btn btn-secondary btn-sm" onClick={() => { setOtpSent(true); setOtp(['', '', '', '', '', '']) }}>Send OTP</button>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}><Phone style={{ width: 15, color: 'var(--primary)' }} /><span style={{ fontSize: 13 }}>+91 {form.mobile}</span></div>
+                      <button className="btn btn-secondary btn-sm" disabled={otpSending} onClick={() => sendOtp('mobile')}>
+                        {otpSending ? 'Sending…' : 'Send OTP'}
+                      </button>
                     </div>
+                    {formErrors.otp && <div className="form-error">{formErrors.otp}</div>}
                   </div>
                 ) : otpVerified ? (
                   <div className="alert alert-success">
@@ -1292,7 +1358,15 @@ export default function CompanyRegistration() {
                   </div>
                 ) : (
                   <>
-                    <div style={{ textAlign: 'center', marginBottom: 8, fontSize: 13, color: 'var(--text-muted)' }}>Enter the 6-digit OTP sent to +91 {form.mobile}</div>
+                    <div style={{ textAlign: 'center', marginBottom: 8, fontSize: 13, color: 'var(--text-muted)' }}>Enter the 6-digit OTP sent to {otpTarget || form.email}</div>
+                    {/* SMS/email delivery isn't configured, so the OTP is shown here for verification */}
+                    {devOtp && (
+                      <div className="alert alert-info" style={{ textAlign: 'center', marginBottom: 12, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <span style={{ fontSize: 12 }}>Your OTP (demo mode):</span>
+                        <span style={{ fontSize: 24, fontWeight: 800, letterSpacing: '6px', fontFamily: 'monospace', color: 'var(--primary)' }}>{devOtp}</span>
+                        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Enter this code below to continue</span>
+                      </div>
+                    )}
                     <div className="otp-row">
                       {otp.map((d, i) => (
                         <input key={i} id={`cotp-${i}`} className="otp-input" maxLength={1} value={d}
@@ -1303,8 +1377,10 @@ export default function CompanyRegistration() {
                     </div>
                     {formErrors.otp && <div className="form-error" style={{ textAlign: 'center' }}>{formErrors.otp}</div>}
                     <div style={{ textAlign: 'center', marginTop: 10, display: 'flex', justifyContent: 'center', gap: 12 }}>
-                      <button onClick={verifyOtp} className="btn btn-primary btn-sm">Verify OTP</button>
-                      <button onClick={() => { setOtpSent(false); setOtp(['', '', '', '', '', '']); setFormErrors({}) }}
+                      <button onClick={verifyOtp} disabled={otpVerifying} className="btn btn-primary btn-sm">
+                        {otpVerifying ? 'Verifying…' : 'Verify OTP'}
+                      </button>
+                      <button onClick={() => { setOtpSent(false); setOtp(['', '', '', '', '', '']); setDevOtp(''); setServerVerifiable(false); setFormErrors({}) }}
                         style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: 12, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                         <RefreshCw style={{ width: 12 }} /> Resend
                       </button>
@@ -1312,9 +1388,19 @@ export default function CompanyRegistration() {
                   </>
                 )}
               </div>
+              {submitError && (
+                <div className="form-error" style={{ textAlign: 'center', padding: '0 24px' }}>{submitError}</div>
+              )}
               <div className="modal-footer">
                 <button className="btn btn-secondary" onClick={() => setRegStep(2)}>← Back</button>
-                <button className="btn btn-primary" disabled={!otpVerified} style={{ opacity: otpVerified ? 1 : 0.5 }} onClick={submitRegistration}>Submit for Approval →</button>
+                <button
+                  className="btn btn-primary"
+                  disabled={!otpVerified || submitting}
+                  style={{ opacity: otpVerified && !submitting ? 1 : 0.5 }}
+                  onClick={submitRegistration}
+                >
+                  {submitting ? 'Submitting…' : 'Submit for Approval →'}
+                </button>
               </div>
             </>
           )}
@@ -1334,7 +1420,8 @@ export default function CompanyRegistration() {
               </div>
               <button className="btn btn-primary" style={{ marginTop: 24 }} onClick={() => {
                 setRegStep(1); setForm({ ...BLANK_FORM }); setUploadedDocs({ gst: null, pan: null, address: null, biz: null })
-                setOtpSent(false); setOtpVerified(false); setOtp(['', '', '', '', '', '']); setFormErrors({})
+                setOtpSent(false); setOtpVerified(false); setOtp(['', '', '', '', '', '']); setDevOtp(''); setOtpTarget(''); setServerVerifiable(false)
+                setSubmitError(''); setFormErrors({})
               }}>Register Another Company</button>
             </div>
           )}

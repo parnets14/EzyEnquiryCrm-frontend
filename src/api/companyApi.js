@@ -59,4 +59,13 @@ export const companyApi = {
   getDocument: (id, type) =>
     api.get(`/companies/${id}/documents/${type}`, { responseType: 'blob' })
       .then(r => r.data),
+
+  // ── Send a registration OTP to an email/mobile ────────────
+  // In dev (OTP_DEV_RETURN=true) the backend returns the OTP in the response.
+  sendOtp: (target, type = 'email') =>
+    api.post('/auth/send-otp', { target, type, purpose: 'register' }).then(r => r.data),
+
+  // ── Verify a registration OTP ─────────────────────────────
+  verifyOtp: (target, otp) =>
+    api.post('/auth/verify-otp', { target, otp, purpose: 'register' }).then(r => r.data),
 }

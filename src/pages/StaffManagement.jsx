@@ -997,6 +997,7 @@ export default function StaffManagement() {
                 )}
                 {!loading && paged.map((s, i) => {
                   const rm = ROLE_META[s.role] || {}
+                  const roleLabel = s.role_access || s.designation || s.role || '—'
                   return (
                     <tr key={s._id}>
                       <td style={{ color: '#94A3B8', fontSize: 12 }}>{(safePage - 1) * PAGE_SIZE + i + 1}</td>

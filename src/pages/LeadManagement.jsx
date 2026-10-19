@@ -194,7 +194,7 @@ export default function LeadManagement({ leads = [], addLead, updateLead, delete
                 </div>
                 <div className="form-group">
                   <label className="form-label">Mobile *</label>
-                  <input className={`form-control${errors.mobile ? ' error' : ''}`} placeholder="10-digit mobile" value={form.mobile} onChange={e => setForm(p => ({ ...p, mobile: e.target.value }))} />
+                  <input className={`form-control${errors.mobile ? ' error' : ''}`} placeholder="10-digit mobile" inputMode="numeric" maxLength={10} value={form.mobile} onChange={e => setForm(p => ({ ...p, mobile: e.target.value.replace(/\D/g, '').slice(0, 10) }))} />
                   {errors.mobile && <div className="form-error">{errors.mobile}</div>}
                 </div>
               </div>
