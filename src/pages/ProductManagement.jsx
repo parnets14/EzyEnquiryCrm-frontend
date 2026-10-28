@@ -1,8 +1,9 @@
-﻿import { useState, useRef, useEffect, useCallback } from 'react'
-import { Plus, Search, Trash2, Package, Eye, Edit2, X, ChevronDown, RotateCcw, Layers, Box, DollarSign, Info, Image as ImageIcon, CheckCircle, XCircle, ChevronLeft, ChevronRight, Download, Lock, Users, Globe } from 'lucide-react'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { Plus, Search, Trash2, Package, Eye, Edit2, X, ChevronDown, RotateCcw, Layers, Box, DollarSign, Info, Image as ImageIcon, CheckCircle, XCircle, ChevronLeft, ChevronRight, Download, Lock, Users, Globe, Upload, Ban } from 'lucide-react'
 import usePermissions from '../hooks/usePermissions'
 import { useAuth } from '../context/AuthContext'
 import { productApi } from '../api/productApi'
+import BulkUploadProducts from '../components/BulkUploadProducts'
 import { companyApi } from '../api/companyApi'
 import { MODULES } from '../config/permissions'
 import {
@@ -2183,6 +2184,181 @@ function RecycleBinModal({ onClose, onRestored, canRestore }) {
 }
 
 // ══════════════════════════════════════════════════════════════
+// BULK ACCESS MODAL — assign visibility for multiple products at once
+// ══════════════════════════════════════════════════════════════
+function BulkAccessModal({ productIds, products, onClose, onSaved, onError }) {
+  const [companies,     setCompanies]     = useState([])
+  const [loading,       setLoading]       = useState(true)
+  const [saving,        setSaving]        = useState(false)
+  const [search,        setSearch]        = useState('')
+  const [sharedWithAll, setSharedWithAll] = useState(true)
+  const [selected,      setSelected]      = useState(new Set())
+
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      try {
+        const res  = await companyApi.list({ limit: 500 })
+        const list = res?.data?.companies || res?.companies || []
+        const eligible = list.filter(c => {
+          const t = String(c.biz_type || '').toLowerCase()
+          return t.includes('wholesaler') || t.includes('retailer') || t.includes('wholesale')
+        })
+        if (alive) setCompanies(eligible)
+      } catch (e) {
+        if (alive) onError?.(e?.response?.data?.message || 'Failed to load companies.')
+      } finally {
+        if (alive) setLoading(false)
+      }
+    })()
+    return () => { alive = false }
+  }, [onError])
+
+  const toggle = (code) => {
+    const upper = String(code || '').trim().toUpperCase()
+    if (!upper) return
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(upper)) next.delete(upper)
+      else next.add(upper)
+      return next
+    })
+  }
+
+  const filtered = companies.filter(c => {
+    if (!search.trim()) return true
+    const q = search.trim().toLowerCase()
+    return (
+      String(c.company_code || '').toLowerCase().includes(q) ||
+      String(c.name || '').toLowerCase().includes(q)
+    )
+  })
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      const payload = {
+        shared_with_all:       sharedWithAll,
+        allowed_company_codes: sharedWithAll ? [] : Array.from(selected),
+      }
+      // Update all selected products one by one
+      await Promise.all(productIds.map(id => productApi.updateAccess(id, payload)))
+      onSaved?.()
+    } catch (e) {
+      onError?.(e?.response?.data?.message || 'Failed to update access.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ maxWidth:600, width:'100%' }} onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            <div style={{ width:36, height:36, borderRadius:'50%', background:'#EFF6FF', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+              <Lock size={18} style={{ color:'#3B82F6' }}/>
+            </div>
+            <div>
+              <span className="modal-title">Bulk Access Control</span>
+              <div style={{ fontSize:11, color:'var(--text-muted)' }}>
+                Applying to {productIds.length} product{productIds.length !== 1 ? 's' : ''}
+                {products.length <= 5 && products.length > 0
+                  ? ': ' + products.map(p => p.name).join(', ')
+                  : ''}
+              </div>
+            </div>
+          </div>
+          <button className="modal-close" onClick={onClose}><X size={16}/></button>
+        </div>
+
+        <div className="modal-body" style={{ paddingTop:14 }}>
+          {/* Visibility mode */}
+          <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:14 }}>
+            <label style={{ display:'flex', alignItems:'flex-start', gap:10, cursor:'pointer', padding:'10px 12px', border:`1px solid ${sharedWithAll ? '#3B82F6' : 'var(--border)'}`, borderRadius:8, background: sharedWithAll ? '#EFF6FF' : 'var(--card)' }}>
+              <input type="radio" name="bulk_access_mode" checked={sharedWithAll} onChange={() => setSharedWithAll(true)} style={{ marginTop:2 }}/>
+              <span>
+                <span style={{ fontSize:13, fontWeight:700, color:'var(--text)', display:'flex', alignItems:'center', gap:6 }}>
+                  <Globe size={14} style={{ color:'#3B82F6' }}/> Visible to everyone
+                </span>
+                <span style={{ display:'block', fontSize:11, color:'var(--text-muted)' }}>All registered wholesalers and retailers can see these products.</span>
+              </span>
+            </label>
+            <label style={{ display:'flex', alignItems:'flex-start', gap:10, cursor:'pointer', padding:'10px 12px', border:`1px solid ${!sharedWithAll ? '#7C3AED' : 'var(--border)'}`, borderRadius:8, background: !sharedWithAll ? '#F5F3FF' : 'var(--card)' }}>
+              <input type="radio" name="bulk_access_mode" checked={!sharedWithAll} onChange={() => setSharedWithAll(false)} style={{ marginTop:2 }}/>
+              <span>
+                <span style={{ fontSize:13, fontWeight:700, color:'var(--text)', display:'flex', alignItems:'center', gap:6 }}>
+                  <Lock size={14} style={{ color:'#7C3AED' }}/> Only selected companies
+                </span>
+                <span style={{ display:'block', fontSize:11, color:'var(--text-muted)' }}>Only companies you pick below can see these products.</span>
+              </span>
+            </label>
+          </div>
+
+          {/* Company picker — only when restricted mode */}
+          {!sharedWithAll && (
+            <>
+              <div style={{ position:'relative', marginBottom:10 }}>
+                <Search size={14} style={{ position:'absolute', left:10, top:'50%', transform:'translateY(-50%)', color:'var(--text-muted)' }}/>
+                <input
+                  className="form-input"
+                  placeholder="Search companies by name or code…"
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  style={{ paddingLeft:32 }}
+                />
+              </div>
+
+              {loading ? (
+                <div style={{ textAlign:'center', padding:'20px 0', color:'var(--text-muted)', fontSize:13 }}>Loading companies…</div>
+              ) : filtered.length === 0 ? (
+                <div style={{ textAlign:'center', padding:'20px 0', color:'var(--text-muted)', fontSize:13 }}>No companies found.</div>
+              ) : (
+                <div style={{ maxHeight:300, overflowY:'auto', border:'1px solid var(--border)', borderRadius:8 }}>
+                  {filtered.map(c => {
+                    const code = String(c.company_code || '').toUpperCase()
+                    const isSelected = selected.has(code)
+                    return (
+                      <label
+                        key={c._id || c.id}
+                        style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 14px', cursor:'pointer', borderBottom:'1px solid var(--border)', background: isSelected ? '#F5F3FF' : 'transparent' }}
+                      >
+                        <input type="checkbox" checked={isSelected} onChange={() => toggle(code)} />
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ fontSize:13, fontWeight:600, color:'var(--text)' }}>{c.name}</div>
+                          <div style={{ fontSize:11, color:'var(--text-muted)', display:'flex', gap:8 }}>
+                            <span>{c.company_code}</span>
+                            <span style={{ color:'#7C3AED' }}>{c.biz_type}</span>
+                          </div>
+                        </div>
+                        {isSelected && <CheckCircle size={16} style={{ color:'#7C3AED', flexShrink:0 }}/>}
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
+
+              {selected.size > 0 && (
+                <div style={{ marginTop:8, fontSize:12, color:'#7C3AED', fontWeight:600 }}>
+                  {selected.size} company{selected.size !== 1 ? ' companies' : ''} selected
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
+          <button className="btn btn-primary" onClick={save} disabled={saving || (!sharedWithAll && selected.size === 0)}>
+            {saving ? 'Saving…' : `Apply to ${productIds.length} Product${productIds.length !== 1 ? 's' : ''}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ══════════════════════════════════════════════════════════════
 // PRODUCT ACCESS MODAL — assign product visibility by company code
 // ══════════════════════════════════════════════════════════════
 function ProductAccessModal({ product, onClose, onSaved, onError }) {
@@ -2358,9 +2534,10 @@ function ProductAccessModal({ product, onClose, onSaved, onError }) {
 // ══════════════════════════════════════════════════════════════
 export default function ProductManagement({
   products = [], categories = [], subCategories = [], brands = [], warehouses = [],
-  addProduct, updateProduct, deleteProduct, loadingData,
+  addProduct, updateProduct, loadingData,
   addCategory, addBrand, addSubCategory,
   deleteCategory, deleteBrand, deleteSubCategory,
+  fetchAll,
   // mode: 'admin' (default) shows only Admin-created products.
   //       'external' shows only Wholesaler/Retailer-created products (read-only view).
   mode = 'admin',
@@ -2370,7 +2547,6 @@ export default function ProductManagement({
   const isSuperAdmin = user?.role === 'Super Admin'
   const mayCreate = canPerform(MODULES.PRODUCTS, 'create')
   const mayEdit = canPerform(MODULES.PRODUCTS, 'edit')
-  const mayDelete = canPerform(MODULES.PRODUCTS, 'delete')
   const mayViewDeleted = canPerform(MODULES.PRODUCTS, 'view_deleted')
   const mayRestore = canPerform(MODULES.PRODUCTS, 'restore')
   const mayExport = canPerform(MODULES.PRODUCTS, 'export')
@@ -2390,7 +2566,7 @@ export default function ProductManagement({
   const [viewItem,     setViewItem]     = useState(null)
   const [viewLoading,  setViewLoading]  = useState(false)
   const [showBin,      setShowBin]      = useState(false)
-  const [deleteTarget, setDeleteTarget] = useState(null)  // { id, name, step } step=1|2
+  const [showBulk,     setShowBulk]     = useState(false)
   const [saving,       setSaving]       = useState(false)
   const [toast,        setToast]        = useState({ msg:'', type:'success' })
   const [adminProducts, setAdminProducts] = useState(null)
@@ -2398,6 +2574,8 @@ export default function ProductManagement({
   const [adminError,    setAdminError]    = useState('')
   const [editTaxonomy,  setEditTaxonomy]  = useState(null)
   const [accessTarget,  setAccessTarget]  = useState(null)  // product whose access is being managed
+  const [selectedIds,   setSelectedIds]   = useState(new Set())  // bulk selection
+  const [showBulkAccess, setShowBulkAccess] = useState(false)
 
   const loadAdminProducts = useCallback(async () => {
     if (!isSuperAdmin) {
@@ -2494,8 +2672,9 @@ export default function ProductManagement({
     if (filterBrand  && bid !== filterBrand)  return false
     if (filterCat    && cid !== filterCat)    return false
     if (filterSubCat && sid !== filterSubCat) return false
-    if (filterStatus === 'active'   && p.is_active === false) return false
-    if (filterStatus === 'inactive' && p.is_active !== false) return false
+    if (filterStatus === 'active' && p.is_active === false) return false
+    if (filterStatus === 'discontinued' && p.is_active !== false) return false
+    if (filterStatus === 'hidden' && !(p.is_hidden === true || p.hidden === true || p.is_visible === false)) return false
     if (filterSize   && (p.size   ||'').toLowerCase() !== filterSize.toLowerCase())   return false
     if (filterFinish && (p.finish ||'').toLowerCase() !== filterFinish.toLowerCase()) return false
     if (filterType   && (p.tile_type   ||'').toLowerCase() !== filterType.toLowerCase())   return false
@@ -2512,6 +2691,25 @@ export default function ProductManagement({
   // Reset to the first page whenever the search text or any filter changes,
   // so the user never lands on an out-of-range page after narrowing results.
   useEffect(() => { setPage(1) }, [search, filterBrand, filterCat, filterSubCat, filterStatus, filterSize, filterFinish, filterType, filterApp])
+
+  // ── Bulk "Select All" helpers ──────────────────────────────
+  // Selects every product currently shown after filters (across all pages).
+  const selectAllRef        = useRef(null)
+  const allFilteredIds      = filtered.map(p => p._id || p.id)
+  const selectedInFiltered  = allFilteredIds.filter(id => selectedIds.has(id)).length
+  const allSelected        = allFilteredIds.length > 0 && selectedInFiltered === allFilteredIds.length
+  const someSelected        = selectedInFiltered > 0 && selectedInFiltered < allFilteredIds.length
+  useEffect(() => {
+    if (selectAllRef.current) selectAllRef.current.indeterminate = someSelected
+  }, [someSelected])
+  const toggleSelectAll = () => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (allSelected) allFilteredIds.forEach(id => next.delete(id))
+      else allFilteredIds.forEach(id => next.add(id))
+      return next
+    })
+  }
 
   const openAdd = () => {
     if (!mayCreate) return fire('You have view-only access. Product creation is not allowed.', 'error')
@@ -2580,28 +2778,20 @@ export default function ProductManagement({
     } finally { setSaving(false) }
   }
 
-  const handleDelete = (product) => {
-    if (!mayDelete) return fire('You do not have permission to delete products.', 'error')
-    if (!canManageProduct(product)) return fire('You cannot delete this product.', 'error')
+  const handleDiscontinue = async (product) => {
+    if (!mayEdit) return fire('You do not have permission to discontinue products.', 'error')
+    if (!canManageProduct(product)) return fire('You cannot manage this product.', 'error')
     const id = product._id || product.id
-    setDeleteTarget({ id, name: product.name, step: 1 })
-  }
-
-  const handleDeleteStep2 = () => {
-    setDeleteTarget(t => t ? { ...t, step: 2 } : null)
-  }
-
-  const handleDeleteConfirm = async () => {
-    if (!mayDelete) return fire('You do not have permission to delete products.', 'error')
-    if (!deleteTarget) return
-    const { id } = deleteTarget
-    setDeleteTarget(null)
-    const res = await deleteProduct?.(id)
-    if (res?.success === false) fire(`Error: ${res.message}`, 'error')
-    else {
+    setSaving(true)
+    try {
+      const result = await updateProduct?.(id, { is_active: false })
+      if (result?.success === false) throw new Error(result.message || 'Product update failed')
       if (isSuperAdmin) await loadAdminProducts()
-      fire('Product moved to Recycle Bin')
-    }
+      fire('Product discontinued')
+    } catch (err) {
+      fire(`Error: ${err.message || 'Could not discontinue product'}`, 'error')
+      if (isSuperAdmin) await loadAdminProducts()
+    } finally { setSaving(false) }
   }
 
   const fmtP = (v) => {
@@ -2688,6 +2878,11 @@ export default function ProductManagement({
               <Trash2 size={14} style={{ color:'var(--danger)' }}/> Recycle Bin
             </button>
           )}
+          {mode !== 'external' && (
+            <button className="btn btn-secondary" onClick={() => setShowBulk(true)} style={{ gap:6 }}>
+              <Upload size={14}/> Import (Excel / PDF)
+            </button>
+          )}
           {mode !== 'external' && mayCreate && (
             <button className="btn btn-primary" onClick={openAdd}>
               <Plus size={14}/> New Product
@@ -2695,6 +2890,21 @@ export default function ProductManagement({
           )}
         </div>
       </div>
+
+      {showBulk && (
+        <BulkUploadProducts
+          onClose={() => setShowBulk(false)}
+          onDone={async () => {
+            // Refresh product list and close modal once refresh is done.
+            if (isSuperAdmin) {
+              await loadAdminProducts()
+            } else {
+              await fetchAll?.()
+            }
+            setShowBulk(false)
+          }}
+        />
+      )}
 
       {isSuperAdmin && adminError ? (
         <div style={{
@@ -2717,12 +2927,12 @@ export default function ProductManagement({
         const STAT_STYLES = {
           all:      { bg: '#EFF6FF', iconBg: '#DBEAFE', iconColor: '#2563EB', textColor: '#1D4ED8', borderColor: '#BFDBFE' },
           active:   { bg: '#ECFDF5', iconBg: '#D1FAE5', iconColor: '#059669', textColor: '#047857', borderColor: '#A7F3D0' },
-          inactive: { bg: '#FEF2F2', iconBg: '#FEE2E2', iconColor: '#DC2626', textColor: '#B91C1C', borderColor: '#FECACA' },
+          discontinued: { bg: '#FEF2F2', iconBg: '#FEE2E2', iconColor: '#DC2626', textColor: '#B91C1C', borderColor: '#FECACA' },
         }
         const stats = [
           { label: 'Total Products', val: catalogProducts.length,                                            type: 'all'      },
           { label: 'Active',         val: catalogProducts.filter(p => p.is_active !== false).length,  type: 'active'   },
-          { label: 'Inactive',       val: catalogProducts.filter(p => p.is_active === false).length,  type: 'inactive' },
+          { label: 'Discontinued',   val: catalogProducts.filter(p => p.is_active === false).length,  type: 'discontinued' },
         ]
         return (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 16 }}>
@@ -2798,7 +3008,12 @@ export default function ProductManagement({
           )}
 
           <FS val={filterStatus} setVal={setFilterStatus} ph="Status"
-            opts={[{ value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }]} />
+            opts={[
+              { value: '', label: 'All Products' },
+              { value: 'active', label: 'Live Active Product' },
+              { value: 'discontinued', label: 'Discontinued Product' },
+              { value: 'hidden', label: 'Hidden Product' },
+            ]} />
 
           <FS val={filterSize} setVal={setFilterSize} ph="Tile Size"
             opts={uniqueSizes.map(s => ({ value: s, label: s.toUpperCase() + ' MM' }))} />
@@ -2845,20 +3060,50 @@ export default function ProductManagement({
 
       {/* ── TABLE CARD ── */}
       <div className="card">
-        <div className="card-header">
+        <div className="card-header" style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, flexWrap:'wrap' }}>
           <span className="card-title">
             All Products
             <span style={{ fontSize:12, fontWeight:500, color:'var(--text-muted)', marginLeft:6 }}>
               ({filtered.length}{filtered.length !== catalogProducts.length ? ` of ${catalogProducts.length}` : ''})
             </span>
           </span>
+          {/* Select All — selects every product in the current (filtered) list */}
+          <label
+            style={{
+              display:'flex', alignItems:'center', gap:7, cursor:'pointer',
+              fontSize:12.5, fontWeight:600, color:'var(--text)', userSelect:'none',
+              padding:'5px 10px', border:'1px solid var(--border)', borderRadius:8,
+              background: allSelected ? 'var(--primary-light, #FFF3EC)' : 'var(--surface)',
+              transition:'background .15s',
+            }}
+          >
+            <input
+              ref={selectAllRef}
+              type="checkbox"
+              title="Select all products"
+              aria-label="Select all products"
+              checked={allSelected}
+              onChange={toggleSelectAll}
+              style={{ cursor:'pointer' }}
+            />
+            Select All{selectedIds.size > 0 ? ` · ${selectedIds.size} selected` : ''}
+          </label>
         </div>
 
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th style={{ width:36 }}>#</th>
+                <th style={{ width:36 }}>
+                  <input
+                    type="checkbox"
+                    title="Select all matching products"
+                    aria-label="Select all matching products"
+                    checked={allSelected}
+                    onChange={toggleSelectAll}
+                  />
+                </th>
+                <th>#</th>
                 <th>Product</th>
                 <th>Owner / Added By</th>
                 <th>Brand / Category</th>
@@ -2872,7 +3117,7 @@ export default function ProductManagement({
             </thead>
             <tbody>
               {productTableLoading && (
-                <tr><td colSpan={10} style={{ textAlign:'center', padding:32 }}>
+                <tr><td colSpan={11} style={{ textAlign:'center', padding:32 }}>
                   <div className="spinner"/>
                 </td></tr>
               )}
@@ -2892,7 +3137,21 @@ export default function ProductManagement({
                   p.grade,
                 ].filter(Boolean)
                 return (
-                  <tr key={id}>
+                  <tr key={id} style={{ background: p.is_active === false ? '#FECACA' : selectedIds.has(id) ? 'var(--primary-light, #EFF6FF)' : undefined }}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(id)}
+                        onChange={e => {
+                          setSelectedIds(prev => {
+                            const next = new Set(prev)
+                            if (e.target.checked) next.add(id)
+                            else next.delete(id)
+                            return next
+                          })
+                        }}
+                      />
+                    </td>
                     <td style={{ color:'var(--text-muted)', fontSize:12 }}>{(safePage - 1) * PAGE_SIZE + i + 1}</td>
 
                     {/* Product — thumbnail + name + code */}
@@ -3048,10 +3307,16 @@ export default function ProductManagement({
                             <Download size={13}/>
                           </button>
                         )}
-                        {mode !== 'external' && mayDelete && canManage && (
-                          <button className="btn btn-ghost btn-xs" title="Move to Recycle Bin"
-                            style={{ color:'var(--danger)' }} onClick={()=>handleDelete(p)}>
-                            <Trash2 size={13}/>
+                        {mode !== 'external' && mayEdit && canManage && p.is_active !== false && (
+                          <button
+                            className="btn btn-ghost btn-xs"
+                            title="Discontinue product"
+                            aria-label={`Discontinue ${p.name}`}
+                            disabled={saving}
+                            style={{ color:'#DC2626' }}
+                            onClick={() => handleDiscontinue(p)}
+                          >
+                            <Ban size={13}/>
                           </button>
                         )}
                       </div>
@@ -3084,6 +3349,61 @@ export default function ProductManagement({
             </tbody>
           </table>
         </div>
+
+        {/* ── Bulk selection floating bar ──────────────────────────── */}
+        {selectedIds.size > 0 && (
+          <div style={{
+            position:'fixed', bottom:24, left:'50%', transform:'translateX(-50%)',
+            background:'#1E2D4A', color:'#fff', borderRadius:12, padding:'12px 20px',
+            display:'flex', alignItems:'center', gap:14, boxShadow:'0 8px 32px rgba(0,0,0,0.35)',
+            zIndex:200, minWidth:340,
+          }}>
+            <div style={{ fontSize:14, fontWeight:700 }}>
+              {selectedIds.size} product{selectedIds.size !== 1 ? 's' : ''} selected
+            </div>
+            {mode !== 'external' && mayEdit && (
+              <button
+                className="btn btn-sm"
+                style={{ background:'#DC2626', color:'#fff', gap:6, fontWeight:700 }}
+                disabled={saving}
+                onClick={async () => {
+                  const selectedProducts = catalogProducts.filter(p => selectedIds.has(p._id || p.id))
+                  const toDiscontinue = selectedProducts.filter(p => p.is_active !== false && canManageProduct(p))
+                  if (!toDiscontinue.length) return fire('Select an active product you can manage.', 'error')
+                  setSaving(true)
+                  try {
+                    for (const product of toDiscontinue) {
+                      const result = await updateProduct?.(product._id || product.id, { is_active: false })
+                      if (result?.success === false) throw new Error(result.message || 'Product update failed')
+                    }
+                    if (isSuperAdmin) await loadAdminProducts()
+                    setSelectedIds(new Set())
+                    fire(`${toDiscontinue.length} product${toDiscontinue.length === 1 ? '' : 's'} discontinued`)
+                  } catch (err) {
+                    fire(`Error: ${err.message || 'Could not discontinue products'}`, 'error')
+                    if (isSuperAdmin) await loadAdminProducts()
+                  } finally { setSaving(false) }
+                }}
+              >
+                {saving ? 'Discontinuing…' : 'Discontinue'}
+              </button>
+            )}
+            <button
+              className="btn btn-sm"
+              style={{ background:'#F26522', color:'#fff', gap:6, fontWeight:700 }}
+              onClick={() => setShowBulkAccess(true)}
+            >
+              <Lock size={14}/> Manage Access
+            </button>
+            <button
+              className="btn btn-sm btn-ghost"
+              style={{ color:'#94a3b8', marginLeft:'auto' }}
+              onClick={() => setSelectedIds(new Set())}
+            >
+              Clear
+            </button>
+          </div>
+        )}
         {totalPages > 1 && (
           <div className="pagination">
             <span className="pagination-info">
@@ -3184,6 +3504,21 @@ export default function ProductManagement({
         />
       )}
 
+      {showBulkAccess && (
+        <BulkAccessModal
+          productIds={Array.from(selectedIds)}
+          products={catalogProducts.filter(p => selectedIds.has(p._id || p.id))}
+          onClose={() => setShowBulkAccess(false)}
+          onSaved={async () => {
+            setShowBulkAccess(false)
+            setSelectedIds(new Set())
+            fire(`Access updated for ${selectedIds.size} product(s)`)
+            if (isSuperAdmin) await loadAdminProducts()
+          }}
+          onError={(msg) => fire(msg, 'error')}
+        />
+      )}
+
       {showBin && mayViewDeleted && (
         <RecycleBinModal
           onClose={() => setShowBin(false)}
@@ -3195,40 +3530,7 @@ export default function ProductManagement({
         />
       )}
 
-      {/* ── 2-STEP DELETE CONFIRMATION ── */}
-      {deleteTarget && mayDelete && deleteTarget.step === 1 && (
-        <div className="modal-overlay" onClick={() => setDeleteTarget(null)}>
-          <div className="modal" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                <div style={{ width:36, height:36, borderRadius:'50%', background:'#FFF3EC', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                  <Trash2 size={18} style={{ color:'var(--danger)' }}/>
-                </div>
-                <span className="modal-title">Move to Recycle Bin?</span>
-              </div>
-              <button className="modal-close" onClick={() => setDeleteTarget(null)}><X size={16}/></button>
-            </div>
-            <div className="modal-body" style={{ paddingTop:14 }}>
-              <p style={{ fontSize:13, color:'var(--text)', marginBottom:8 }}>
-                You are about to move <strong>"{deleteTarget.name}"</strong> to the Recycle Bin.
-              </p>
-              <p style={{ fontSize:12, color:'var(--text-muted)' }}>
-                The product will be hidden from all listings. You can restore it from the Recycle Bin anytime.
-              </p>
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setDeleteTarget(null)}>Cancel</button>
-              <button className="btn btn-danger" onClick={handleDeleteConfirm}>
-                Yes, Move to Bin
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Step 2 removed — delete now completes in one step */}
-
-      {/* Toast */}
+{/* Toast */}
       {toast.msg && (
         <div
           className={`alert alert-${toast.type === 'error' ? 'danger' : 'success'}`}
